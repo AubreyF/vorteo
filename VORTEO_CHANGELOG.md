@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.834 - 2026-10-25
+
+### Maintenance
+
+- Settings tests follow the single settings page:
+  - Each host's section appears under several panes, a hidden earlier settings screen can stay mounted, and a host's connection error shows twice, so tests use the visible or first match.
+  - Host details are checked under Environments.
+- Sidebar project grouping tests:
+  - Choose a host in New workspace's Environment step.
+  - Create an empty workspace with the composer's Create button.
+  - Seed the mock profile on the secondary test host, since New workspace creates only with a profile.
+- Mark the per-host project rename test for owner review: Settings lists only the first host's projects since 537b619e2.
+
 ## 0.11.0-beta.3.vorteo.833 - 2026-10-25
 
 ### Maintenance

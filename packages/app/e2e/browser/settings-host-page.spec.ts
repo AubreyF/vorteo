@@ -48,7 +48,8 @@ test.describe("Settings host page", () => {
     });
     await test.step("host section shows the host label and restart/remove action cards", async () => {
       await openHostSection(page, serverId, "host");
-      await expectSettingsHeader(page, "Overview");
+      // The host's details live in the Environments pane of the single settings page.
+      await expectSettingsHeader(page, "Environments");
       await expectHostLabelDisplayed(page);
       await expectHostActionCards(page, serverId);
     });

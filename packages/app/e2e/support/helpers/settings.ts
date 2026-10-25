@@ -59,10 +59,21 @@ export async function openSettingsSection(page: Page, section: SettingsSection):
 /** Scrolls the settings page to the pane that an old settings page name now opens. */
 export async function revealSettingsLocation(page: Page, slug: string): Promise<void> {
   const target = resolveSettingsTarget(slug);
-  await page.getByTestId(`settings-section-${target.section}`).click();
-  const anchor = page.getByTestId(
-    target.pane ? `settings-pane-${target.pane}` : `settings-page-section-${target.section}`,
-  );
+  // A drill-in can leave an earlier settings screen mounted but hidden, and a section can also
+  // appear in the page body, so use the visible sidebar's entry and the visible anchor.
+  const sidebar = page.getByTestId("settings-sidebar").filter({ visible: true }).first();
+  const scope = (await sidebar.isVisible()) ? sidebar : page;
+  await scope
+    .getByTestId(`settings-section-${target.section}`)
+    .filter({ visible: true })
+    .first()
+    .click();
+  const anchor = page
+    .getByTestId(
+      target.pane ? `settings-pane-${target.pane}` : `settings-page-section-${target.section}`,
+    )
+    .filter({ visible: true })
+    .first();
   await expect(anchor).toBeVisible();
   await anchor.scrollIntoViewIfNeeded();
 }
@@ -456,7 +467,8 @@ export async function expectHostRejectedWithReAddGuidance(
   page: Page,
   reason: string,
 ): Promise<void> {
-  const error = page.getByTestId("host-connection-error");
+  // Environments and Connections both show the host's connection error; check the first.
+  const error = page.getByTestId("host-connection-error").first();
   await expect(error).toContainText(reason);
   await expect(error).toContainText(
     "Remove this host and add it again with the password this daemon asks for.",

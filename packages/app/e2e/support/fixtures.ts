@@ -10,7 +10,7 @@ import {
 } from "./helpers/project-picker-fixture";
 import { connectSeedClient, type SeedDaemonClient } from "./helpers/seed-client";
 import { createWithWorkspace, type WithWorkspace } from "./helpers/with-workspace";
-import { seedAgentProfiles } from "./helpers/agent-profiles";
+import { E2E_MOCK_PROFILE, seedAgentProfiles } from "./helpers/agent-profiles";
 
 const EXTRA_HOSTS_KEY = "@paseo:e2e-extra-hosts";
 
@@ -105,18 +105,6 @@ const daemonTest = metroTest.extend<
     { auto: true },
   ],
 });
-
-/**
- * New chats start from a profile, and the composer refuses to launch without one. Every test
- * gets this shared mock profile unless it opts out with `defaultMockProfile: false`, which
- * journeys about the empty profile state need. It pins no model, so a test's model choice holds.
- */
-const E2E_MOCK_PROFILE = {
-  id: "e2e-mock",
-  name: "E2E mock",
-  provider: "mock",
-  isDefault: true,
-};
 
 const test = daemonTest.extend<{
   vortonMode: boolean;

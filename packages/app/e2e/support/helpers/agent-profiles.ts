@@ -33,9 +33,24 @@ export interface HostSeed {
   restore(): Promise<void>;
 }
 
-async function connectAgentProfilesClient(): Promise<AgentProfilesDaemonClient> {
-  return connectDaemonClient<AgentProfilesDaemonClient>({ clientIdPrefix: "agent-profiles-e2e" });
+async function connectAgentProfilesClient(port?: number): Promise<AgentProfilesDaemonClient> {
+  return connectDaemonClient<AgentProfilesDaemonClient>({
+    clientIdPrefix: "agent-profiles-e2e",
+    port,
+  });
 }
+
+/**
+ * New chats and workspaces start from a profile, and New workspace refuses to create without
+ * one. The fixtures seed this shared mock profile on the test daemon; a second daemon a test
+ * starts needs it too. It pins no model, so a test's model choice holds.
+ */
+export const E2E_MOCK_PROFILE = {
+  id: "e2e-mock",
+  name: "E2E mock",
+  provider: "mock",
+  isDefault: true,
+};
 
 /**
  * Writes profiles into host config directly. Journeys that are *about* the
@@ -45,8 +60,9 @@ async function connectAgentProfilesClient(): Promise<AgentProfilesDaemonClient> 
 export async function seedAgentProfiles(
   profiles: AgentProfile[],
   shared = false,
+  port?: number,
 ): Promise<HostSeed> {
-  const client = await connectAgentProfilesClient();
+  const client = await connectAgentProfilesClient(port);
   const config = (await client.getDaemonConfig()).config;
   const previous = config.agentProfiles ?? [];
   if (shared) {

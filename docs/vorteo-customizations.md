@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): test-only change. Settings and project grouping tests follow the single settings page, the Environment step and the profile requirement on secondary hosts; one per-host project test awaits owner review. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): test-only change. Profile picker tests follow the switch sheet, collapsible compact sections and the defaults editor, and retire checks for removed reasoning and mode controls. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): test-only change. The desktop plugin links check follows the renderer window-open denial from cd90c8f78. Functionality is unchanged. README overview and onboarding are unchanged.
