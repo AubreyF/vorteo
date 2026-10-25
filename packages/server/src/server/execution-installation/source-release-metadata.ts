@@ -117,16 +117,16 @@ export function reconcileReleaseNotes(base: string, left: string, right: string)
   const history = blocks(base);
   const accepted = blocks(left);
   const incoming = blocks(right);
+  const historical = new Set(history);
   for (const entries of [accepted, incoming]) {
-    // Compare complete entries, including duplicate counts. Concurrent integration
-    // can interleave intact history without editing or deleting a single note.
-    const remaining = [...entries];
-    for (const entry of history) {
-      const index = remaining.indexOf(entry);
-      if (index < 0) throw new Error("Existing release notes were edited; resolve explicitly");
-      remaining.splice(index, 1);
-    }
-    for (const entry of remaining) {
+    // Compare complete entries. Concurrent integration can interleave intact history
+    // but never edit or delete a note. Dropping an extra byte-identical copy loses
+    // nothing, so a side that removed duplicates still matches older history.
+    const present = new Set(entries);
+    if (history.some((entry) => !present.has(entry)))
+      throw new Error("Existing release notes were edited; resolve explicitly");
+    for (const entry of present) {
+      if (historical.has(entry)) continue;
       // A well-formed heading may stand alone: history holds a few entries with no notes.
       if (!/^## \S+ - \d{4}-\d{2}-\d{2}(?:\n|$)/.test(entry))
         throw new Error("Release-note heading requires review");

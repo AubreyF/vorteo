@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-24): the release-note combine step accepts history whose extra byte-identical copies were removed, so branches cut before a duplicate cleanup still combine. Edits and deleted notes are still refused. Not yet installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-24): combining source contributions skips release notes byte-identical to accepted or repeated ones; repeated version headings with different notes still combine. The agent guide adds the Builds gate marker check before heavy test suites. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-23): automatic coordinator renewals can close a failed automatic update that never reached promotion, proven under the journal lock and bound to the same coordinator process. Owner-reviewed and other failures still need owner review. Not yet installed. README overview and onboarding are unchanged.
