@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.824 - 2026-10-25
+
+### Maintenance
+
+- Merge shared configuration change shape: reviewed coordinator plans change registered settings through one configurationChanges field checked against a protocol settings registry
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Changed
+
+- Reviewed coordinator updates change coordinator settings through one plan field, `configurationChanges`, checked against a shared registry of reviewable settings. Each new setting needs one registry entry, its review text and a test, instead of about fifteen edits across the protocol, server, client, app and owner script. The five places that must refuse configuration changes now share one check.
+- Clients negotiate review by setting name. A client that cannot describe a listed setting sees only cancellation and cannot approve it. The older per-setting plan fields keep working, verify identically, and stay accepted until their compatibility dates.
+
 ## 0.11.0-beta.3.vorteo.823 - 2026-10-25
 
 ### Maintenance

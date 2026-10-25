@@ -1,3 +1,4 @@
+import { plansConfigurationChange } from "@getpaseo/protocol/coordinator-configuration-settings";
 import { createHash } from "node:crypto";
 import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
@@ -123,12 +124,7 @@ function assertMaintenanceReleaseScope(
   if (
     plan.hostRequestsAfter !== null ||
     plan.nativeHelperConfiguration !== undefined ||
-    plan.previewMonitorConfiguration !== undefined ||
-    plan.claudeHostRefreshConfiguration !== undefined ||
-    plan.engineRestartConfiguration !== undefined ||
-    plan.factoryGateConfiguration !== undefined ||
-    plan.hostLauncherUpdateConfiguration !== undefined ||
-    plan.factoryRuntimeAdoptionConfiguration !== undefined ||
+    plansConfigurationChange(plan) ||
     plan.sourceUpdateTooling !== undefined
   )
     throw new BootstrapRequestConflict(

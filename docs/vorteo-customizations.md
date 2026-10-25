@@ -20,6 +20,8 @@ Maintenance review (2026-10-24): coordinator runner diagnostics record per-phase
 
 Maintenance review (2026-10-24): built-in plugins start concurrently, small artifact verification skips a reader thread, and two tests import large modules outside their timeouts; four flaky gate timeouts were fixed at their cause. README overview and onboarding are unchanged.
 
+Maintenance review (2026-10-24): reviewed coordinator configuration changes share one plan field, `configurationChanges`, and a protocol registry of reviewable settings, negotiated by setting name. Older per-setting fields still work unchanged. Not yet installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-23): automatic coordinator renewals can close a failed automatic update that never reached promotion, proven under the journal lock and bound to the same coordinator process. Owner-reviewed and other failures still need owner review. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): test-only change. The browser helper that opens Settings waits for the toolbar button before using the overflow menu. Functionality is unchanged. README overview and onboarding are unchanged.

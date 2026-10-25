@@ -410,6 +410,14 @@ Before the first effect, the script must pass and writes the custody list to a p
 
 A failure after the restart names the difference and needs Factory's review. Nothing is retried, and the coordinator never edits Factory state. The check deliberately ignores `paseo factory setup`, which can report a latched error that only the restart clears.
 
+### Reviewed coordinator configuration changes
+
+A reviewed coordinator plan or renewal changes a registered coordinator setting with `configurationChanges`: a list of `{ "setting": <name>, "value": <value> }`, where a `null` value removes the setting. The registry in `packages/protocol/src/coordinator-configuration-settings.ts` names each setting, its configuration path, its value schema and whether a runner renewal may carry it. Today it holds `factoryRuntimeAdoption`, `previewMonitor`, `claudeHostRefresh`, `engineRestart`, `factoryGate` and `hostLauncherUpdate`. The candidate configuration must differ from the live one by exactly the listed changes. Unknown settings, invalid values and a setting named twice are refused. Automatic coordinator plans refuse every configuration change.
+
+Clients negotiate review by setting name, behind `coordinatorBootstrapConfigurationChanges`. A client that does not name every listed setting sees the request without the list, with a reload reason, and cannot approve it. Cancellation stays available. Adding a setting takes one registry entry, its review text in the app and a test.
+
+The older per-setting plan fields, such as `factoryGateConfiguration` and `hostLauncherUpdateConfiguration`, still work and verify the same way until their compatibility dates. Approval policy (`hostRequestsAfter`), source update tooling, the native helper and Dev registration keep their own rules.
+
 ## Reviewed source updates
 
 ### Recovery after a coordinator executor has claimed dispatch
