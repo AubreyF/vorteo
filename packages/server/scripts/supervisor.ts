@@ -14,6 +14,10 @@ import { signalProcessTree } from "../src/utils/tree-kill.js";
 
 const WORKER_HEARTBEAT_INTERVAL_MS = 1_000;
 const WORKER_TERMINATION_GRACE_MS = 10_000;
+// `exit` can fire before the worker's last stdout and stderr data arrives. Before closing
+// daemon.log at supervisor exit, wait this long for the worker's pipes to close so that output,
+// often a crash's stack trace, is recorded. A descendant holding the pipes can keep them open.
+const WORKER_OUTPUT_DRAIN_MS = 1_000;
 
 interface SupervisorLogFileOptions {
   path: string;
@@ -188,6 +192,7 @@ function createDurableLog(
 ) {
   let stream: RotatingFileStream | null = null;
   let failing = false;
+  let closing = false;
 
   const open = (logFile: SupervisorLogFileOptions): RotatingFileStream => {
     const next = createRotatingFileStream(path.basename(logFile.path), {
@@ -211,7 +216,8 @@ function createDurableLog(
 
   return {
     write(chunk: string | Buffer): void {
-      if (!options) {
+      // A write after end() would destroy the stream and discard lines still buffered in it.
+      if (!options || closing) {
         return;
       }
       stream ??= open(options);
@@ -222,6 +228,7 @@ function createDurableLog(
       });
     },
     close(): Promise<void> {
+      closing = true;
       return new Promise((resolve) => {
         if (!stream) {
           resolve();
@@ -281,6 +288,16 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
     writeLifecycleLog(message);
   };
 
+  // Resolves once the most recent worker's stdout and stderr have closed.
+  let workerOutputClosed: Promise<void> = Promise.resolve();
+  const drainWorkerOutput = async (): Promise<void> => {
+    let timer: ReturnType<typeof setTimeout>;
+    const deadline = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, WORKER_OUTPUT_DRAIN_MS);
+    });
+    await Promise.race([workerOutputClosed, deadline]);
+    clearTimeout(timer!);
+  };
   const closeLogStream = (): Promise<void> => durableLog.close();
 
   const exitSupervisor = (code: number): void => {
@@ -293,6 +310,7 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
         const message = error instanceof Error ? error.message : String(error);
         log(`Supervisor exit cleanup failed: ${message}`);
       })
+      .then(drainWorkerOutput)
       .then(closeLogStream)
       .finally(() => {
         process.exit(code);
@@ -388,6 +406,7 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
         resolve();
       });
     });
+    workerOutputClosed = closed;
     const verifyMaintenanceStreamClosure = async (): Promise<void> => {
       const retained = maintenanceRestart;
       if (!retained || workerStreamsClosed) return;
