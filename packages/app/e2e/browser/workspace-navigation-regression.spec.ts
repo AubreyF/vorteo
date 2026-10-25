@@ -25,8 +25,6 @@ import {
   expectSidebarWorkspaceSelected,
   expectWorkspaceHeader,
   expectWorkspaceHeaderAbsent,
-  expectMenuButtonVisible,
-  expectHostConnectingOrOffline,
   expectReconnectingToastVisible,
   expectReconnectingToastGone,
   switchWorkspaceViaSidebar,
@@ -68,6 +66,18 @@ async function expectNoLoadingWorkspacePane(
     }
 
     await page.waitForTimeout(100);
+  }
+}
+
+/**
+ * Since 471d7f22a an unreachable workspace host shows the startup status ("Connecting host" or
+ * "Host unavailable") above the host name, in place of the "Connecting" and offline headings.
+ */
+async function expectWorkspaceHostUnreachable(page: Page, hostName?: string): Promise<void> {
+  const status = page.getByTestId("startup-status").filter({ visible: true }).first();
+  await expect(status).toHaveText(/^(Connecting host|Host unavailable)/, { timeout: 30_000 });
+  if (hostName) {
+    await expect(page.getByText(hostName, { exact: true })).toBeVisible();
   }
 }
 
@@ -128,8 +138,7 @@ test.describe("Workspace navigation regression", () => {
       buildHostWorkspaceOpenRoute(target.serverId, target.workspaceId, `agent:${target.agentId}`),
       { timeout: 30_000 },
     );
-    await expect(page.getByText("Connecting", { exact: true })).toBeVisible();
-    await expect(page.getByText("Notification Host", { exact: true })).toBeVisible();
+    await expectWorkspaceHostUnreachable(page, "Notification Host");
     await expect(page.getByText("Add a project", { exact: true })).toHaveCount(0);
   });
 
@@ -285,8 +294,12 @@ test.describe("Workspace navigation regression", () => {
 
     await page.goto(buildHostWorkspaceRoute(serverId, "/tmp/paseo-missing-workspace"));
 
-    await expectHostConnectingOrOffline(page);
-    await expectMenuButtonVisible(page);
+    await expectWorkspaceHostUnreachable(page);
+    // Since 60f4899a6 the open desktop sidebar carries its own toggle and navigation, so the
+    // gated header shows no menu button; the sidebar's Settings control stays reachable.
+    await expect(
+      page.getByTestId("sidebar-settings").filter({ visible: true }).first(),
+    ).toBeVisible();
     await expectWorkspaceHeaderAbsent(page);
     await expectWorkspaceTabsAbsent(page);
     await openSettings(page);

@@ -1,11 +1,12 @@
 import path from "node:path";
-import { access, unlink } from "node:fs/promises";
+import { access, rm } from "node:fs/promises";
 import { z } from "zod";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { expect, test } from "../support/fixtures";
 import { gotoAppShell } from "../support/helpers/app";
 import { getServerId } from "../support/helpers/server-id";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
+import { suggestedAccountName } from "@/provider-usage/account-form";
 
 test.use({
   e2eDaemonConfig: {
@@ -26,7 +27,9 @@ test.use({
 for (const width of [1280, 402]) {
   test(`additional subscription account sign-in and recovery at ${width}px`, async ({ page }) => {
     test.setTimeout(120_000);
-    const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "account-login" });
+    const client = await connectDaemonClient<DaemonClient>({
+      clientIdPrefix: "account-login",
+    });
     try {
       await page.setViewportSize({ width, height: 1000 });
       await gotoAppShell(page);
@@ -41,8 +44,9 @@ for (const width of [1280, 402]) {
         "Claude Code (Claude account)",
       );
       await page.getByTestId("add-claude-account").click();
+      // Managed accounts outlive the test, so the suggestion depends on what earlier runs left.
       await expect(page.getByTestId("claude-account-name")).toHaveValue(
-        width === 1280 ? "Claude 1" : "Claude 2",
+        suggestedAccountName((await client.getDaemonConfig()).config.providers, "claude"),
       );
       const name = `Browser account ${width}`;
       await page.getByTestId("claude-account-name").fill(name);
@@ -97,10 +101,17 @@ for (const width of [1280, 402]) {
       await expect(page.getByTestId("catalog-provider-claude")).toBeVisible();
       expect((await client.getDaemonConfig()).config.providers[account[0]].label).toBe(name);
       await expect(page.getByTestId(`provider-connect-${account[0]}`)).toBeHidden();
-      // A subsequent sign-out must restore the action on the same account.
-      await unlink(path.join(environment.CLAUDE_CONFIG_DIR, "signed-in"));
+      // A subsequent sign-out must restore the action on the same account. Since 7c8e78ac7 the
+      // account signs in with a setup token saved under .vorteo-auth, so removing it signs out.
+      await rm(path.join(environment.CLAUDE_CONFIG_DIR, ".vorteo-auth"), {
+        recursive: true,
+        force: true,
+      });
       await client.refreshProvidersSnapshot({ providers: [account[0]] });
-      await expect(page.getByTestId(`provider-connect-${account[0]}`)).toBeVisible();
+      // The usage card repeats the account's Connect action; check the providers card's copy.
+      await expect(
+        page.getByTestId("host-page-providers-card").getByTestId(`provider-connect-${account[0]}`),
+      ).toBeVisible();
     } finally {
       await client.close();
     }

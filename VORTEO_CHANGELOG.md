@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.854 - 2026-10-25
+
+### Maintenance
+
+- Repair the settings, provider and sidebar browser tests:
+  - Claude sign-in tests follow `claude setup-token` and the "Claude is not connected" wording (7c8e78ac7). The fake login CLI gains a setup-token mode.
+  - Metadata settings use the "Metadata generation" section (537b619e2).
+  - Provider outlines sit on the control itself (0153f4c69).
+  - Startup status replaces the old connecting headings (471d7f22a).
+  - The crash check uses the Vorteo wording (e0f82d126), which the old check could never see.
+  - Root error recovery reports Metro's error body when its fixture fails to compile.
+- Retire the Standard-mode halves of the Claude authentication and provider management tests, citing 471d7f22a.
+- Mark the legacy favourites migration as a known regression. Since 471d7f22a the strict preferences schema rejects the old `vortonMode` field, so upgraded installs lose their favourites and the migration is marked done.
+
 ## 0.11.0-beta.3.vorteo.853 - 2026-10-25
 
 ### Maintenance

@@ -11,7 +11,11 @@ test.beforeAll(async () => {
   if (!metroPort) throw new Error("E2E_METRO_PORT is required");
   const bundle = `http://localhost:${metroPort}/packages/app/e2e/support/recovery-app.bundle?platform=web&dev=true&minify=false&hot=false&lazy=true&transform.engine=hermes&transform.routerRoot=src%2Fapp`;
   const compiled = await fetch(bundle, { signal: AbortSignal.timeout(120_000) });
-  if (!compiled.ok) throw new Error(`Recovery fixture compilation failed: HTTP ${compiled.status}`);
+  if (!compiled.ok) {
+    // Metro's body names the module or transform that failed; CI showed only the status.
+    const detail = (await compiled.text()).slice(0, 4000);
+    throw new Error(`Recovery fixture compilation failed: HTTP ${compiled.status}\n${detail}`);
+  }
   await compiled.arrayBuffer();
   server = createServer((_request, response) => {
     response.setHeader("Content-Type", "text/html");
