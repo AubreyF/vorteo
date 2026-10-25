@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): merge-only change. The browser test repair branch takes main b08980d36. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): test-only change. Composer, agent stream and card tests follow current behaviour; one queue test is retired, two regressions are marked and two layout differences go to owner review. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): test-only change. The worktree notice handler stops waiting for a vanished notice, and the local plugin journey test gets a longer budget. Functionality is unchanged. README overview and onboarding are unchanged.
@@ -103,6 +105,20 @@ Maintenance review (2026-10-23): test-only change. Browser tests reach Changes t
 Maintenance review (2026-10-23): test-only change. Browser tests seed a default mock profile, use the New workspace Environment step, open Help from the More menu and check the sidebar toolbar line; three tests for the removed sidebar customization are retired. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-23): CI-only change. Browser test shards upload results after hitting their time limit, and temporarily run without retries with inline failure output for diagnosis. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): Host installs now apply the guarded build's script preloads and build metadata, both web exports run with an 8 GB worker heap, and the Lucide import plugin emits a root-independent path, so shared Metro caches stay valid across builds. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): the shared Lucide test fixture now exports every common icon imported by the deferred plugin-icon adapter. The four affected files collect and all fifteen tests pass with their original assertions and per-test mocks. Production behavior, README overview and onboarding are unchanged.
+
+- **Browser data saver and smaller startup assets.** The initial V spinner uses the existing brand silhouette as inline SVG. Delayed-start diagnostics and Settings > General share an explicit browser-local Data saver preference, read before optional font downloads. It temporarily uses system fonts without overwriting saved appearance choices, leaves diagram source readable until Load diagram, and defers the optional custom-icon catalogue while preserving common icons, aliases and action labels. Failed optional icon downloads show an actionable error and allow at most three explicit attempts; pending downloads are shared. Already-started transfers may finish. Text and attachments retain their existing connection requirements. Web compilation maps individual public icons directly and resolves the installed package's original provider context with a guarded export-layout check; native compilation is unchanged. Package upgrades require the generated icon-name metadata and mapping tests to agree with the installed exports. Chromium production-export checks cover synthetic text and reload persistence; native Safari and physical-device acceptance remain open.
+
+Maintenance review (2026-10-25): test-only change. A drift test ties each reviewed restart operation to the registered coordinator setting that supplies its plan. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): coordinator renewals hash the runtime tree only at admission, freeze, unload, start and release, and derive the renewal once at the claim. All other per-step custody checks are unchanged. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): Host release cleanup keeps the releases holding the live Host and Dev update tooling, so cleanup can no longer remove the scripts that Host installs run. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): Host release cleanup runs after an install reports its result, with a receipt and no overlap, and deletes plain trees directly, so cleanup time no longer counts against the install's readiness deadline. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-24): removed six duplicate vorteo.758 release-note copies; no feature changed. README overview and onboarding are unchanged.
 

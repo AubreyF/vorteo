@@ -1,3 +1,4 @@
+import { useDataSaver } from "@/network-preferences";
 import { useApplyInterfaceZoom } from "./interface-zoom";
 import { vortonAppearance } from "./vorton-appearance";
 import { useVortonTouch } from "@/vorton-touch";
@@ -88,6 +89,7 @@ function applyTheme({ preference, contributedTheme }: ApplyThemeInput): void {
 }
 
 export function AppearanceProvider({ children }: { children: ReactNode }) {
+  const dataSaver = useDataSaver();
   const { settings, updateSettings, isLoading } = useAppSettings();
   const touch = useVortonTouch();
   useApplyInterfaceZoom();
@@ -149,6 +151,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     applyAppearance(
       vortonAppearance(
         {
+          dataSaver,
           uiFontFamily: settings.uiFontFamily,
           monoFontFamily: settings.monoFontFamily,
           uiBaseFontSize: settings.uiBaseFontSize,
@@ -169,6 +172,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     setPreviewApplied(preview !== null);
     setHasAppliedAppearance(true);
   }, [
+    dataSaver,
     isLoading,
     preview,
     touch,

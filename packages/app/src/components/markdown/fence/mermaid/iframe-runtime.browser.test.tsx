@@ -9,6 +9,48 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+it("an optional diagram runtime waits for consent before its download or execution", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  const rendered: MermaidRenderedMessage[] = [];
+  const failures: number[] = [];
+  const props = {
+    request: { revision: 1, source: "flowchart LR\n A --> B", colorScheme: "dark" as const },
+    onRendered: (message: MermaidRenderedMessage) => {
+      rendered.push(message);
+    },
+    onRenderFailed: (revision: number) => {
+      failures.push(revision);
+    },
+  };
+  try {
+    await act(async () => {
+      root.render(createElement(MermaidIframeRuntime, { ...props, enabled: false }));
+    });
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(rendered).toEqual([]);
+    expect(
+      performance
+        .getEntriesByType("resource")
+        .filter((entry) => entry.name.includes("runtime/html.gen")),
+    ).toEqual([]);
+    await act(async () => {
+      root.render(createElement(MermaidIframeRuntime, { ...props, enabled: true }));
+    });
+    await expect.poll(() => rendered.at(-1)?.revision, { timeout: 20000 }).toBe(1);
+    expect(container.querySelector("iframe")).not.toBeNull();
+    expect(failures).toEqual([]);
+    await act(async () => {
+      root.render(createElement(MermaidIframeRuntime, { ...props, enabled: false }));
+    });
+    expect(container.querySelector("iframe")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+}, 25000);
+
 it("loads the renderer on mount and renders the latest request", async () => {
   const container = document.createElement("div");
   document.body.append(container);

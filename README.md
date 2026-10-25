@@ -19,6 +19,8 @@ For a configured Host and Dev installation, open its HTTPS address on your new d
 
 ## Power Tools to Manage Your Fleet
 
+- **Use less data on slow connections.** Enable Data saver from delayed-start diagnostics or Settings > General. It uses system fonts and keeps diagrams as readable source until requested. Common icons stay available, with optional custom icons downloaded on demand. Remote work still requires a reachable Host.
+
 - **Try a workspace before connecting.** Choose Demo on the browser welcome page to explore simulated projects, tasks, conversations, files and changes. Try Vorton's six themes from the sidebar menu, with Dark Star as the default. The adjacent zoom slider, also driven by Cmd or Ctrl with plus and minus, scales the whole browser interface and remembers your preferred size. Demo edits stay in the current browser tab and Reset restores the samples. See [appearance and demo behavior](docs/vorteo-customizations.md#projects-devices-and-interface).
 
 - **Keep your sidebar across devices.** Project and workspace order, nested folders, expanded sections, grouping and filters follow you between connected devices. Folders group projects, or a project's workspaces, without touching disk. Offline edits sync after reconnection. Requires the updated Host daemon.

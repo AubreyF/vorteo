@@ -12,11 +12,13 @@ import {
   sealArtifact,
 } from "./instance-web-artifact.mjs";
 import { installDependencies } from "./lib/dependency-cache.mjs";
+import { webExportEnvironment } from "./lib/web-export.mjs";
+import { preloadWebEntry } from "./preload-web-entry.mjs";
 
 const input = JSON.parse(await fs.readFile(process.argv[2], "utf8"));
 const { update, work, sourceRepository, integrationRef } = input;
 const log = await fs.open(path.join(work, "build.log"), "wx", 0o600);
-function run(command, args, cwd) {
+function run(command, args, cwd, environment = {}) {
   return execFileSync(command, args, {
     cwd,
     timeout: 45 * 60_000,
@@ -29,6 +31,7 @@ function run(command, args, cwd) {
       GIT_CONFIG_COUNT: "1",
       GIT_CONFIG_KEY_0: "core.hooksPath",
       GIT_CONFIG_VALUE_0: "/dev/null",
+      ...environment,
     },
     stdio: ["ignore", log.fd, log.fd],
   });
@@ -93,6 +96,17 @@ try {
     "npx",
     ["expo", "export", "--platform", "web", "--output-dir", exported],
     path.join(root, "packages/app"),
+    webExportEnvironment(),
+  );
+  // The same entry preloads and build metadata as the guarded web build, so a Host
+  // install never republishes the interface without them.
+  const indexPath = path.join(exported, "index.html");
+  await fs.writeFile(
+    indexPath,
+    preloadWebEntry(await fs.readFile(indexPath, "utf8"), {
+      sourceCommit: fetched,
+      version: JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8")).version,
+    }),
   );
   await sealArtifact(exported, {
     buildId: path.basename(root),

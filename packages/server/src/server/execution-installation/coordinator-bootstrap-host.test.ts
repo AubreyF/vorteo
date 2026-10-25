@@ -57,6 +57,7 @@ import * as serviceCollector from "./coordinator-bootstrap-service.js";
 import * as claimedSuccessor from "./coordinator-bootstrap-claimed-successor.js";
 import { FileClaimedRecoveryReviewJournal } from "./coordinator-bootstrap-claimed-journal.js";
 import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
+import { createRuntimeCustody } from "./coordinator-bootstrap-runtime-custody.js";
 
 import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.js";
 import { CoordinatorBootstrapRequests, coordinatorPlanDigest } from "./coordinator-bootstrap.js";
@@ -1318,6 +1319,15 @@ test.runIf(process.platform === "darwin")(
     ] as const)
       advance(stage);
     const commands: string[][] = [];
+    // Every awaited context callback, to prove the runtime digest is the last one.
+    const events: string[] = [];
+    const runtime = path.join(f.root, "custody-runtime");
+    mkdirSync(runtime);
+    writeFileSync(path.join(runtime, "main.js"), "export {};");
+    const requireCustody = createRuntimeCustody({
+      custody: { runtimeDirectory: runtime, runtimeSha256: await digestBootstrapArtifact(runtime) },
+      digest: (directory) => digestBootstrapArtifact(directory),
+    });
     const processIdentity = {
       ...expectedProcess,
       parentPid: 1,
@@ -1339,8 +1349,12 @@ test.runIf(process.platform === "darwin")(
         ...processIdentity,
         stopped: false as const,
       }),
-      verifyProcessExited: async () => {},
-      verifyServiceAbsent: async () => {},
+      verifyProcessExited: async () => {
+        events.push("exited");
+      },
+      verifyServiceAbsent: async () => {
+        events.push("absent");
+      },
     };
     const actions = createBootstrapNativeLifecycle(
       {
@@ -1348,27 +1362,48 @@ test.runIf(process.platform === "darwin")(
         reader,
         configurationFile: f.file,
         launcherFile: selectedLauncher,
-        writableMountRoots: async () => [],
+        writableMountRoots: async () => {
+          events.push("mounts");
+          return [];
+        },
         readHealth: async () => {
           throw new Error("Unexpected fixture health read");
         },
-        requireOwnership: async () => {},
+        requireOwnership: async () => {
+          events.push("ownership");
+        },
+        requireRuntimeCustody: async (boundary) => {
+          events.push(`custody:${boundary}`);
+          await requireCustody(boundary);
+        },
       },
       {
         run: async (args) => {
+          events.push("command");
           commands.push([...args]);
         },
       },
     );
     await actions.select(executing);
+    // Selection is not a runtime custody boundary.
+    expect(events.filter((event) => event.startsWith("custody:"))).toEqual([]);
     advance("selected");
     advance("start_pending");
     writeFileSync(candidate.entrypoint.path, "changed after selection");
     await expect(actions.start(executing)).rejects.toThrow("digest changed");
     expect(commands).toEqual([]);
     writeFileSync(candidate.entrypoint.path, "export {};");
+    // A runtime change after admission is refused at start, before the candidate runs.
+    writeFileSync(path.join(runtime, "main.js"), "export const changed = true;");
+    await expect(actions.start(executing)).rejects.toThrow("refused before start");
+    expect(commands).toEqual([]);
+    writeFileSync(path.join(runtime, "main.js"), "export {};");
+    events.length = 0;
     await actions.start(executing);
     expect(commands).toEqual([["bootstrap", `gui/${process.getuid!()}`, selectedLauncher]]);
+    // One full runtime digest, the last await before launchctl bootstrap.
+    expect(events.filter((event) => event.startsWith("custody:"))).toEqual(["custody:start"]);
+    expect(events.slice(-3)).toEqual(["mounts", "custody:start", "command"]);
   },
 );
 

@@ -10,13 +10,27 @@ interface VitestProject {
 
 export default async function setup(project: VitestProject): Promise<() => Promise<void>> {
   const startupHtml = readFileSync(new URL("../../public/index.html", import.meta.url), "utf8");
+  const originalMark =
+    "data:image/png;base64," +
+    readFileSync(new URL("../../assets/brand/vorteo-white.png", import.meta.url)).toString(
+      "base64",
+    );
   let startupHealthMode = "normal";
   let interruptedScriptRequests = 0;
   let startupHealthRequests = 0;
   let heldScriptRequests = 0;
+  let optionalFontRequests = 0;
   const heldResponses = new Set<ServerResponse>();
   function handleHeldScriptRequest(request: IncomingMessage, response: ServerResponse): boolean {
-    if (request.url === "/startup-fixture-stats") {
+    if (request.url === "/startup-original-mark") {
+      response.end(JSON.stringify({ dataUrl: originalMark }));
+    } else if (request.url === "/startup-font-stats") {
+      response.end(JSON.stringify({ requests: optionalFontRequests }));
+    } else if (request.url === "/appearance-fonts/vorton-fonts-6e84901.css") {
+      optionalFontRequests++;
+      response.setHeader("Content-Type", "text/css");
+      response.end(":root { --fixture-fonts-loaded: 1; }");
+    } else if (request.url === "/startup-fixture-stats") {
       response.end(JSON.stringify({ startupHealthRequests, heldScriptRequests }));
     } else if (request.url === "/startup-progress-held-script" && request.method === "POST") {
       for (const held of heldResponses) held.write("// transfer still in progress\n");
@@ -61,6 +75,7 @@ export default async function setup(project: VitestProject): Promise<() => Promi
         interruptedScriptRequests = 0;
         startupHealthRequests = 0;
         heldScriptRequests = 0;
+        optionalFontRequests = 0;
         for (const held of heldResponses) held.destroy();
         heldResponses.clear();
         response.end("{}");

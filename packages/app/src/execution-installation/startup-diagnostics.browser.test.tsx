@@ -4,6 +4,7 @@ import { page } from "vitest/browser";
 const frames: HTMLIFrameElement[] = [];
 afterEach(async () => {
   for (const frame of frames.splice(0)) frame.remove();
+  localStorage.removeItem("vorteo-data-saver-v1");
   const origin = new URL(inject("passwordlessRelayUrl").replace("ws:", "http:")).origin;
   await fetch(`${origin}/startup-test-mode`, { method: "POST", body: "normal" });
 });
@@ -281,4 +282,88 @@ test("a foreground clock gap starts overdue checks without retrying a slow but p
     startupHealthRequests: 1,
     heldScriptRequests: 1,
   });
+});
+
+test("saved data saver skips optional fonts before app code and toggles without duplicating the pending entry", async () => {
+  const { doc, origin } = await openLoader(
+    "/startup-held-fixture",
+    controlledClock + 'localStorage.setItem("vorteo-data-saver-v1","on");',
+  );
+  expect(doc.documentElement.dataset.vorteoDataSaver).toBe("true");
+  expect(doc.querySelector("#vorteo-optional-fonts")?.hasAttribute("href")).toBe(false);
+  expect(await fetch(`${origin}/startup-font-stats`).then((r) => r.json())).toEqual({
+    requests: 0,
+  });
+  const button = doc.getElementById("boot-data-saver");
+  if (!button) throw new Error("Data saver control missing");
+  expect(button.getAttribute("aria-pressed")).toBe("true");
+  expect(doc.querySelector<HTMLImageElement>(".boot-mark")?.src).toMatch(/^data:image\/svg\+xml/);
+  button.click();
+  expect(button.getAttribute("aria-pressed")).toBe("false");
+  await expect
+    .poll(async () => fetch(`${origin}/startup-font-stats`).then((r) => r.json()))
+    .toEqual({ requests: 1 });
+  expect(doc.getElementById("boot-data-saver-feedback")?.textContent).toContain("Preference saved");
+  button.click();
+  expect(button.getAttribute("aria-pressed")).toBe("true");
+  expect(await fetch(`${origin}/startup-fixture-stats`).then((r) => r.json())).toEqual({
+    startupHealthRequests: 0,
+    heldScriptRequests: 1,
+  });
+  await fetch(`${origin}/startup-release-held-script`, { method: "POST" });
+  await expect.poll(() => Reflect.get(doc.defaultView!, "__startupHeldEntryCount")).toBe(1);
+});
+
+test("data saver reports session-only success when browser storage refuses saving", async () => {
+  const { doc } = await openLoader(
+    "/startup-fixture",
+    'Object.defineProperty(window,"localStorage",{value:{getItem:function(){return null;},setItem:function(){throw new Error("fixture quota");}}});',
+  );
+  doc.getElementById("boot-data-saver")?.click();
+  expect(doc.documentElement.dataset.vorteoDataSaver).toBe("true");
+  expect(doc.getElementById("boot-data-saver-feedback")?.textContent).toContain(
+    "Applied to this page only",
+  );
+});
+
+test("the inline V vector preserves the original mark silhouette without a logo download", async () => {
+  await page.viewport(390, 620);
+  const { doc, origin } = await openLoader();
+  const candidate = doc.querySelector<HTMLImageElement>(".boot-mark");
+  if (!candidate) throw new Error("Default V mark missing");
+  expect(candidate.src).toMatch(/^data:image\/svg\+xml/);
+  const original = doc.createElement("img");
+  const body = await fetch(`${origin}/startup-original-mark`).then((r) => r.json());
+  original.src = body.dataUrl;
+  await Promise.all([candidate.decode(), original.decode()]);
+  function mask(image: HTMLImageElement) {
+    const canvas = doc.createElement("canvas");
+    canvas.width = 144;
+    canvas.height = 144;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas unavailable");
+    context.drawImage(image, 0, 0, 144, 144);
+    const data = context.getImageData(0, 0, 144, 144).data;
+    return Array.from({ length: 144 * 144 }, (_, i) => data[i * 4 + 3] > 127);
+  }
+  const a = mask(original),
+    b = mask(candidate);
+  let intersection = 0,
+    union = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] || b[i]) union++;
+    if (a[i] && b[i]) intersection++;
+  }
+  expect(union).toBeGreaterThan(100);
+  // The existing traced vector allows antialiasing differences while retaining the V outline.
+  expect(intersection / union).toBeGreaterThanOrEqual(0.95);
+  console.info("V mark silhouette overlap", { intersection, union, ratio: intersection / union });
+  original.style.cssText = "width:144px;height:144px";
+  const comparison = doc.createElement("div");
+  comparison.style.cssText = "display:flex;justify-content:center;gap:16px";
+  comparison.append(original, candidate.cloneNode());
+  const cloned = comparison.lastElementChild as HTMLElement;
+  cloned.style.cssText = "position:static;width:144px;height:144px";
+  doc.getElementById("boot-status")?.append(comparison);
+  await page.screenshot({ path: "v-vector-comparison.png" });
 });
