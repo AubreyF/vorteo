@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.825 - 2026-10-25
+
+### Maintenance
+
+- Merge shared restart operations table: supervisor maintenance, Factory adoption, the Docker restart and the Host launcher update share one rule table with unchanged refusal messages and wire fields
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Maintenance
+
+- The four reviewed restart operations (supervisor maintenance, Factory adoption, the Docker restart and the Host launcher update) now share one table in the coordinator instead of repeating about a dozen rules each in the restart queue, server, app and CLI. Requests, decisions, dispatch, contribution refusals, automatic approval and the older-client view are checked once per table entry. A new operation is never approved automatically unless its entry says so. Behaviour, wire fields and refusal messages are unchanged.
+- Fix a stale server test expectation: the Host CLI has sent the Docker restart and Host launcher review flags with restart and contribution requests since those operations were added.
+
 ## 0.11.0-beta.3.vorteo.824 - 2026-10-25
 
 ### Maintenance

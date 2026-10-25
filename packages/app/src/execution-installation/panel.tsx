@@ -93,6 +93,7 @@ import type {
   RestartJob,
   RestartSummary,
 } from "@getpaseo/protocol/execution-installation";
+import { restartOperationView } from "./restart-operations";
 
 const expandedDisclosure = { leftIcon: ChevronUp, accessibilityState: { expanded: true } };
 const collapsedDisclosure = { leftIcon: ChevronDown, accessibilityState: { expanded: false } };
@@ -1536,12 +1537,7 @@ function DevRepairAction({
 
 /** Reviewed plan operations run only after held turns finish, never when idle. */
 function isPlanBound(job: RestartJob): boolean {
-  return Boolean(
-    job.supervisorPlanSha256 ||
-    job.factoryRuntimePlanSha256 ||
-    job.engineRestartPlanSha256 ||
-    job.hostLauncherPlanSha256,
-  );
+  return restartOperationView(job) !== undefined;
 }
 
 function isPlainHostRestart(job: RestartJob): boolean {
@@ -1549,10 +1545,7 @@ function isPlainHostRestart(job: RestartJob): boolean {
 }
 
 function finishLabel(job: RestartJob): string {
-  if (job.factoryRuntimePlanSha256) return "Finish turns and adopt Factory startup";
-  if (job.engineRestartPlanSha256) return "Finish turns and restart Docker";
-  if (job.hostLauncherPlanSha256) return "Finish turns and update the Host launcher";
-  return "Finish turns and restart";
+  return restartOperationView(job)?.finishLabel ?? "Finish turns and restart";
 }
 
 export function RestartActions({
@@ -1651,11 +1644,8 @@ export function RestartActions({
 }
 
 function restartTargetLabel(job: RestartJob): string {
-  if (job.factoryRuntimePlanSha256) return "Factory startup on Dev";
-  if (job.supervisorPlanSha256) return "Dev supervisor";
-  if (job.engineRestartPlanSha256) return "Docker for Dev";
-  if (job.hostLauncherPlanSha256) return "Host launcher";
-  return job.target === "host" ? "Host" : "Dev container";
+  const view = restartOperationView(job);
+  return view?.cardTarget ?? view?.target ?? (job.target === "host" ? "Host" : "Dev container");
 }
 
 function RestartDetails({ job }: { job: RestartJob }) {
@@ -1663,6 +1653,7 @@ function RestartDetails({ job }: { job: RestartJob }) {
   const toggle = useCallback(() => setExpanded((value) => !value), []);
   const controlSize = useVortonTouch() ? "md" : "sm";
   const source = Boolean(job.update || job.sourceBatch);
+  const operation = restartOperationView(job);
   return (
     <View>
       <Button
@@ -1678,30 +1669,9 @@ function RestartDetails({ job }: { job: RestartJob }) {
         <SettingsExpansion>
           {source ? <SourceUpdateDetails job={job} /> : <RestartActivity job={job} />}
           {!source ? <Text style={styles.text}>{job.reason}</Text> : null}
-          {job.supervisorPlanSha256 ? (
+          {operation ? (
             <Text selectable style={styles.text}>
-              Reviewed supervisor plan: {job.supervisorPlanSha256}
-            </Text>
-          ) : null}
-          {job.factoryRuntimePlanSha256 ? (
-            <Text selectable style={styles.text}>
-              Select the reviewed Factory runtime and restart Dev. Existing Factory state is
-              retained. Reviewed adoption plan: {job.factoryRuntimePlanSha256}
-            </Text>
-          ) : null}
-          {job.hostLauncherPlanSha256 ? (
-            <Text selectable style={styles.text}>
-              Add the managed release link and root to the Host launch settings and restart the
-              whole Host once, so later restarts always load the selected build. The previous
-              settings are kept and restored if the check fails. Reviewed plan:{" "}
-              {job.hostLauncherPlanSha256}
-            </Text>
-          ) : null}
-          {job.engineRestartPlanSha256 ? (
-            <Text selectable style={styles.text}>
-              Restart Docker Desktop. Dev, its Tailscale and the private-domain gateway stop until
-              Docker returns; each must come back under the same container. Reviewed plan:{" "}
-              {job.engineRestartPlanSha256}
+              {operation.detail(job[operation.field]!)}
             </Text>
           ) : null}
           {job.factoryRuntimeRecoveryOf ? (

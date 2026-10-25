@@ -418,6 +418,10 @@ Clients negotiate review by setting name, behind `coordinatorBootstrapConfigurat
 
 The older per-setting plan fields, such as `factoryGateConfiguration` and `hostLauncherUpdateConfiguration`, still work and verify the same way until their compatibility dates. Approval policy (`hostRequestsAfter`), source update tooling, the native helper and Dev registration keep their own rules.
 
+### Adding a reviewed restart operation
+
+Supervisor maintenance, Factory adoption, the Docker restart and the Host launcher update are entries in `RESTART_OPERATIONS` (`packages/server/src/server/execution-installation/restart-operations.ts`). Each entry names its plan field, target, labels, automatic-approval policy, review and idle messages, capability, older-client projection, and the executor that runs it. The restart queue and server apply the shared rules from the table: trusted Host requests only, the exact current plan at request, decision and dispatch, no combination with another operation or a source update, no source contributions, and the older-client projection. An entry without an `automatic` policy is never approved automatically. The app's `RESTART_OPERATION_VIEWS` and the CLI's `PLAN_OPTIONS` hold the matching labels and options. A new operation still needs its own wire field, which a later generic binding is planned to remove.
+
 ## Reviewed source updates
 
 ### Recovery after a coordinator executor has claimed dispatch
