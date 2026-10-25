@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.814 - 2026-10-24
+
+### Maintenance
+
+- The demo compact theme tests open README.md from the inline Files card that phones show since 56b01ba3a, instead of the removed phone Explorer toggle.
+- Mark three phone Changes tests as known failures: since 56b01ba3a phones have no way to open the Explorer's Changes view. The product fix follows separately.
+
 ## 0.11.0-beta.3.vorteo.813 - 2026-10-23
 
 ### Maintenance

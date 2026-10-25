@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-24): test-only change. Demo compact theme tests use the inline Files card; three phone Changes tests are marked as a known regression. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-23): test-only change. The desktop Settings memory check follows the single settings page. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-23): test-only change. Projects settings and chat outline browser tests follow the single settings page and the workspace card column. Functionality is unchanged. README overview and onboarding are unchanged.

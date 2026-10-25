@@ -81,10 +81,11 @@ test.describe("compact theme surfaces", () => {
       await save.click();
       await expect(page.getByTestId("checklist-editor")).toBeHidden();
       await expect(page.getByText("Review compact theme", { exact: true })).toBeVisible();
-      await page.getByTestId("workspace-explorer-toggle").click();
-      const files = page.getByTestId("compact-supporting-card-files");
+      // Phones show Files inline in the conversation since 56b01ba3a.
+      const files = page.getByTestId("supporting-card-files").filter({ visible: true });
+      await files.scrollIntoViewIfNeeded();
       await expect(files).toBeVisible();
-      const disclosure = page.getByTestId("explorer-tab-files");
+      const disclosure = files.getByTestId("supporting-card-files-toggle");
       if ((await disclosure.getAttribute("aria-expanded")) !== "true") await disclosure.click();
       await files.getByText("README.md", { exact: true }).click();
       await expect(page.getByTestId("explorer-close")).toBeHidden();
