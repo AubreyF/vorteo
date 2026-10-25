@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.845 - 2026-10-25
+
+### Maintenance
+
+- Merge restart settings drift test: every reviewed restart operation's plan comes from a registered setting with the same name, supervisor maintenance excepted
+
 ## 0.11.0-beta.3.vorteo.844 - 2026-10-25
 
 ### Maintenance
@@ -47,6 +53,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Cleaning up old Host releases no longer makes a successful Host install report failure. The first cleanup after release retention shipped deleted a backlog of about 40 old releases inside the install, past its 10-minute readiness deadline, so a verified install was marked failed. Cleanup now starts after the install reports its result, records its outcome in `retention.json` in the job's folder, and never runs twice at once.
 - Old releases are deleted directly. The slower path that first clears immutable file flags, about half a minute per release, runs only for a release that refuses plain deletion.
+
+## 0.11.0-beta.3.vorteo.839 - 2026-10-25
+
+### Maintenance
+
+- A test keeps the reviewed restart operations and the reviewed coordinator settings in step. Each operation's plan must come from the registered setting of the same name, at that setting's configuration path, with supervisor maintenance as the one named exception.
 
 ## 0.11.0-beta.3.vorteo.839 - 2026-10-25
 
