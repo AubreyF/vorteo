@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.819 - 2026-10-25
+
+### Fixed
+
+- Startup health checks distinguish invalid responses, rejected network requests and actual eight-second timeouts. Script download errors and JavaScript execution errors have separate safe diagnostics, with hashed script paths, transfer timing, exception class and allowlisted engine messages instead of private exception text.
+- After a confirmed entry-script download failure, the loader can retry that exact script once without reloading the page. It preserves integrity, nonce, cross-origin and referrer restrictions, and does not offer download retry for execution errors. Reports include the current origin, expected-origin match and service-worker control state; unknown causes remain unknown.
+
 ## 0.11.0-beta.3.vorteo.818 - 2026-10-25
 
 ### Added
