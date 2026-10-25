@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.831 - 2026-10-25
+
+### Maintenance
+
+- Re-home the composer model picker tests. The draft and running-agent composers lost their model picker with the Paseo mode in 471d7f22a; profiles now carry the model.
+  - Profile picker tests choose and confirm a profile on a running agent.
+  - Cross-provider model search and virtualization run on the schedule form's model picker.
+  - Model memory, recovery and the modeless preference repair choose profiles on New workspace.
+  - Plugin provider icons are checked on the Account card.
+- Retired, citing 471d7f22a: provider-usage-model-selector.spec.ts, which asserted the removed Paseo picker; pinned profile rows inside the model picker; the composer naming the model; and the model row's create-profile action, which has no profile-picker equivalent.
+- Mark two possible product regressions as known failures: an empty host cannot reach profile settings from the picker, and profiles cannot be chosen while the host catalog reports their provider unavailable.
+- The fake Claude CLI answers `auth status` as a first-party login, including when a setup token adds `--settings`, matching the authentication check from 7c8e78ac7.
+
 ## 0.11.0-beta.3.vorteo.830 - 2026-10-24
 
 ### Maintenance

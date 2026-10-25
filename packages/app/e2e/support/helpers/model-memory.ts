@@ -71,3 +71,16 @@ export async function expectRememberedModel(page: Page, label: string) {
       .filter({ visible: true }),
   ).toBeVisible();
 }
+
+/**
+ * New workspace remembers the chosen profile rather than a model since 471d7f22a. The profile's
+ * row is shown under its account with the selected accent border.
+ */
+export async function expectRememberedProfile(
+  page: Page,
+  input: { provider: string; profileId: string },
+) {
+  const row = page.getByTestId(`preset-row-shared-profile/${input.provider}/${input.profileId}`);
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await expect(row).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+}

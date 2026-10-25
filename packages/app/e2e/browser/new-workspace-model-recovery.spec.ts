@@ -1,48 +1,21 @@
 import path from "node:path";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
-import { test, expect, type Page } from "../support/fixtures";
-import {
-  closeModelPicker,
-  drillIntoProvider,
-  openModelPicker,
-  seedModelProvider,
-} from "../support/helpers/agent-profiles";
+import { test, expect } from "../support/fixtures";
+import { seedAgentProfiles, seedModelProvider } from "../support/helpers/agent-profiles";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import { gotoWorkspace } from "../support/helpers/launcher";
 import { openGlobalNewWorkspaceComposer } from "../support/helpers/new-workspace";
 import { seedWorkspace } from "../support/helpers/seed-client";
 import { waitForSidebarHydration } from "../support/helpers/workspace-ui";
-import { expectRememberedModel, expectSavedSelection } from "../support/helpers/model-memory";
+import { expectRememberedProfile } from "../support/helpers/model-memory";
+import { chooseProfile } from "../support/helpers/model-profile";
 
 const PROVIDER = "remembered-model-recovery";
 const MODEL = "remembered-model";
 const LABEL = "Remembered model";
-
-async function rememberModel(page: Page) {
-  await page.addInitScript(
-    ({ provider, model }) => {
-      localStorage.setItem(
-        "@paseo:create-agent-preferences",
-        JSON.stringify({
-          vortonMode: false,
-          provider,
-          providerPreferences: { [provider]: { model } },
-        }),
-      );
-    },
-    { provider: PROVIDER, model: MODEL },
-  );
-}
-
-async function expectRecoveredModelInPicker(page: Page) {
-  await openModelPicker(page);
-  await page.getByRole("dialog").getByRole("button", { name: "Back", exact: true }).click();
-  await drillIntoProvider(page, PROVIDER);
-  await expect(
-    page.getByTestId("combobox-desktop-container").getByText(LABEL, { exact: true }),
-  ).toBeVisible();
-  await closeModelPicker(page);
-}
+// The composer's model picker went with the Paseo mode in 471d7f22a; New workspace now remembers
+// the chosen profile, which pins the model.
+const PROFILE = { provider: "claude", account: PROVIDER, profileId: "agent_profile_recovery" };
 
 async function setProviderAvailability(client: DaemonClient, cwd: string, available: boolean) {
   await client.patchDaemonConfig({
@@ -67,7 +40,7 @@ async function setProviderAvailability(client: DaemonClient, cwd: string, availa
   }
 }
 
-test("restores the remembered model when a provider recovers after New workspace opens", async ({
+test("restores the remembered profile when a provider recovers after New workspace opens", async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -77,27 +50,29 @@ test("restores the remembered model when a provider recovers after New workspace
     label: "Remembered provider",
     models: [{ id: MODEL, label: LABEL, description: "Model restoration diagnostic" }],
   });
+  const profiles = await seedAgentProfiles(
+    [{ id: PROFILE.profileId, name: "Recovery", provider: "claude", model: MODEL }],
+    true,
+  );
   const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "model-recovery" });
   try {
-    await rememberModel(page);
     await gotoWorkspace(page, workspace.workspaceId);
     await waitForSidebarHydration(page);
     await openGlobalNewWorkspaceComposer(page);
-    await expectRememberedModel(page, LABEL);
+    await chooseProfile(page, PROFILE);
 
     await gotoWorkspace(page, workspace.workspaceId);
     await waitForSidebarHydration(page);
     await setProviderAvailability(client, workspace.repoPath, false);
     await openGlobalNewWorkspaceComposer(page);
-    await expect(
-      page.getByTestId("combined-model-selector").filter({ visible: true }),
-    ).not.toContainText("Loading...");
+    await expect(page.getByTestId("new-workspace-profile-selector")).toBeVisible();
 
     await setProviderAvailability(client, workspace.repoPath, true);
-    await expectSavedSelection(page, PROVIDER, MODEL);
-    await expectRecoveredModelInPicker(page);
-    await expectRememberedModel(page, LABEL);
+    // The picker keeps showing the account it fell back to, so reopen the remembered account.
+    await page.getByTestId(`preset-account-${PROVIDER}`).click();
+    await expectRememberedProfile(page, PROFILE);
   } finally {
+    await profiles.restore();
     await client.close();
     await provider.restore();
     await workspace.cleanup();

@@ -8,12 +8,10 @@ import {
   expectModelPickerHeight,
   expectModelPickerWidth,
   expectModelSearchResult,
-  expectPinnedProfilesHidden,
-  openModelPicker,
+  openScheduleModelPicker,
   readModelPickerHeight,
   readModelPickerWidth,
   searchAllModels,
-  seedAgentProfiles,
   seedModelProvider,
   expectSearchResultsVirtualized,
 } from "../support/helpers/agent-profiles";
@@ -34,14 +32,6 @@ const STUDIO = {
   ],
 };
 
-// The cross-provider search lives on the picker's root view, and a profile is
-// what keeps the picker opening there.
-const ROOT_VIEW_PROFILE = {
-  id: "agent_profile_e2e_search_root",
-  name: "Search anchor",
-  provider: "mock",
-};
-
 const LARGE_CATALOG_SIZE = 200;
 const LARGE_CATALOG = {
   id: "mock-bulk",
@@ -53,20 +43,19 @@ const LARGE_CATALOG = {
   })),
 };
 
+// The composer's model picker went with the Paseo mode in 471d7f22a, so these checks run on the
+// schedule form's model picker, which keeps the cross-provider search. Retired with the composer
+// picker: profiles pinned above the search results, since the schedule picker lists no profiles.
 test.describe("Cross-provider model search", () => {
   test("one query over the picker root reaches every provider and names each result's provider", async ({
     page,
   }) => {
     const provider = await seedModelProvider(STUDIO);
-    const profile = await seedAgentProfiles([ROOT_VIEW_PROFILE]);
     const workspace = await seedWorkspace({ repoPrefix: "model-search-providers-" });
 
     try {
-      await test.step("open a draft composer that can reach every provider", async () => {
-        await gotoWorkspace(page, workspace.workspaceId);
-        await clickNewChat(page);
-        await expectComposerVisible(page);
-        await openModelPicker(page);
+      await test.step("open a schedule's model picker that can reach every provider", async () => {
+        await openScheduleModelPicker(page, workspace.projectKey);
       });
       const restingWidth = await readModelPickerWidth(page);
 
@@ -97,10 +86,6 @@ test.describe("Cross-provider model search", () => {
         });
       });
 
-      await test.step("results replace the pinned profiles", async () => {
-        await expectPinnedProfilesHidden(page);
-      });
-
       // Search falls back to subsequence matching, so "no matches" needs letters
       // that cannot be picked out of a model label or description in order.
       await test.step("a query with no matches repeats the query back", async () => {
@@ -110,7 +95,6 @@ test.describe("Cross-provider model search", () => {
       });
     } finally {
       await workspace.cleanup();
-      await profile.restore();
       await provider.restore();
     }
   });
@@ -119,15 +103,11 @@ test.describe("Cross-provider model search", () => {
     page,
   }) => {
     const provider = await seedModelProvider(LARGE_CATALOG);
-    const profile = await seedAgentProfiles([ROOT_VIEW_PROFILE]);
     const workspace = await seedWorkspace({ repoPrefix: "model-search-large-catalog-" });
 
     try {
       await test.step("open the host-wide model picker", async () => {
-        await gotoWorkspace(page, workspace.workspaceId);
-        await clickNewChat(page);
-        await expectComposerVisible(page);
-        await openModelPicker(page);
+        await openScheduleModelPicker(page, workspace.projectKey);
       });
 
       const restingHeight = await readModelPickerHeight(page);
@@ -156,7 +136,6 @@ test.describe("Cross-provider model search", () => {
       });
     } finally {
       await workspace.cleanup();
-      await profile.restore();
       await provider.restore();
     }
   });
@@ -197,9 +176,9 @@ async function reloadSavedDraft(page: Page) {
   await page.reload();
   await expectComposerVisible(page);
 }
-async function expectOneCatalogChoice(page: Page, label: string) {
-  await openModelPicker(page);
-  await page.getByRole("button", { name: "Back", exact: true }).click();
+/** The schedule form keeps the model picker that the composer lost in 471d7f22a. */
+async function expectOneCatalogChoice(page: Page, projectKey: string, label: string) {
+  await openScheduleModelPicker(page, projectKey);
   await searchAllModels(page, label);
   await expect(page.getByTestId("model-row-gemini-gemini-3.5-flash")).toHaveCount(1);
   await closeModelPicker(page);
@@ -255,17 +234,17 @@ catalogTest(
       await setRuntimeCatalog(client, 2, workspace.repoPath);
       await clickNewChat(page);
       await expectComposerVisible(page);
-      await expectOneCatalogChoice(page, "Gemini 3.5 Flash");
       await page.screenshot({ path: testInfo.outputPath("duplicate-catalog-draft.png") });
+      await expectOneCatalogChoice(page, workspace.projectKey, "Gemini 3.5 Flash");
     });
     await test.step("reopen the saved draft with the same catalog", async () => {
+      await gotoWorkspace(page, workspace.workspaceId);
       await reloadSavedDraft(page);
-      await expectOneCatalogChoice(page, "Gemini 3.5 Flash");
+      await expectOneCatalogChoice(page, workspace.projectKey, "Gemini 3.5 Flash");
     });
     await test.step("retain configured model overrides when runtime IDs repeat", async () => {
       await configureModelOverride(client, workspace.repoPath);
-      await reloadSavedDraft(page);
-      await expectOneCatalogChoice(page, "Configured model");
+      await expectOneCatalogChoice(page, workspace.projectKey, "Configured model");
     });
   },
 );

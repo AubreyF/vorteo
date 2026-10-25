@@ -4,7 +4,9 @@ import type { AgentProfile, SharedProviderPreferences } from "@getpaseo/protocol
 import { gotoAppShell, openSettings } from "./app";
 import { connectDaemonClient } from "./daemon-client-loader";
 import { getServerId } from "./server-id";
+import { projectEquivalenceViewKey } from "./project-view-key";
 import { openSettingsHost, revealSettingsLocation } from "./settings";
+import { buildSchedulesRoute } from "../../../src/utils/host-routes";
 
 // ─── Daemon-side seeding ───────────────────────────────────────────────────
 
@@ -403,6 +405,30 @@ function pickerViewport(page: Page): Locator {
 export async function openModelPicker(page: Page): Promise<void> {
   await page.getByTestId("combined-model-selector").filter({ visible: true }).first().click();
   await expect(pickerViewport(page)).toBeVisible({ timeout: 30_000 });
+}
+
+/**
+ * Open the model picker in a new schedule's form for `projectKey`. The composer lost its model
+ * picker with the Paseo mode in 471d7f22a; the schedule form keeps the same picker, including its
+ * cross-provider search. It opens inside the selected provider, so step back to the root view
+ * where that search lives.
+ */
+export async function openScheduleModelPicker(page: Page, projectKey: string): Promise<void> {
+  await page.goto(buildSchedulesRoute());
+  await page
+    .locator('[data-testid="schedules-new"]:visible, [data-testid="schedules-empty-new"]:visible')
+    .first()
+    .click();
+  await expect(page.getByTestId("schedule-form-sheet")).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId("schedule-project-trigger").click();
+  await page
+    .getByTestId(`schedule-project-option-${projectEquivalenceViewKey(projectKey)}`)
+    .click();
+  await page.getByTestId("schedule-model-trigger").click({ timeout: 30_000 });
+  await expect(pickerViewport(page)).toBeVisible({ timeout: 30_000 });
+  const back = pickerViewport(page).getByRole("button", { name: "Back", exact: true });
+  if (await back.isVisible()) await back.click();
+  await expect(page.getByTestId("model-search-all-input")).toBeVisible({ timeout: 30_000 });
 }
 
 export async function closeModelPicker(page: Page): Promise<void> {

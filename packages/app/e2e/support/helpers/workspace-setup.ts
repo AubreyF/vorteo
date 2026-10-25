@@ -19,6 +19,7 @@ type WorkspaceSetupDaemonClient = Pick<
   | "fetchAgent"
   | "fetchAgents"
   | "fetchWorkspaces"
+  | "listProjects"
   | "listTerminals"
   | "observeEvents"
   | "removeProject"

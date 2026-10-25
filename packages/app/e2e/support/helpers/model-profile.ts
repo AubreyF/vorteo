@@ -69,12 +69,33 @@ async function ensureMockModelProfile(model: string): Promise<string> {
  * selector in a workspace draft.
  */
 export async function chooseMockModelProfile(page: Page, model: string): Promise<void> {
-  const profileId = await ensureMockModelProfile(model);
-  const row = page.getByTestId(`preset-row-shared-profile/mock/${profileId}`);
-  const inline = page.getByTestId("new-workspace-profile-selector");
-  if (!(await inline.isVisible())) {
-    await page.getByTestId("agent-preset-selector").filter({ visible: true }).first().click();
-  }
+  await chooseProfile(page, { provider: "mock", profileId: await ensureMockModelProfile(model) });
+}
+
+/** Open the composer's Choose profile dialog, unless New workspace already shows it inline. */
+export async function openProfilePicker(page: Page): Promise<void> {
+  if (await page.getByTestId("new-workspace-profile-selector").isVisible()) return;
+  await page.getByTestId("agent-preset-selector").filter({ visible: true }).first().click();
+  await expect(page.getByTestId("account-preset-menu").filter({ visible: true })).toBeVisible({
+    timeout: 30_000,
+  });
+}
+
+/**
+ * Choose a shared profile by id, from the inline picker or the Choose profile dialog. Shared
+ * profiles name a provider type; `account` picks which enabled provider of that type runs it and
+ * defaults to the type's own provider.
+ */
+export async function chooseProfile(
+  page: Page,
+  input: { provider: string; profileId: string; account?: string },
+): Promise<void> {
+  const row = page.getByTestId(`preset-row-shared-profile/${input.provider}/${input.profileId}`);
+  await openProfilePicker(page);
+  // Profile rows list under their account, so reveal that account's profiles first.
+  const account = page.getByTestId(`preset-account-${input.account ?? input.provider}`);
+  await expect(account.filter({ visible: true })).toBeVisible({ timeout: 30_000 });
+  await account.click();
   await expect(row).toBeVisible({ timeout: 30_000 });
   await row.click();
   const useProfile = page.getByTestId("preset-use-profile");

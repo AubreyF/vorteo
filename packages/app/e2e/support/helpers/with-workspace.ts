@@ -13,6 +13,8 @@ import {
 export interface CreatedWorkspace {
   workspaceId: string;
   repoPath: string;
+  /** Opaque cross-host key used by grouped project UI, such as the schedule form. */
+  projectKey: string;
   navigateTo(): Promise<void>;
 }
 
@@ -76,10 +78,16 @@ export function createWithWorkspace(page: Page): WithWorkspaceHandle {
     }
     const workspaceId = created.workspace.id;
     projectIds.add(created.workspace.projectId);
+    const projectId = created.workspace.projectId;
+    const project = (await client.listProjects()).projects.find(
+      (item) => item.projectId === projectId,
+    );
+    if (!project?.projectKey) throw new Error(`Created project ${projectId} has no project key`);
 
     return {
       workspaceId,
       repoPath: workspacePath,
+      projectKey: project.projectKey,
       navigateTo: async () => {
         await openHomeWithProject(page, repo.path);
         await selectWorkspaceInSidebar(page, workspaceId);
