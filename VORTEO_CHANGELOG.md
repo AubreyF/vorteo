@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.843 - 2026-10-25
+
+### Maintenance
+
+- Retire workspace-draft-thinking-preferences.spec.ts, citing 471d7f22a. Per-model thinking and per-provider mode memory belonged to the draft composer's controls; profiles now carry model, thinking and mode, and remembered profiles are covered by the New workspace model memory test.
+- The upstream settings test accepts the About address, which the single settings page keeps while showing General.
+- Remove a duplicated changelog entry for 0.11.0-beta.3.vorteo.835, which made the Help changelog test find two releases with one version.
+
 ## 0.11.0-beta.3.vorteo.842 - 2026-10-25
 
 ### Maintenance
@@ -61,14 +69,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Provider removal uses the Delete button on a custom provider's row and its credentials message; 471d7f22a removed the provider actions menu.
 - Retire the Standard mode check in the Claude CLI warning test, citing 471d7f22a.
 - The Model B sidebar test finds New workspace in the More menu (ab60c1e39).
-
-## 0.11.0-beta.3.vorteo.835 - 2026-10-25
-
-### Maintenance
-
-- The worktree-notice dismissal no longer waits for every notice to disappear, so a second project's notice no longer stalls a test.
-- Plugin settings tests expect the single settings page's plugins address.
-- Plugin tests read the open workspace's title from the header on phones or the selected sidebar row on desktop, where 195e1c044 removed the title header.
 
 ## 0.11.0-beta.3.vorteo.835 - 2026-10-25
 

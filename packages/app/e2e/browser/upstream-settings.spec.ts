@@ -21,7 +21,8 @@ for (const width of [1280, 390]) {
       );
     });
     await page.goto("/settings/about");
-    await expect(page).toHaveURL(/\/settings\/general$/);
+    // About is a pane of General on the single settings page, which keeps the opened address.
+    await expect(page).toHaveURL(/\/settings\/(general|about)$/);
     await expect(page.getByText("Default send", { exact: true })).toBeVisible();
     const section = page.getByTestId("upstream-updates-section");
     await section.scrollIntoViewIfNeeded();
