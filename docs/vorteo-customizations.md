@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): merge of main through 71925c85e into the test repair branch. Functionality from main is unchanged by the merge. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): test-only change. Composer model and mode tests are retired with the Paseo mode, and New workspace entry tests use the More menu. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): test-only change. The composer diff pill test is retired, diff counter and Explorer keyboard tests follow the supporting cards, and one geometry drift and one phone regression are marked. Functionality is unchanged. README overview and onboarding are unchanged.
@@ -90,7 +92,7 @@ Maintenance review (2026-10-23): CI-only change. Browser test shards upload resu
 
 ## Startup connection diagnostics
 
-The delayed startup screen exposes the existing device connection checker before the host is available. It separates health HTTP, WebSocket transport, saved app authentication and thread-directory readiness, with elapsed time, reload and a sanitized copyable report. The initial HTML loader can check the installation endpoint and report a failed script load even without the application bundle. Clipboard failure exposes selectable text. A cached page, successful health response or loaded directory does not establish remote-client or selected-workspace readiness. This interface change does not restart daemons or change credentials, permissions or network settings. The README overview and onboarding are unchanged.
+The delayed startup screen exposes the existing device connection checker before the host is available. It separates health HTTP, WebSocket transport, saved app authentication and thread-directory readiness, with elapsed time, reload and a sanitized copyable report. The initial HTML loader distinguishes script transfer errors, JavaScript execution errors, invalid health responses, network rejection and actual timeouts even without the application bundle. A confirmed failed entry-script download can be retried once without reloading, preserving its integrity and browser security attributes. Reports include safe script timing, exception class and allowlisted engine messages, current origin and service-worker control, excluding query strings and private exception text. Clipboard failure exposes selectable text. A cached page, successful health response or loaded directory does not establish remote-client or selected-workspace readiness. This interface change does not restart daemons or change credentials, permissions or network settings. The README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-23): automatic coordinator renewals can close a failed automatic update that never reached promotion, proven under the journal lock and bound to the same coordinator process. Owner-reviewed and other failures still need owner review. Not yet installed. README overview and onboarding are unchanged.
 

@@ -9,16 +9,49 @@ interface VitestProject {
 
 export default async function setup(project: VitestProject): Promise<() => Promise<void>> {
   const startupHtml = readFileSync(new URL("../../public/index.html", import.meta.url), "utf8");
+  let startupHealthMode = "normal";
+  let interruptedScriptRequests = 0;
   const server = createServer((request, response) => {
     if (request.url !== "/cors-restricted-health")
       response.setHeader("Access-Control-Allow-Origin", "*");
     response.setHeader("Content-Type", "application/json");
-    if (request.url === "/startup-fixture") {
+    if (request.url === "/startup-test-mode" && request.method === "POST") {
+      let body = "";
+      request.on("data", (chunk) => {
+        body += chunk;
+      });
+      request.on("end", () => {
+        startupHealthMode = body;
+        interruptedScriptRequests = 0;
+        response.end("{}");
+      });
+    } else if (request.url === "/_expo/static/js/web/interrupted-0123456789abcdef.js") {
+      interruptedScriptRequests++;
+      response.setHeader("Content-Type", "application/javascript");
+      response.setHeader("Cache-Control", "no-store");
+      if (interruptedScriptRequests === 1) {
+        response.setHeader("Content-Length", "200");
+        response.write("window.__startupFixtureEntryCount = ");
+        setTimeout(() => response.destroy(), 20);
+      } else
+        response.end(
+          "window.__startupFixtureEntryCount = (window.__startupFixtureEntryCount || 0) + 1;",
+        );
+    } else if (request.url === "/_expo/static/js/web/safe-error-0123456789abcdef.js") {
+      response.setHeader("Content-Type", "application/javascript");
+      response.end("Object.keys(undefined);");
+    } else if (request.url === "/_expo/static/js/web/throws-0123456789abcdef.js") {
+      response.setHeader("Content-Type", "application/javascript");
+      response.end('throw new TypeError("private-session-value-must-not-leak");');
+    } else if (request.url === "/startup-fixture") {
       response.setHeader("Content-Type", "text/html");
       response.end(startupHtml);
-    } else if (request.url === "/api/installation/health")
-      response.end(JSON.stringify({ installationId: "00000000-0000-4000-8000-000000000001" }));
-    else if (request.url === "/api/health" || request.url === "/cors-restricted-health")
+    } else if (request.url === "/api/installation/health") {
+      if (startupHealthMode === "invalid") response.end("<html>Not installation health</html>");
+      else if (startupHealthMode === "disconnected") response.destroy();
+      else if (startupHealthMode === "slow") setTimeout(() => response.end("{}"), 9000);
+      else response.end(JSON.stringify({ installationId: "00000000-0000-4000-8000-000000000001" }));
+    } else if (request.url === "/api/health" || request.url === "/cors-restricted-health")
       response.end(JSON.stringify({ status: "ok" }));
     else {
       response.statusCode = 404;
