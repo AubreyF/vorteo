@@ -359,7 +359,8 @@ def supervision_effect(state, request_id, revision, generation, digest, effect,
                                            "previewMonitorConfiguration", "factoryRuntimeAdoptionConfiguration",
                                            "claudeHostRefreshConfiguration", "engineRestartConfiguration",
                                            "factoryGateConfiguration",
-                                           "hostLauncherUpdateConfiguration"))
+                                           "hostLauncherUpdateConfiguration",
+                                           "configurationChanges"))
             or any(plan[key]["sourceCommit"] == plan["previous"]["sourceCommit"]
                    or plan[key]["configuration"]["sha256"] != plan["previous"]["configuration"]["sha256"]
                    for key in ("candidate", "compatibleRecovery"))):

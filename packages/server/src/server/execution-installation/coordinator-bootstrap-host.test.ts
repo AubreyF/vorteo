@@ -644,6 +644,134 @@ test("bootstrap configuration preserves credentials, service targets and state w
   expect(verify).toThrow("no longer matches");
 });
 
+test("listed configuration changes verify exactly like the legacy per-setting fields", () => {
+  const f = fixture();
+  const previousFile = path.join(f.root, "previous.json");
+  const candidateFile = path.join(f.root, "candidate.json");
+  const save = (file: string, value: unknown) =>
+    writeFileSync(file, JSON.stringify(value), { mode: 0o600 });
+  save(previousFile, f.config);
+  const file = { path: f.file, sha256: "a".repeat(64) };
+  const release = {
+    directory: f.root,
+    sourceCommit: "a".repeat(40),
+    artifactSha256: "a".repeat(64),
+    node: file,
+    entrypoint: file,
+    launcher: file,
+    configuration: file,
+  };
+  const base = {
+    version: 1,
+    operation: "coordinator-bootstrap",
+    installationId: f.config.public.installationId,
+    service: f.config.host.launchdService.replace(/\.host$/, ".installation"),
+    expectedProcess: {
+      pid: 1,
+      bootId: "fixture",
+      startIdentity: "fixture",
+      argumentsSha256: "a".repeat(64),
+    },
+    previous: { ...release, configuration: { ...file, path: previousFile } },
+    candidate: { ...release, configuration: { ...file, path: candidateFile } },
+    state: {
+      directory: f.config.stateDir,
+      restartJournal: path.join(f.config.stateDir, "restart-jobs.json"),
+      ownerSessions: path.join(f.config.stateDir, "owner-sessions.json"),
+    },
+    hostRequestsAfter: null,
+  };
+  const verify = (fields: Record<string, unknown>) => () =>
+    verifyBootstrapConfiguration({
+      plan: CoordinatorBootstrapPlanSchema.parse({ ...base, ...fields }),
+      configurationFile: f.file,
+      daemonId: "host-id",
+    });
+  const launcherUpdate = { candidate: "/fixture/candidate.plist", sha256: "c".repeat(64) };
+  const factoryGate = {
+    docker: "/fixture/docker",
+    socket: "/fixture/docker.sock",
+    container: "a".repeat(64),
+    verify: {
+      script: "/fixture/verify.sh",
+      sha256: "b".repeat(64),
+      lockInode: 3901122,
+      ownerMode: "paused",
+    },
+  };
+  const cases = [
+    {
+      setting: "hostLauncherUpdate",
+      legacy: "hostLauncherUpdateConfiguration",
+      value: launcherUpdate,
+      config: { ...f.config, host: { ...f.config.host, launcherUpdate } },
+    },
+    {
+      setting: "factoryGate",
+      legacy: "factoryGateConfiguration",
+      value: factoryGate,
+      config: { ...f.config, container: { ...f.config.container, factoryGate } },
+    },
+    {
+      setting: "claudeHostRefresh",
+      legacy: "claudeHostRefreshConfiguration",
+      value: true,
+      config: { ...f.config, claudeHostRefresh: true },
+    },
+  ];
+  for (const item of cases) {
+    const listed = { configurationChanges: [{ setting: item.setting, value: item.value }] };
+    const legacy = { [item.legacy]: item.value };
+    save(candidateFile, item.config);
+    // Both shapes accept exactly the same candidate, and neither accepts it unlisted.
+    expect(verify({})).toThrow("outside its approved policy");
+    expect(verify(listed)).not.toThrow();
+    expect(verify(legacy)).not.toThrow();
+    // A further change beyond the listed one is refused under both shapes.
+    save(candidateFile, {
+      ...item.config,
+      container: { ...item.config.container, password: "changed" },
+    });
+    expect(verify(listed)).toThrow("outside its approved policy");
+    expect(verify(legacy)).toThrow("outside its approved policy");
+    // Removal: null clears the setting from a configuration that has it.
+    save(previousFile, item.config);
+    save(f.file, item.config);
+    save(candidateFile, f.config);
+    expect(
+      verify({ configurationChanges: [{ setting: item.setting, value: null }] }),
+    ).not.toThrow();
+    expect(verify({ [item.legacy]: null })).not.toThrow();
+    save(previousFile, f.config);
+    save(f.file, f.config);
+    // Naming the setting both ways is refused.
+    save(candidateFile, item.config);
+    expect(verify({ ...listed, ...legacy })).toThrow("named twice");
+  }
+  save(candidateFile, f.config);
+  expect(
+    verify({ configurationChanges: [{ setting: "restartApprovalPolicy", value: {} }] }),
+  ).toThrow("Unknown configuration setting");
+  expect(
+    verify({ configurationChanges: [{ setting: "factoryGate", value: { docker: 1 } }] }),
+  ).toThrow("Invalid value");
+  expect(
+    verify({
+      configurationChanges: [
+        { setting: "claudeHostRefresh", value: true },
+        { setting: "claudeHostRefresh", value: null },
+      ],
+    }),
+  ).toThrow("named twice");
+  // The wire schema stays loose so older readers can parse later settings.
+  expect(() =>
+    CoordinatorBootstrapPlanSchema.parse({
+      ...base,
+      configurationChanges: [{ setting: "future", value: 1 }],
+    }),
+  ).not.toThrow();
+});
+
 test("Dev registration configuration requires an explicit coordinator adoption transition", () => {
   const f = fixture();
   const previousFile = path.join(f.root, "previous.json");
@@ -1513,6 +1641,7 @@ test.runIf(process.platform === "darwin")(
       coordinatorBootstrapEngineRestart: false,
       coordinatorBootstrapFactoryGate: false,
       coordinatorBootstrapHostLauncherUpdate: false,
+      coordinatorBootstrapConfigurationChanges: false,
       coordinatorBootstrapSourceUpdateTooling: false,
       coordinatorBootstrapBootRecovery: false,
       coordinatorBootstrapRecoveryBootPlan: false,

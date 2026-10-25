@@ -85,6 +85,7 @@ export function bootstrapReviewFeatures(service: BootstrapReviewService | undefi
     coordinatorBootstrapEngineRestart: available,
     coordinatorBootstrapFactoryGate: available,
     coordinatorBootstrapHostLauncherUpdate: available,
+    coordinatorBootstrapConfigurationChanges: available,
     coordinatorBootstrapSourceUpdateTooling: available,
     coordinatorBootstrapBootRecovery: available,
     coordinatorBootstrapRecoveryBootPlan: preclaimAvailable || claimedAvailable,
@@ -302,6 +303,7 @@ function publicBootstrapReply(
   visible = engineRestartReply(visible, message.engineRestart === true);
   visible = factoryGateReply(visible, message.factoryGate === true);
   visible = hostLauncherUpdateReply(visible, message.hostLauncherUpdate === true);
+  visible = configurationChangesReply(visible, message.configurationSettings);
   visible = sourceUpdateToolingReply(visible, message.sourceUpdateTooling === true);
   visible = bootRecoveryReply(visible, message.bootRecovery === true);
   if (!message.automaticStatus) return visible;
@@ -421,12 +423,43 @@ function previewMonitorReply(
   };
 }
 
+/** Whether the client named every setting the plan's `configurationChanges` lists. */
+function reviewsConfigurationChanges(
+  plan: CoordinatorBootstrapRequest["plan"],
+  settings: readonly string[] | undefined,
+): boolean {
+  return (plan.configurationChanges ?? []).every((change) =>
+    (settings ?? []).includes(change.setting),
+  );
+}
+
+// COMPAT(bootstrapConfigurationChanges): added 2026-10-24; remove after 2027-04-24
+// once all supported clients negotiate configuration settings by name. A client that
+// does not name a listed setting cannot describe it, so it sees only cancellation.
+function configurationChangesReply(
+  request: CoordinatorBootstrapRequest,
+  settings: readonly string[] | undefined,
+): CoordinatorBootstrapRequest {
+  if (reviewsConfigurationChanges(request.plan, settings)) return request;
+  const { configurationChanges: _changes, ...plan } = request.plan;
+  return {
+    ...request,
+    plan,
+    reason:
+      "Reload the client to review this configuration change. Cancellation remains available.",
+  };
+}
+
 /** Configuration changes a client must be able to display before approving them. */
 function assertServiceConfigurationReview(
   message: Extract<CoordinatorBootstrapInbound, { type: "installation.bootstrap.decide.request" }>,
   request: CoordinatorBootstrapRequest | undefined,
 ): void {
   if (message.input.decision !== "approve") return;
+  if (request && !reviewsConfigurationChanges(request.plan, message.configurationSettings))
+    throw new BootstrapRequestConflict(
+      "Reload the client to review this configuration change before approval.",
+    );
   if (request?.plan.previewMonitorConfiguration !== undefined && message.previewMonitor !== true)
     throw new BootstrapRequestConflict(
       "Reload the client to review this preview monitor configuration before approval.",
