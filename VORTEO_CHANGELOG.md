@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.844 - 2026-10-25
+
+### Maintenance
+
+- Complete the shared Lucide fixture for common icons imported by the deferred plugin-icon adapter, restoring collection of four browser and project-screen test files without changing assertions or production behavior.
+
 ## 0.11.0-beta.3.vorteo.843 - 2026-10-25
 
 ### Added

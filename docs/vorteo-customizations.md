@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): the shared Lucide test fixture now exports every common icon imported by the deferred plugin-icon adapter. The four affected files collect and all fifteen tests pass with their original assertions and per-test mocks. Production behavior, README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): Host release cleanup keeps the releases holding the live Host and Dev update tooling, so cleanup can no longer remove the scripts that Host installs run. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): Host release cleanup runs after an install reports its result, with a receipt and no overlap, and deletes plain trees directly, so cleanup time no longer counts against the install's readiness deadline. Not yet installed. README overview and onboarding are unchanged.
