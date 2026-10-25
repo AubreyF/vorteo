@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.853 - 2026-10-25
+
+### Maintenance
+
+- Merge preclaim test fixture cleanup: detached fixture processes exit when the test worker's IPC channel closes
+
+## 0.11.0-beta.3.vorteo.851 - 2026-10-25
+
+### Maintenance
+
+- The preclaim native-proof test's disposable executor and coordinator exit when their link to the test process closes. A test worker that died mid-test left one such pair running for about 12 hours.
+
 ## 0.11.0-beta.3.vorteo.852 - 2026-10-25
 
 ### Maintenance
