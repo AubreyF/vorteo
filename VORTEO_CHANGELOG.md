@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.839 - 2026-10-25
+
+### Maintenance
+
+- Codex speed tests check the profile editor's Speed feature on desktop and phones; the composer speed control went with the Paseo mode in 471d7f22a.
+- Profile editor helpers follow the phone sheet, whose header carries the editor's test ID while its form and buttons sit in its scroll and footer parts. Select options are found in the phone sheet as well as the desktop popover.
+
 ## 0.11.0-beta.3.vorteo.838 - 2026-10-25
 
 ### Maintenance

@@ -291,8 +291,18 @@ export interface AgentProfileDraft {
   notes?: string;
 }
 
+/**
+ * The profile editor. On phones it is a sheet whose header carries the test ID while its form
+ * and buttons sit in "-scroll" and "-footer" parts, so match all three.
+ */
 function editModal(page: Page): Locator {
-  return page.getByTestId("agent-profile-edit-modal");
+  return page.locator(
+    [
+      '[data-testid="agent-profile-edit-modal"]',
+      '[data-testid="agent-profile-edit-modal-scroll"]',
+      '[data-testid="agent-profile-edit-modal-footer"]',
+    ].join(", "),
+  );
 }
 
 async function chooseSelectFieldOption(
@@ -300,9 +310,12 @@ async function chooseSelectFieldOption(
   input: { field: "provider" | "model" | "mode" | "thinking"; option: string },
 ): Promise<void> {
   await editModal(page).getByTestId(`agent-profile-${input.field}-trigger`).click();
+  // Desktop lists options in a combobox popover; phones open a sheet, whose newest list is last.
   const option = page
     .getByTestId("combobox-desktop-container")
-    .getByRole("button", { name: input.option, exact: true });
+    .getByRole("button", { name: input.option, exact: true })
+    .or(page.getByRole("button", { name: input.option, exact: true }).filter({ visible: true }))
+    .last();
   await expect(option).toBeVisible({ timeout: 30_000 });
   await option.click();
   await expect(
@@ -344,9 +357,21 @@ async function saveAgentProfile(page: Page): Promise<void> {
   await expect(editModal(page)).toHaveCount(0, { timeout: 30_000 });
 }
 
+/** Choose a model in the open profile editor. */
+export async function draftModel(page: Page, model: string): Promise<void> {
+  await chooseSelectFieldOption(page, { field: "model", option: model });
+}
+
+/** Open a new profile's editor and fill it without saving. */
+export async function draftAgentProfile(page: Page, draft: AgentProfileDraft): Promise<void> {
+  await page.getByRole("button", { name: "Add agent profile", exact: true }).click();
+  await expect(editModal(page).first()).toBeVisible({ timeout: 30_000 });
+  await fillAgentProfileForm(page, draft);
+}
+
 export async function createAgentProfile(page: Page, draft: AgentProfileDraft): Promise<void> {
   await page.getByRole("button", { name: "Add agent profile", exact: true }).click();
-  await expect(editModal(page)).toBeVisible({ timeout: 30_000 });
+  await expect(editModal(page).first()).toBeVisible({ timeout: 30_000 });
   await fillAgentProfileForm(page, draft);
   await saveAgentProfile(page);
 }
@@ -359,7 +384,7 @@ export async function createAgentProfileFromEmptyState(
     .getByTestId("agent-profiles-card")
     .getByRole("button", { name: "New profile", exact: true })
     .click();
-  await expect(editModal(page)).toBeVisible({ timeout: 30_000 });
+  await expect(editModal(page).first()).toBeVisible({ timeout: 30_000 });
   await fillAgentProfileForm(page, draft);
   await saveAgentProfile(page);
 }
@@ -372,7 +397,7 @@ export async function editAgentProfile(
   await agentProfileRow(page, name)
     .getByRole("button", { name: "Edit profile", exact: true })
     .click();
-  await expect(editModal(page)).toBeVisible({ timeout: 30_000 });
+  await expect(editModal(page).first()).toBeVisible({ timeout: 30_000 });
   await fillAgentProfileForm(page, changes);
   await saveAgentProfile(page);
 }
@@ -387,7 +412,7 @@ export async function expectAgentProfileForm(
     .getByRole("button", { name: "Edit profile", exact: true })
     .click();
   const modal = editModal(page);
-  await expect(modal).toBeVisible({ timeout: 30_000 });
+  await expect(modal.first()).toBeVisible({ timeout: 30_000 });
   await expect(modal.getByRole("textbox", { name: "Name", exact: true })).toHaveValue(name);
   const notesHint = modal.getByTestId("agent-profile-notes-field-hint");
   await expect(notesHint).toHaveText(
@@ -594,7 +619,7 @@ export async function expectCreateProfileFromModelRow(
     .getByTestId(`model-create-profile-${input.provider}-${input.modelId}`)
     .click();
   const modal = editModal(page);
-  await expect(modal).toBeVisible({ timeout: 30_000 });
+  await expect(modal.first()).toBeVisible({ timeout: 30_000 });
   await expect(modal.getByRole("textbox", { name: "Name", exact: true })).toHaveValue(
     input.modelLabel,
   );
