@@ -22,6 +22,8 @@ Maintenance review (2026-10-24): the four reviewed restart operations share one 
 
 Maintenance review (2026-10-24): scripts run through a symlinked installation path, such as `current`, no longer exit silently; the shared main-module check compares real paths. Functionality is otherwise unchanged. README overview and onboarding are unchanged.
 
+Maintenance review (2026-10-25): Windows server CI skips the POSIX-only Docker restart and Factory check suites; no feature changed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-23): automatic coordinator renewals can close a failed automatic update that never reached promotion, proven under the journal lock and bound to the same coordinator process. Owner-reviewed and other failures still need owner review. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-23): app installation client tests now expect the Docker restart and Host launcher query flags on restart routes. Behavior is unchanged. README overview and onboarding are unchanged.
