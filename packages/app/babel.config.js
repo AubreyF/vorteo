@@ -1,5 +1,5 @@
 module.exports = function (api) {
-  api.cache(true);
+  const isWeb = api.caller((caller) => caller?.platform === "web");
 
   const expoPreset = [
     "babel-preset-expo",
@@ -13,6 +13,7 @@ module.exports = function (api) {
   return {
     presets: [expoPreset],
     plugins: [
+      ...(isWeb ? [require("./babel-lucide-imports.cjs")] : []),
       [
         "react-native-unistyles/plugin",
         {

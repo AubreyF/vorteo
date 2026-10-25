@@ -12,6 +12,7 @@ export interface MermaidRenderedMessage {
 }
 
 interface MermaidIframeRuntimeProps {
+  enabled?: boolean;
   request: MermaidRenderRequest | null;
   onRendered: (message: MermaidRenderedMessage) => void;
   onRenderFailed: (revision: number) => void;
@@ -19,6 +20,7 @@ interface MermaidIframeRuntimeProps {
 
 /** Sandboxed Mermaid renderer. Sizing and gestures belong to the surrounding viewport. */
 export function MermaidIframeRuntime({
+  enabled = true,
   request,
   onRendered,
   onRenderFailed,
@@ -26,6 +28,7 @@ export function MermaidIframeRuntime({
   const [runtimeHtml, setRuntimeHtml] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     // Keep the embedded renderer out of the startup bundle. The host shows source
     // until the renderer is ready, including while this chunk is downloading.
@@ -41,7 +44,7 @@ export function MermaidIframeRuntime({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [enabled]);
   useEffect(() => {
     if (loadFailed && request) onRenderFailed(request.revision);
   }, [loadFailed, request, onRenderFailed]);
@@ -90,7 +93,7 @@ export function MermaidIframeRuntime({
 
   // `inert` (not just tabIndex) because the Modal focus trap focuses descendants
   // programmatically; a focused iframe swallows every keystroke, including Escape.
-  if (runtimeHtml === null) return null;
+  if (!enabled || runtimeHtml === null) return null;
 
   return (
     <iframe

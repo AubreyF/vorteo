@@ -20,6 +20,7 @@ function equalValues(left: object, right: object): boolean {
 }
 
 export interface AppearanceInput {
+  dataSaver?: boolean;
   uiFontFamily: string; // "" -> default stack
   monoFontFamily: string; // "" -> default stack
   uiBaseFontSize: number; // already clamped
@@ -69,8 +70,12 @@ function scaleFontSize(
  * `...t` first.
  */
 export function applyAppearance(input: AppearanceInput): void {
-  const uiOverride = input.uiFontFamily.trim();
-  const mono = input.monoFontFamily.trim() || DEFAULT_MONO_FONT_STACK;
+  const uiOverride = input.dataSaver
+    ? "system-ui, -apple-system, BlinkMacSystemFont, sans-serif"
+    : input.uiFontFamily.trim();
+  const mono = input.dataSaver
+    ? "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+    : input.monoFontFamily.trim() || DEFAULT_MONO_FONT_STACK;
   const diffLineHeight = Math.round(input.codeFontSize * 1.5); // couple to code size
   const activeTheme = UnistylesRuntime.themeName;
   // Unistyles web emits after each registry patch. Updating the mounted theme

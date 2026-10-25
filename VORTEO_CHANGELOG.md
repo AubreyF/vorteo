@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.843 - 2026-10-25
+
+### Added
+
+- Add an explicit browser Data saver preference before optional font loading and in General settings; preserve saved fonts, diagram source, messages and attachment behavior.
+- Keep common plugin icons immediate and defer the remaining catalogue, with visible loading, failure and bounded retry controls.
+
+### Changed
+
+- Replace the startup bitmap with the existing V silhouette in inline SVG, retaining the minimal spinner and delayed diagnostics transition.
+- Resolve web icon imports and their original provider context without eagerly loading the catalogue; guard the package export layout and preserve native imports.
+- Cover provider defaults, icon aliases and optional download state alongside startup, font restoration and diagram consent regressions.
+
 ## 0.11.0-beta.3.vorteo.842 - 2026-10-25
 
 ### Maintenance
