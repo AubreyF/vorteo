@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): restricted Claude sessions keep the skills Claude labels as built in, read from Claude's skill list at launch and recorded in an optional `builtins` list in the frozen skill snapshot. A name shared with any other skill, including a `plugin:name` suffix, is left out, and a package that later claims a name turns it off. Checked against the real Claude 2.1.285 CLI with a forced exclusion. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): restricted Claude and Codex skill selections leave out provider defaults that have no package on disk, such as Claude's bundled skills, instead of refusing the launch. This fixes Claude launches whenever a personal skill is unshared or excluded. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): Host installs now apply the guarded build's script preloads and build metadata, both web exports run with an 8 GB worker heap, and the Lucide import plugin emits a root-independent path, so shared Metro caches stay valid across builds. Not yet installed. README overview and onboarding are unchanged.

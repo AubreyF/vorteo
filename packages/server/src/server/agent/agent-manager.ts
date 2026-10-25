@@ -92,6 +92,7 @@ import {
   type AgentFeature,
   type AgentLaunchContext,
   type AgentSlashCommand,
+  type DraftSkillCatalog,
   type AgentMode,
   type AgentPermissionRequest,
   type AgentPermissionResponse,
@@ -2615,10 +2616,31 @@ export class AgentManager {
   }
 
   async listDraftCommands(config: AgentSessionConfig): Promise<AgentSlashCommand[]> {
+    return (await this.readDraftCommands(config, { builtinSkills: false })).commands;
+  }
+
+  /**
+   * Default skill catalog for a restricted launch, read from one draft session: names the
+   * provider lists as skills, plus skills the provider itself labels as built in.
+   */
+  async listDraftSkillCatalog(config: AgentSessionConfig): Promise<DraftSkillCatalog> {
+    const { commands, builtinSkills } = await this.readDraftCommands(config, {
+      builtinSkills: true,
+    });
+    return {
+      skills: commands.filter((command) => command.kind === "skill").map((command) => command.name),
+      builtinSkills,
+    };
+  }
+
+  private async readDraftCommands(
+    config: AgentSessionConfig,
+    options: { builtinSkills: boolean },
+  ): Promise<{ commands: AgentSlashCommand[]; builtinSkills: string[] }> {
     const normalizedConfig = await this.normalizeConfig(config, { resolveDefaultModel: false });
     const client = this.requireClient(normalizedConfig.provider);
     if (!normalizedConfig.model) {
-      return [];
+      return { commands: [], builtinSkills: [] };
     }
     const available = await client.isAvailable();
     if (!available) {
@@ -2628,7 +2650,7 @@ export class AgentManager {
     }
 
     if (client.listCommands) {
-      return await client.listCommands(normalizedConfig);
+      return { commands: await client.listCommands(normalizedConfig), builtinSkills: [] };
     }
 
     const session = await client.createSession(normalizedConfig);
@@ -2638,7 +2660,10 @@ export class AgentManager {
           `Provider '${normalizedConfig.provider}' does not support listing commands`,
         );
       }
-      return await session.listCommands();
+      const commands = await session.listCommands();
+      const builtinSkills =
+        options.builtinSkills && session.listBuiltinSkills ? await session.listBuiltinSkills() : [];
+      return { commands, builtinSkills };
     } finally {
       try {
         await session.close();

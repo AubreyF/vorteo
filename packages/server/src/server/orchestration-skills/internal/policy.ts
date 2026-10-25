@@ -1,3 +1,5 @@
+import { readdir } from "node:fs/promises";
+import path from "node:path";
 import type { AgentSessionConfig } from "../../agent/agent-sdk-types.js";
 import type {
   SkillPolicy,
@@ -15,6 +17,8 @@ export function isRestricted(policy: SkillPolicy | undefined): boolean {
 interface SkillCaptureOptions {
   home?: string;
   nativeDefaults?: string[] | (() => Promise<string[]>);
+  /** Skills the provider labels as bundled with its own binary; read only for inherited restrictions. */
+  providerBuiltins?: () => Promise<string[]>;
   installation?: {
     definitions: readonly InstallationSkill[];
     excludedIdentities: readonly string[];
@@ -119,15 +123,18 @@ export async function captureSkillPolicy(
   const selected = candidates.filter((skill) => {
     if (policy.mode === "none") return false;
     if (policy.mode === "selected") return selectedHashes.has(skill.sha256);
-    // Provider defaults without an inspectable package (Claude's built-in commands and
-    // bundled skills) cannot be hash-pinned, so the package allowlist leaves them out
-    // rather than refusing the launch.
     const enabledByDefault = nativeDefaults ? nativeDefaults.includes(skill.name) : true;
     return (
       (enabledByDefault || selectedHashes.has(skill.sha256)) && !excludedHashes.has(skill.sha256)
     );
   });
   const snapshot: SkillSnapshot = { capturedAt: new Date().toISOString(), provider, skills: [] };
+  // Provider defaults without an inspectable package cannot be hash-pinned, so only skills
+  // Claude itself labels as bundled are kept, by name. Every other unpackaged default (account,
+  // plugin and command names the inventory cannot see) stays out. Codex filters by package
+  // path, so bundled names stay out there.
+  const builtins = await bundledSkillNames(provider, policy, options, observed);
+  if (builtins.length) snapshot.builtins = builtins;
   for (const skill of selected) {
     if (!skill.sha256 || skill.issues.length || (skill.owner === "plugin" && provider !== "codex"))
       throw new SkillLibraryError(
@@ -161,6 +168,7 @@ export async function captureSkillPolicy(
 
 export async function verifySkillSnapshot(
   config: AgentSessionConfig,
+  options: { claudeConfigDir?: string } = {},
 ): Promise<string[] | undefined> {
   const launch = config.profileLaunch;
   const snapshot = sessionSkillSnapshot(config);
@@ -177,8 +185,17 @@ export async function verifySkillSnapshot(
         `Skill ${skill.name} changed after launch. Restore its recorded version or recreate this task.`,
       );
   }
-  if (snapshot.provider === "claude" && snapshot.skills.length) {
+  let builtins = snapshot.builtins ?? [];
+  if (snapshot.provider === "claude" && (snapshot.skills.length || builtins.length)) {
     const current = await inventorySkills({ cwd: config.cwd });
+    // A package that later claims a built-in name would be enabled by that name, so the
+    // name is turned off instead of admitting an unverified package. The account's own
+    // skill folder is outside the inventory, so its folder names are checked directly.
+    const claimed = new Set(await skillFolderNames(options.claudeConfigDir));
+    for (const skill of current.skills)
+      if (skill.providers.includes("claude"))
+        for (const name of packageNames(skill)) claimed.add(name);
+    builtins = builtins.filter((name) => !claimed.has(name));
     for (const candidate of current.skills) {
       const selected = snapshot.skills.find((skill) => skill.name === candidate.name);
       if (
@@ -192,5 +209,36 @@ export async function verifySkillSnapshot(
         );
     }
   }
-  return [...new Set(snapshot.skills.map((skill) => skill.name))];
+  return [...new Set([...snapshot.skills.map((skill) => skill.name), ...builtins])];
+}
+
+async function bundledSkillNames(
+  provider: string,
+  policy: SkillPolicy,
+  options: SkillCaptureOptions,
+  observed: Array<{ name: string; path: string }>,
+): Promise<string[]> {
+  if (provider !== "claude" || policy.mode !== "inherit" || !options.providerBuiltins) return [];
+  const names = await options.providerBuiltins();
+  // Plugin-qualified names are never bundled, and a package using the name would be enabled
+  // by it, so both stay out.
+  const bundled = names.filter(
+    (name) => !name.includes(":") && !observed.some((skill) => packageNames(skill).includes(name)),
+  );
+  return [...new Set(bundled)].sort();
+}
+
+// Claude's skill allowlist matches a package's frontmatter name or its folder name.
+function packageNames(skill: { name: string; path: string }): string[] {
+  return [skill.name, path.basename(skill.path)];
+}
+
+async function skillFolderNames(configDir: string | undefined): Promise<string[]> {
+  if (!configDir) return [];
+  try {
+    return await readdir(path.join(configDir, "skills"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
 }

@@ -247,7 +247,39 @@ it("launches restricted sessions when the provider lists defaults without packag
   await writeFile(path.join(personal, "SKILL.md"), "---\nname: unshared\ndescription: t\n---\nT");
   await captureSkillPolicy(config, "claude", {
     home,
-    nativeDefaults: ["example", "unshared", "claude-api", "simplify"],
+    nativeDefaults: ["example", "unshared", "claude-api", "simplify", "synced", "tools:lint"],
+    // Only skills Claude labels as bundled are kept; a name an observed package uses, such as
+    // the unshared personal skill, and plugin-qualified names never are.
+    providerBuiltins: async () => ["claude-api", "simplify", "unshared", "tools:lint"],
+    installation: { definitions: [definition], excludedIdentities: [] },
+  });
+  expect(await verifySkillSnapshot(config)).toEqual(["example", "claude-api", "simplify"]);
+  const shadow = path.join(home, ".claude/skills/simplify");
+  await mkdir(shadow, { recursive: true });
+  await writeFile(path.join(shadow, "SKILL.md"), "---\nname: simplify\ndescription: t\n---\nT");
+  expect(await verifySkillSnapshot(config)).toEqual(["example", "claude-api"]);
+  // Skills in the account's own folder are outside the inventory; their folder names count.
+  const account = path.join(home, "account");
+  await mkdir(path.join(account, "skills/claude-api"), { recursive: true });
+  expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
+});
+
+it("treats a package's folder name as a claim on a built-in name", async () => {
+  const { home, skill, config } = await setup();
+  delete config.profileLaunch;
+  const definition = {
+    name: "example",
+    identity: skill.identity,
+    sha256: skill.sha256!,
+    source: null,
+  };
+  const renamed = path.join(home, ".claude/skills/dataviz");
+  await mkdir(renamed, { recursive: true });
+  await writeFile(path.join(renamed, "SKILL.md"), "---\nname: charts\ndescription: t\n---\nT");
+  await captureSkillPolicy(config, "claude", {
+    home,
+    nativeDefaults: ["example", "charts", "dataviz"],
+    providerBuiltins: async () => ["dataviz"],
     installation: { definitions: [definition], excludedIdentities: [] },
   });
   expect(await verifySkillSnapshot(config)).toEqual(["example"]);

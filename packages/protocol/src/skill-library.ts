@@ -16,6 +16,9 @@ export const SkillSnapshotSchema = z.object({
   skills: z.array(
     z.object({ identity: z.string(), name: z.string(), path: z.string(), sha256: z.string() }),
   ),
+  // Provider defaults with no package on disk, such as Claude's bundled skills, allowed by
+  // name. Daemons that predate this field drop it and leave those defaults out.
+  builtins: z.array(z.string()).optional(),
 });
 export type SkillSnapshot = z.infer<typeof SkillSnapshotSchema>;
 

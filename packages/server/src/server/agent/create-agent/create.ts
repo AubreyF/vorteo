@@ -28,7 +28,12 @@ import type {
 } from "../../worktree-session.js";
 import type { AgentAttachment, FirstAgentContext, GitSetupOptions } from "../../messages.js";
 import type { AgentManager, CreateAgentOptions, ManagedAgent } from "../agent-manager.js";
-import type { AgentPromptInput, AgentRunOptions, AgentSessionConfig } from "../agent-sdk-types.js";
+import type {
+  AgentPromptInput,
+  AgentRunOptions,
+  AgentSessionConfig,
+  DraftSkillCatalog,
+} from "../agent-sdk-types.js";
 import type { AgentStorage } from "../agent-storage.js";
 import type { AgentOwner } from "../agent-owner.js";
 import type { ProviderSnapshotManager } from "../provider-snapshot-manager.js";
@@ -892,15 +897,16 @@ async function captureLaunchPolicy(
         ],
       }
     : undefined;
+  let catalog: Promise<DraftSkillCatalog> | undefined;
+  const readCatalog = () =>
+    (catalog ??= dependencies.agentManager.listDraftSkillCatalog({
+      ...config,
+      profileLaunch: undefined,
+      skillSnapshot: undefined,
+    }));
   await captureSkillPolicy(config, provider, {
     installation,
-    nativeDefaults: async () => {
-      const catalog = await dependencies.agentManager.listDraftCommands({
-        ...config,
-        profileLaunch: undefined,
-        skillSnapshot: undefined,
-      });
-      return catalog.filter((command) => command.kind === "skill").map((command) => command.name);
-    },
+    nativeDefaults: async () => (await readCatalog()).skills,
+    providerBuiltins: async () => (await readCatalog()).builtinSkills,
   });
 }

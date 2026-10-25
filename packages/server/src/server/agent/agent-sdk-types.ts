@@ -586,6 +586,11 @@ export interface AgentSlashCommand {
   kind?: AgentSlashCommandKind;
 }
 
+export interface DraftSkillCatalog {
+  skills: string[];
+  builtinSkills: string[];
+}
+
 export interface ListImportableSessionsOptions {
   providerOptions?: ProviderOptions;
   limit?: number;
@@ -854,6 +859,8 @@ export interface AgentSession {
    */
   historyApplied?(): void;
   listCommands?(): Promise<AgentSlashCommand[]>;
+  /** Skills the provider ships inside its own binary, by name, as labelled by the provider. */
+  listBuiltinSkills?(): Promise<string[]>;
   setModel?(modelId: string | null): Promise<void>;
   setThinkingOption?(thinkingOptionId: string | null): Promise<void | AgentProviderNotice>;
   setFeature?(featureId: string, value: unknown): Promise<void>;

@@ -2883,6 +2883,41 @@ class ClaudeAgentSession implements AgentSession {
     return Array.from(commandMap.values()).sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  /**
+   * Skills Claude labels "built-in" (bundled with the CLI). A name that any other source
+   * also uses is left out, so a user, project, account or plugin skill cannot borrow it.
+   * Claude's allowlist also matches the ":name" suffix of plugin skills, so a plugin
+   * skill such as "code-review:code-review" claims the name too.
+   */
+  async listBuiltinSkills(): Promise<string[]> {
+    try {
+      const q = await this.ensureQuery();
+      const usage = await withTimeout(
+        q.getContextUsage(),
+        10_000,
+        "Claude did not report its skills in time",
+      );
+      const report = usage.skills;
+      const skills = report?.skillFrontmatter ?? [];
+      // A partial list could hide a skill that shares a built-in name, so keep none.
+      if (!report || report.totalSkills !== skills.length) return [];
+      const builtin = skills
+        .filter((skill) => skill.source === "built-in")
+        .map((skill) => skill.name);
+      return [...new Set(builtin)].filter((name) =>
+        skills.every(
+          (skill) =>
+            skill.source === "built-in" ||
+            (skill.name !== name && !skill.name.endsWith(`:${name}`)),
+        ),
+      );
+    } catch (error) {
+      // Without the list, restricted sessions still launch; they just leave bundled skills out.
+      this.logger.warn({ err: error }, "Could not read Claude's built-in skills");
+      return [];
+    }
+  }
+
   async revertConversation(input: { messageId: string }): Promise<void> {
     const target = this.resolveConversationRewindTarget(input.messageId);
     if (target.kind === "fresh-session") {
@@ -3424,7 +3459,9 @@ class ClaudeAgentSession implements AgentSession {
   }
 
   private async buildOptions(): Promise<ClaudeOptions> {
-    const selectedSkills = await verifySkillSnapshot(this.config);
+    const selectedSkills = await verifySkillSnapshot(this.config, {
+      claudeConfigDir: claudeConfigDir(this.buildSdkEnv()),
+    });
     const { thinking, effort, ultracode } = this.resolveThinkingConfig();
     const appendedSystemPrompt = this.buildAppendedSystemPrompt();
     const providerOptions = applyClaudeToolPolicy(
