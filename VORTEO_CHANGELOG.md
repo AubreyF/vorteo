@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.844 - 2026-10-25
+
+### Maintenance
+
+- Subagent tests follow 2cf5e0cbb and 0d18398e7. Rows show only status, title and actions, with profile, model and status in the row's tooltip; groups are titled Subagents and System sub-agents; the card's cleanup action shows progress in its tooltip. Duplicate row copies are narrowed to the visible one.
+- The title suggestions test opens rename from the row's context menu when touch rows have no overflow button (2415534c8).
+- Mark two product regressions as known failures:
+  - Subagents opened from a right-pane parent now open in the main pane.
+  - Card explanations no longer open on keyboard focus or on a press at phone width; hover still works.
+
 ## 0.11.0-beta.3.vorteo.843 - 2026-10-25
 
 ### Maintenance

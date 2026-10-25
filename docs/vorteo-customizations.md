@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): test-only change. Subagent and title suggestion tests follow the current rows and menus; two product regressions are marked as known failures. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): test-only change. Draft thinking preference tests are retired, the upstream settings test follows the single settings page, and a duplicated changelog entry is removed. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): test-only change. The plan card test follows the fixed card heading; question card and sidebar project row geometry await owner review. Functionality is unchanged. README overview and onboarding are unchanged.

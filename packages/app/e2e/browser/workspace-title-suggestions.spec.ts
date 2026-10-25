@@ -24,8 +24,17 @@ async function setMode(page: Page, vortonMode: boolean) {
 }
 
 async function openRename(page: Page, key: string) {
-  await page.getByTestId(`sidebar-workspace-row-${key}`).hover();
-  await page.getByTestId(`sidebar-workspace-kebab-${key}`).click();
+  const row = page.getByTestId(`sidebar-workspace-row-${key}`);
+  await row.hover();
+  // Touch and compact rows have no overflow button (2415534c8); their context menu carries the
+  // same items.
+  const kebab = page.getByTestId(`sidebar-workspace-kebab-${key}`);
+  const shown = await kebab
+    .waitFor({ state: "visible", timeout: 3_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (shown) await kebab.click();
+  else await row.click({ button: "right" });
   await page.getByTestId(`sidebar-workspace-menu-rename-${key}`).click();
 }
 
