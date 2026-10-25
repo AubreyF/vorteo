@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.828 - 2026-10-24
+
+### Maintenance
+
+- Context window tests wait on the single loading pulse that replaced separate usage loading lines in 662ea77a7, and hover the composer's meter rather than the details donut with the same name.
+- Workspace setup tests open Show setup from the shared workspace actions menu and start a workspace's only script from its single play button (fa9a1859d), opening the Explorer first where that button lives on desktop.
+- Launcher tests accept the single settings page's Terminal profiles address.
+
 ## 0.11.0-beta.3.vorteo.827 - 2026-10-24
 
 ### Maintenance

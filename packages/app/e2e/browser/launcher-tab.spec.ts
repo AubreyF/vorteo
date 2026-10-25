@@ -247,7 +247,8 @@ test.describe("Tab creation", () => {
     await expect(editProfiles).toHaveAccessibleName("Edit profiles");
 
     await editProfiles.click();
-    await expect(page).toHaveURL(/\/settings\/hosts\/[^/]+\/terminals$/);
+    // Terminal profiles are a pane on the single settings page.
+    await expect(page).toHaveURL(/\/settings\/(hosts\/[^/]+\/)?terminals$/);
   });
 
   test("Cursor CLI profile uses the Cursor icon in New tab and host settings", async ({ page }) => {
@@ -278,7 +279,8 @@ test.describe("Tab creation", () => {
       const explicitMenuPath = await menuIconPath(explicit.name);
 
       await menu.getByTestId("workspace-new-tab-menu-edit-terminal-profiles").click();
-      await expect(page).toHaveURL(/\/settings\/hosts\/[^/]+\/terminals$/);
+      // Terminal profiles are a pane on the single settings page.
+      await expect(page).toHaveURL(/\/settings\/(hosts\/[^/]+\/)?terminals$/);
 
       const settingsIconPath = (id: string) =>
         page

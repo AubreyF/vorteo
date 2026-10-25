@@ -23,9 +23,7 @@ import {
   openHomeWithProject,
   navigateToWorkspaceViaSidebar,
   leaveWorkspaceViaHistory,
-  openWorkspaceScriptsMenu,
-  startWorkspaceScriptFromMenu,
-  closeWorkspaceScriptsMenu,
+  startOnlyWorkspaceScript,
   seedProjectForWorkspaceSetup,
   waitForWorkspaceSetupProgress,
 } from "../support/helpers/workspace-setup";
@@ -267,7 +265,7 @@ test.describe("Workspace setup streaming", () => {
     }
   });
 
-  test("launches script terminals from the workspace scripts menu", async ({ page }) => {
+  test("launches a script terminal from the workspace scripts button", async ({ page }) => {
     test.setTimeout(90_000);
     const client = await connectWorkspaceSetupClient();
     const repo = await createTempGitRepo("setup-svc-ui-", {
@@ -304,9 +302,7 @@ test.describe("Workspace setup streaming", () => {
 
       await waitForWorkspaceTabsVisible(page);
       await expectNoTerminalTabs(page);
-      await openWorkspaceScriptsMenu(page);
-      await startWorkspaceScriptFromMenu(page, "web");
-      await closeWorkspaceScriptsMenu(page);
+      await startOnlyWorkspaceScript(page);
       await clickFirstTerminalTab(page);
       await expectTerminalSurfaceVisible(page, { timeout: 10_000 });
       await waitForTerminalAttached(page);
