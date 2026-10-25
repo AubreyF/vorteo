@@ -100,17 +100,30 @@ export async function expectWorkspaceHeader(
 ): Promise<void> {
   const titleLocator = page.getByTestId("workspace-header-title").filter({ visible: true });
   const subtitleLocator = page.getByTestId("workspace-header-subtitle").filter({ visible: true });
-  const selectedRow = page
-    .locator('[data-testid^="sidebar-workspace-row-"][aria-selected="true"]')
+  const routeRow = page
+    .locator('[data-testid^="sidebar-workspace-row-"]')
     .filter({ visible: true });
 
-  await expect(titleLocator.or(selectedRow).first()).toBeVisible({ timeout: 30_000 });
+  // Phones show the title header. Desktop has none since 195e1c044, so read the open workspace's
+  // sidebar row, found from the route: status-grouped rows expose no selected state.
+  await expect(titleLocator.or(routeRow).first()).toBeVisible({ timeout: 30_000 });
   if ((await titleLocator.count()) > 0) {
     await expect(titleLocator.first()).toHaveText(input.title, { timeout: 30_000 });
     await expect(subtitleLocator.first()).toHaveText(input.subtitle, { timeout: 30_000 });
     return;
   }
-  await expect(selectedRow.first()).toContainText(input.title, { timeout: 30_000 });
+  await expect(page).toHaveURL(/\/h\/[^/]+\/workspace\/[^/?#]+/, { timeout: 30_000 });
+  const match = /\/h\/([^/]+)\/workspace\/([^/?#]+)/.exec(new URL(page.url()).pathname);
+  const row = page
+    .getByTestId(
+      `sidebar-workspace-row-${decodeURIComponent(match![1])}:${decodeURIComponent(match![2])}`,
+    )
+    .filter({ visible: true })
+    .first();
+  await expect(row).toContainText(input.title, { timeout: 30_000 });
+  // Project grouping names the project on its section row. Status grouping shows only the
+  // project's icon in the row, so there is no project name to read.
+  if (await page.getByTestId("sidebar-status-list-scroll").isVisible()) return;
   await expect(
     page
       .locator('[data-testid^="sidebar-project-row-"]')

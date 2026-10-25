@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): test-only change. Browser tests reset the host-synced sidebar before each test, the header helper reads the route row, and the subagent status test follows delegated task ownership. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): test-only change. Sidebar helpers, reorder and pin shortcut tests follow hidden sidebar copies, touch sheets and host-synced sidebar state; one touch title test awaits owner review. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): test-only change. Subagent and title suggestion tests follow the current rows and menus; two product regressions are marked as known failures. Functionality is unchanged. README overview and onboarding are unchanged.

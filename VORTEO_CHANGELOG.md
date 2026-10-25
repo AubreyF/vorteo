@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.846 - 2026-10-25
+
+### Maintenance
+
+- Each browser test starts from the default sidebar: project grouping, no filters and nothing collapsed. That state now syncs through the host, so one test's choices carried into the next.
+- The workspace header helper finds the open workspace's sidebar row from the route, since status-grouped rows expose no selected state, and skips the project name that status rows do not show.
+- The cross-workspace subagent test expects the parent's workspace to show its running child, since delegated agents stay under their originating task (471d7f22a).
+
 ## 0.11.0-beta.3.vorteo.845 - 2026-10-25
 
 ### Maintenance

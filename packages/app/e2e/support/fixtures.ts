@@ -11,6 +11,8 @@ import {
 import { connectSeedClient, type SeedDaemonClient } from "./helpers/seed-client";
 import { createWithWorkspace, type WithWorkspace } from "./helpers/with-workspace";
 import { E2E_MOCK_PROFILE, seedAgentProfiles } from "./helpers/agent-profiles";
+import { connectDaemonClient } from "./helpers/daemon-client-loader";
+import type { SidebarState } from "@getpaseo/protocol/sidebar-state";
 
 const EXTRA_HOSTS_KEY = "@paseo:e2e-extra-hosts";
 
@@ -112,6 +114,7 @@ const test = daemonTest.extend<{
   defaultMockProfileSeed: void;
   dismissWorktreeSetupCallout: boolean;
   worktreeSetupCalloutHandler: void;
+  sidebarStateReset: void;
   paseoE2ESetup: void;
   outdatedDaemon: OutdatedDaemon;
   desktopManagedOutdatedDaemon: OutdatedDaemon;
@@ -125,6 +128,15 @@ const test = daemonTest.extend<{
   // Seeded git projects have no worktree setup commands, so the "Set up worktree scripts" notice
   // appears over the composer's bottom-right actions. Dismiss it whenever it shows; specs about
   // the notice opt out with `dismissWorktreeSetupCallout: false`.
+  // Sidebar grouping, filters and collapsed sections sync through the host, so one test's choices
+  // would otherwise carry into the next. Start each test from the default sidebar.
+  sidebarStateReset: [
+    async ({}, provide) => {
+      await resetSidebarState().catch(() => undefined);
+      await provide();
+    },
+    { auto: true },
+  ],
   worktreeSetupCalloutHandler: [
     async ({ page, dismissWorktreeSetupCallout }, provide) => {
       if (dismissWorktreeSetupCallout) {
@@ -294,3 +306,35 @@ const test = daemonTest.extend<{
 });
 
 export { daemonTest, test, metroTest, expect, type Page };
+
+interface SidebarStateClient {
+  close(): Promise<void>;
+  readSidebarState(): Promise<{ snapshot: { state: SidebarState | null } }>;
+  changeSidebarState(change: { type: "patch"; patch: Partial<SidebarState> }): Promise<unknown>;
+}
+
+/** Returns the host's synced sidebar to project grouping with no filters or collapsed sections. */
+async function resetSidebarState(): Promise<void> {
+  const client = await connectDaemonClient<SidebarStateClient & { connect(): Promise<void> }>({
+    clientIdPrefix: "sidebar-reset",
+  });
+  try {
+    const state = (await client.readSidebarState()).snapshot.state;
+    const cleared = (flags: Record<string, boolean> | undefined) =>
+      Object.fromEntries(Object.keys(flags ?? {}).map((key) => [key, false]));
+    await client.changeSidebarState({
+      type: "patch",
+      patch: {
+        groupMode: "project",
+        collapsedPinned: false,
+        hostFilters: [],
+        projectFilters: [],
+        labelFilters: [],
+        collapsedProjects: cleared(state?.collapsedProjects),
+        collapsedWorkspaceGroups: cleared(state?.collapsedWorkspaceGroups),
+      },
+    });
+  } finally {
+    await client.close().catch(() => undefined);
+  }
+}

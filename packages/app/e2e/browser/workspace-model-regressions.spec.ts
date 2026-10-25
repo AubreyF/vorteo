@@ -561,9 +561,11 @@ test.describe("Workspace model regressions", () => {
         rowTestId: childRowTestId,
         indicator: "running",
       });
+      // Delegated agents stay under their originating task since 471d7f22a, so the parent's
+      // workspace shows its running child.
       await expectWorkspaceRowHasOnlyIndicator(page, {
         rowTestId: parentRowTestId,
-        indicator: "done",
+        indicator: "running",
       });
 
       await gotoWorkspace(page, agents.parent.workspaceId);
