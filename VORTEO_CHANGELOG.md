@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.851 - 2026-10-25
+
+### Fixed
+
+- Claude tasks no longer fail to launch when a personal skill is missing from the shared library or a skill is excluded. Those launches restrict skills, and Claude's own built-in commands and bundled skills have no files to verify, so every one was refused. Restricted sessions now leave those unverifiable defaults out instead.
+
 ## 0.11.0-beta.3.vorteo.850 - 2026-10-25
 
 ### Maintenance

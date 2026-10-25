@@ -232,3 +232,23 @@ it("does not admit unshared personal packages and refuses missing canonical cont
     }),
   ).rejects.toThrow("no verified");
 });
+
+it("launches restricted sessions when the provider lists defaults without packages", async () => {
+  const { home, skill, config } = await setup();
+  delete config.profileLaunch;
+  const definition = {
+    name: "example",
+    identity: skill.identity,
+    sha256: skill.sha256!,
+    source: null,
+  };
+  const personal = path.join(home, ".claude/skills/unshared");
+  await mkdir(personal, { recursive: true });
+  await writeFile(path.join(personal, "SKILL.md"), "---\nname: unshared\ndescription: t\n---\nT");
+  await captureSkillPolicy(config, "claude", {
+    home,
+    nativeDefaults: ["example", "unshared", "claude-api", "simplify"],
+    installation: { definitions: [definition], excludedIdentities: [] },
+  });
+  expect(await verifySkillSnapshot(config)).toEqual(["example"]);
+});

@@ -109,7 +109,6 @@ export async function captureSkillPolicy(
         `Selected skill is unavailable in this environment: ${identity}`,
       );
   }
-  validateNativeDefaults(nativeDefaults, observed);
   const selectedHashes = new Set(
     candidates.filter((skill) => include.includes(skill.identity)).map((skill) => skill.sha256),
   );
@@ -120,6 +119,9 @@ export async function captureSkillPolicy(
   const selected = candidates.filter((skill) => {
     if (policy.mode === "none") return false;
     if (policy.mode === "selected") return selectedHashes.has(skill.sha256);
+    // Provider defaults without an inspectable package (Claude's built-in commands and
+    // bundled skills) cannot be hash-pinned, so the package allowlist leaves them out
+    // rather than refusing the launch.
     const enabledByDefault = nativeDefaults ? nativeDefaults.includes(skill.name) : true;
     return (
       (enabledByDefault || selectedHashes.has(skill.sha256)) && !excludedHashes.has(skill.sha256)
@@ -191,17 +193,4 @@ export async function verifySkillSnapshot(
     }
   }
   return [...new Set(snapshot.skills.map((skill) => skill.name))];
-}
-
-function validateNativeDefaults(
-  defaults: string[] | undefined,
-  candidates: Array<{ name: string }>,
-): void {
-  for (const name of defaults ?? []) {
-    if (!candidates.some((skill) => skill.name === name))
-      throw new SkillLibraryError(
-        "unverified_skill",
-        `Provider skill ${name} has no inspectable package. Use selected-only skills or resolve its source before applying exclusions.`,
-      );
-  }
 }
