@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.837 - 2026-10-25
+
+### Maintenance
+
+- Workspace actions open from the pane menu on desktop or the title menu's sheet on phones in import session tests; the shared helper recognises the sheet's content.
+- Mark the desktop import session test as a known failure: since 471d7f22a New workspace shows Import session only on compact layouts.
+
 ## 0.11.0-beta.3.vorteo.836 - 2026-10-25
 
 ### Maintenance

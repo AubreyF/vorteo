@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): test-only change. Import session tests use the current workspace actions menus; the desktop entry point is marked as a known regression. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): test-only change. Usage, provider removal, CLI warning and sidebar tests follow the Quota card, provider rows and More menu. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): test-only change. Worktree notice dismissal, plugin settings addresses and workspace title checks follow the current interface; three product regressions are marked as known failures. Functionality is unchanged. README overview and onboarding are unchanged.

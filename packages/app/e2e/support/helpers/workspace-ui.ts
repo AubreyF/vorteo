@@ -251,9 +251,16 @@ export async function openWorkspaceActionsMenu(
   const onTitle = (await title.count()) > 0;
   if (options.tap) await trigger.tap();
   else await trigger.click();
-  const content = page.getByTestId(
-    onTitle ? "workspace-header-menu" : "workspace-split-pane-menu-content",
-  );
-  await expect(content.first()).toBeVisible();
-  return content.first();
+  // Phones open the title menu as a sheet, whose scroll content carries the "-content" test ID.
+  const content = (
+    onTitle
+      ? page
+          .getByTestId("workspace-header-menu")
+          .or(page.getByTestId("workspace-header-menu-content"))
+      : page.getByTestId("workspace-split-pane-menu-content")
+  )
+    .filter({ visible: true })
+    .first();
+  await expect(content).toBeVisible();
+  return content;
 }
