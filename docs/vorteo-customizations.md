@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-24): test-only change. Agent skills tests target the installation's first host and read failed saves inline. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-24): test-only change. Open question tests expect refused answers as toasts. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-24): test-only change. Command center agent control tests are marked for the missing Mode commands; the composer thinking selector test is retired. Functionality is unchanged. README overview and onboarding are unchanged.

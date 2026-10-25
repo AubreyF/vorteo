@@ -128,9 +128,8 @@ test.describe("Host agent skills", () => {
     await chooseCustomSkills(page, [skills.available[0]!]);
     await saveSkillSelection(page);
 
-    await expect(
-      page.getByText("Could not save your skill selection.", { exact: true }),
-    ).toBeVisible();
+    // Since 68faa7a52 the sheet shows the daemon's own failure inline.
+    await expect(page.getByRole("dialog").getByText(/^Request failed: /)).toBeVisible();
     await expect(page.getByRole("switch", { name: "All skills", exact: true })).toBeVisible();
     await skills.unblockAgentsDirectory();
     await expectSavedSelection(skills, { mode: "all" });

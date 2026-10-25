@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.824 - 2026-10-24
+
+### Maintenance
+
+- Agent skills tests save their sandbox daemon as the first host, because Agent behavior settings manage the installation's first host since 471d7f22a, and expect a failed save to show the daemon's own error in the sheet, as 68faa7a52 made it.
+
 ## 0.11.0-beta.3.vorteo.823 - 2026-10-24
 
 ### Maintenance
