@@ -197,7 +197,10 @@ export async function clickToolCallBesideScrollToBottomButton(page: Page): Promi
     minDistanceFromBottom: 300,
   });
 
-  const scrollToBottomButton = page.getByRole("button", { name: "Scroll to bottom" });
+  // Host-connected chats label it "Jump to latest" since 5ccf27a5b; the test ID is unchanged.
+  const scrollToBottomButton = page
+    .getByTestId("scroll-to-bottom-button")
+    .filter({ visible: true });
   await expect(scrollToBottomButton).toBeVisible();
 
   const buttonBounds = await scrollToBottomButton.boundingBox();

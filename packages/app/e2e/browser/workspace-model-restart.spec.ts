@@ -8,6 +8,8 @@ import { expect, type Page } from "@playwright/test";
 import { buildHostWorkspaceRoute, decodeWorkspaceIdFromPathSegment } from "@/utils/host-routes";
 import type { FormPreferences } from "@/create-agent-preferences/preferences";
 import { metroTest as test } from "../support/fixtures";
+import { E2E_MOCK_PROFILE, seedAgentProfiles } from "../support/helpers/agent-profiles";
+import { chooseProfile } from "../support/helpers/model-profile";
 import { buildSeededHost } from "../support/helpers/daemon-registry";
 import { loadDaemonClientConstructor } from "../support/helpers/daemon-client-loader";
 import {
@@ -414,6 +416,9 @@ test.describe("Workspace model restart regressions", () => {
     const daemon = await startRestartDaemon({ paseoHome: seeded.paseoHome, origin });
     const serverId = SERVER_ID;
     const client = await connectRestartDaemonClient(daemon.port);
+    // Since 471d7f22a New workspace creates nothing without a profile, and this daemon is not
+    // the fixture's, so it needs the shared mock profile too.
+    const profiles = await seedAgentProfiles([E2E_MOCK_PROFILE], true, daemon.port);
 
     try {
       await seedBrowserForDaemon(page, { serverId, port: daemon.port });
@@ -450,6 +455,7 @@ test.describe("Workspace model restart regressions", () => {
         projectDisplayName: seeded.projectDisplayName,
       });
       await expectNewWorkspaceProjectSelected(page, seeded.projectDisplayName);
+      await chooseProfile(page, { provider: "mock", profileId: E2E_MOCK_PROFILE.id });
       await submitNewWorkspaceEmpty(page);
 
       await expect
@@ -510,6 +516,7 @@ test.describe("Workspace model restart regressions", () => {
         .poll(() => getVisibleWorkspaceAgentTabIds(page), { timeout: 30_000 })
         .toContain(`workspace-tab-agent_${LEGACY_AGENT_ID}`);
     } finally {
+      await profiles.restore();
       await client.close().catch(() => undefined);
       await daemon.close();
       seeded.cleanup();

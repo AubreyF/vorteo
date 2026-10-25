@@ -87,10 +87,11 @@ test("updates a running terminal across all six themes without replacing its ses
           await page.evaluate((original) => window.__paseoTerminal === original, initialTerminal),
         ).toBe(true);
         expect(await getTerminalBufferText(page)).toContain("THEME_BUFFER_RETAINED");
-        await expect(terminal.locator(".xterm-rows")).toHaveCSS(
-          "font-family",
-          /monospace|Mono|Menlo/,
-        );
+        // The WebGL renderer draws into a canvas with no .xterm-rows, so read the font the
+        // terminal renders with from its options; both renderers use it.
+        expect(
+          await page.evaluate(() => String(window.__paseoTerminal?.options.fontFamily ?? "")),
+        ).toMatch(/monospace|Mono|Menlo/);
         await page.screenshot({
           path: info.outputPath(`${theme}-terminal.png`),
         });

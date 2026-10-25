@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import { test, expect } from "../support/fixtures";
@@ -60,9 +61,30 @@ for (const width of [390, 680]) {
       await header.getByTestId("workspace-header-menu-trigger").click();
       await expect(page.getByTestId("workspace-scripts-item-check")).toBeVisible();
       await page.getByTestId("workspace-scripts-start-check").click();
-      await expect(page.getByTestId("workspace-scripts-item-check")).toContainText("0", {
-        timeout: 20000,
-      });
+      // The script's output proves it ran on any shell.
+      await expect
+        .poll(
+          async () => {
+            const { terminals } = await client.listTerminals(undefined, undefined, {
+              workspaceId: agent.workspaceId,
+            });
+            const captures = await Promise.all(
+              terminals.map((terminal) => client.captureTerminal(terminal.id, { stripAnsi: true })),
+            );
+            return captures.some((capture) =>
+              capture.lines.join("\n").includes("mobile-script-ok"),
+            );
+          },
+          { timeout: 20_000 },
+        )
+        .toBe(true);
+      // Exit codes come from the daemon's zsh shell integration only (packages/server terminal.ts),
+      // so Linux CI runners on bash never show the badge.
+      if (path.basename(process.env.SHELL ?? "") === "zsh") {
+        await expect(page.getByTestId("workspace-scripts-item-check")).toContainText("exit 0", {
+          timeout: 20_000,
+        });
+      }
     } finally {
       await client.close();
       await agent.cleanup();

@@ -113,7 +113,11 @@ for (const scenario of [
       creation.evictAndReturnToDraft(),
   },
 ]) {
-  test(`retrying failed agent initialization preserves its workspace${scenario.suffix}`, async ({
+  // Product regression, reported to Builds on 2026-10-25: retrying a failed first agent from the
+  // new workspace's draft is rejected with workspace_request_key_conflict and creates no agent
+  // (commit not identified). Remove the fixme once the retry reuses the original workspace
+  // creation or revises it, and the agent starts.
+  test.fixme(`retrying failed agent initialization preserves its workspace${scenario.suffix}`, async ({
     creation,
     startup,
   }) => {

@@ -4,6 +4,28 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.858 - 2026-10-25
+
+### Maintenance
+
+- Repair the composer and agent stream browser tests:
+  - The first prompt test runs with reduced motion, since the prompt's rise is deliberate (ab83bcdea).
+  - The jump button is found by its test ID, since host-connected chats label it "Jump to latest" (5ccf27a5b).
+  - The compact Plus menu check follows the 8px menu inset (6ee6bfd23).
+  - The blank-line composer probe starts from the key press, since Shift+Enter fires no input event (1167acf35).
+  - Queued prompts are confirmed through the host's history (29d3f5111).
+  - The stopped-thread queue test pauses the queue itself, since Stop no longer pauses it (614c0e44f).
+  - Connection failures appear as "Reconnecting host" toasts (471d7f22a), and the workspace restart test seeds a profile.
+- Retire the overlapping queued-send recovery test: the host owns the queue since 29d3f5111, and a2a7c4937 blocks a second immediate send.
+- Mark two known regressions: retrying a failed first agent in a new workspace fails with a request key conflict, and hosts without profile launch cannot create anything since 471d7f22a.
+- Repair the remaining card tests:
+  - Full-width collapsed headers keep their count chip fill (bd1db0362), compact goal badges round to hours (0153f4c69), and the context window card joins the card checks (7723a55f6).
+  - Task conflicts report through a toast (68faa7a52), and queue checks look in the conversation (b5ee41fb8).
+  - The terminal theme test reads the font from xterm's options, since the WebGL renderer has no text rows.
+  - The phone scripts test confirms the script's output, and checks the exit badge only under zsh, which is the only shell that reports exit codes.
+- Two layout differences go to owner review.
+- Shared helpers: scrolling to the newest history retries until the view settles, and the pagination test no longer opts out of the worktree notice handler.
+
 ## 0.11.0-beta.3.vorteo.857 - 2026-10-25
 
 ### Maintenance
