@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AgentSessionConfig } from "../../agent/agent-sdk-types.js";
@@ -10,11 +11,13 @@ import type {
   SkillInventory,
 } from "@getpaseo/protocol/skill-library";
 import {
+  claudeConfigRoots,
   inventorySkills,
   readPackage,
   skillMetadata,
   skillRoots,
   SkillLibraryError,
+  type SkillRoot,
 } from "./inventory.js";
 
 export function isRestricted(policy: SkillPolicy | undefined): boolean {
@@ -203,11 +206,18 @@ export async function verifySkillSnapshot(
     // name is turned off instead of admitting an unverified package. Plugin skills claim
     // their bare name, which Claude's allowlist matches as a ":name" suffix. If any root
     // could not be read, a claim may be hidden, so no built-ins are kept.
-    const claimed = await claimedSkillNames(current);
-    builtins = claimed ? builtins.filter((name) => !claimed.has(name)) : [];
+    const baselineRoots = await skillRoots(os.homedir(), config.cwd);
+    if (builtins.length) {
+      const claudeRoots = [
+        ...baselineRoots,
+        ...(options.claudeConfigDir ? claudeConfigRoots(options.claudeConfigDir) : []),
+      ].filter((root) => root.providers.includes("claude"));
+      const claimed = await claimedSkillNames(current, claudeRoots);
+      builtins = claimed ? builtins.filter((name) => !claimed.has(name)) : [];
+    }
     // Config-folder roots join the inventory only to find claims on built-in names; the
     // package selector check keeps its earlier scope.
-    const baseline = (await skillRoots(os.homedir(), config.cwd)).map((root) => root.path);
+    const baseline = baselineRoots.map((root) => root.path);
     const packaged = current.skills.filter((skill) =>
       baseline.some((root) => skill.path.startsWith(root + path.sep)),
     );
@@ -249,7 +259,10 @@ function packageNames(skill: { name: string; path: string }): string[] {
 }
 
 /** Every name a Claude skill in the inventory claims; null when some claim is unknown. */
-async function claimedSkillNames(inventory: SkillInventory): Promise<Set<string> | null> {
+async function claimedSkillNames(
+  inventory: SkillInventory,
+  claudeRoots: SkillRoot[],
+): Promise<Set<string> | null> {
   if (inventory.roots.some((root) => root.status === "error")) return null;
   const claimed = new Set<string>();
   for (const skill of inventory.skills) {
@@ -258,7 +271,45 @@ async function claimedSkillNames(inventory: SkillInventory): Promise<Set<string>
     if (!names) return null;
     for (const name of names) claimed.add(name);
   }
+  // Claude lists custom commands as skills and its allowlist matches them by name.
+  const commands = await commandNames(claudeRoots);
+  if (!commands) return null;
+  for (const name of commands) claimed.add(name);
   return claimed;
+}
+
+/**
+ * Names of Claude custom commands: the commands folder beside each skill folder, and
+ * commands folders inside plugins. A nested "dir/name.md" is listed as "dir:name", which
+ * the allowlist matches by its bare suffix. Null when a folder cannot be read.
+ */
+async function commandNames(roots: SkillRoot[]): Promise<string[] | null> {
+  const names: string[] = [];
+  async function walk(directory: string, depth: number, inCommands: boolean): Promise<void> {
+    let entries: Dirent[];
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    for (const entry of entries) {
+      const full = path.join(directory, entry.name);
+      if (inCommands && entry.name.endsWith(".md") && !entry.isDirectory())
+        names.push(entry.name.slice(0, -3));
+      else if (depth > 0 && (entry.isDirectory() || entry.isSymbolicLink()))
+        await walk(full, depth - 1, inCommands || entry.name === "commands");
+    }
+  }
+  try {
+    for (const root of roots) {
+      if (root.owner === "plugin") await walk(root.path, root.depth + 2, false);
+      else await walk(path.join(path.dirname(root.path), "commands"), 3, true);
+    }
+  } catch {
+    return null;
+  }
+  return names;
 }
 
 /**

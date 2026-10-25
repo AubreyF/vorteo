@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): resuming a restricted Claude session also reads custom command folders (project, home, account and plugin commands) for claims on bundled skill names, after confirming against Claude 2.1.285 that its skill allowlist matches commands by name. Skill policy tests are isolated from the real home folder. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): on resume, skills the inventory could not fully inspect claim their frontmatter name, read directly from SKILL.md, and an unreadable SKILL.md drops all bundled skills. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): resuming a restricted Claude session inventories the account's own `CLAUDE_CONFIG_DIR` skills and its plugin cache, marketplace and synced folders for claims on bundled skill names, and keeps no bundled skills when a root cannot be read. The package selector check keeps its earlier scope. README overview and onboarding are unchanged.

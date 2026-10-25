@@ -1,20 +1,30 @@
 import { chmod, mkdtemp, mkdir, writeFile, rm, cp, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { captureSkillPolicy, verifySkillSnapshot } from "./policy";
 import { codexSkillFilter } from "./codex-policy";
 import { inventorySkills } from "./inventory";
 import type { AgentSessionConfig } from "../../agent/agent-sdk-types";
 
 const directories: string[] = [];
+// Resume checks read the default home folder; give each test an empty one so the
+// developer's own skills, plugins and commands never affect the result.
+beforeEach(async () => {
+  const userHome = await mkdtemp(path.join(os.tmpdir(), "skill-policy-user-"));
+  directories.push(userHome);
+  vi.spyOn(os, "homedir").mockReturnValue(userHome);
+});
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const directory of directories.splice(0))
     await rm(directory, { recursive: true, force: true });
 });
 async function setup() {
   const home = await mkdtemp(path.join(os.tmpdir(), "skill-policy-"));
   directories.push(home);
+  // Stops the project folder walk here instead of at the filesystem root.
+  await mkdir(path.join(home, ".git"));
   const directory = path.join(home, ".claude/skills/example");
   await mkdir(directory, { recursive: true });
   await writeFile(
@@ -348,6 +358,52 @@ it("keeps no built-ins when a skill's frontmatter cannot be read", async () => {
   } finally {
     await chmod(path.join(unreadable, "SKILL.md"), 0o644);
   }
+});
+
+it("turns off built-in names claimed in the account's synced skill layout", async () => {
+  const { config, account } = await bundledSetup();
+  await writeSkill(path.join(account, "skills/synced/helper"), "simplify");
+  expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual([
+    "example",
+    "claude-api",
+  ]);
+});
+
+it("keeps no built-ins when a folder inside a plugin root cannot be read", async () => {
+  const { config, account } = await bundledSetup();
+  const locked = path.join(account, "plugins/marketplaces/market/plugins/locked");
+  await mkdir(locked, { recursive: true });
+  await chmod(locked, 0o000);
+  try {
+    expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
+  } finally {
+    await chmod(locked, 0o755);
+  }
+});
+
+it("turns off built-in names claimed by custom commands added after launch", async () => {
+  const { home, config, account } = await bundledSetup();
+  // Claude lists custom commands as skills and its allowlist matches them by name.
+  await mkdir(path.join(home, ".claude/commands"), { recursive: true });
+  await writeFile(path.join(home, ".claude/commands/simplify.md"), "Simplify");
+  expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual([
+    "example",
+    "claude-api",
+  ]);
+  // A nested plugin command is listed as "group:claude-api" and matches by suffix.
+  const commands = path.join(account, "plugins/marketplaces/market/plugins/tools/commands/group");
+  await mkdir(commands, { recursive: true });
+  await writeFile(path.join(commands, "claude-api.md"), "Call the API");
+  expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
+});
+
+it("turns off built-in names claimed by commands in the user's home folder", async () => {
+  const { config } = await bundledSetup();
+  const userHome = os.homedir();
+  expect(path.basename(userHome)).toMatch(/^skill-policy-user-/);
+  await mkdir(path.join(userHome, ".claude/commands"), { recursive: true });
+  await writeFile(path.join(userHome, ".claude/commands/claude-api.md"), "Call the API");
+  expect(await verifySkillSnapshot(config)).toEqual(["example", "simplify"]);
 });
 
 it("keeps no built-ins when an account skill folder cannot be read", async () => {
