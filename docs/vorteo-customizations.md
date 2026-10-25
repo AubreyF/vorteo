@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): the daemon web UI build used by the container image gets the 8 GB export heap, and the upstream website deployment is skipped in this fork. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): test-only change. Three POSIX-only coordinator test suites now skip on Windows, like the other installation suites. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): startup diagnostics share a ten-second reveal and automatic-check threshold. The V mark moves and shrinks in sync with the content reveal, with an immediate final layout for reduced motion. Eighteen scoped Chromium tests cover the loader, including intermediate geometry at compact and desktop sizes; separate motion-preference checks cover both layouts. Publication and physical-device acceptance are pending. README overview and onboarding are unchanged.

@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.858 - 2026-10-25
+
+### Fixed
+
+- The container image build's web export now runs with the same 8 GB worker heap as Host installs. The server package's web UI build ran out of memory at about 4 GB in the container smoke builds on several main commits.
+
+### Maintenance
+
+- The Deploy Website workflow runs only in the upstream repository. This fork has no Cloudflare token, so the job failed on every main push.
+
 ## 0.11.0-beta.3.vorteo.857 - 2026-10-25
 
 ### Maintenance

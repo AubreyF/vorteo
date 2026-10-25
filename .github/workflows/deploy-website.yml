@@ -18,7 +18,8 @@ on:
 
 jobs:
   deploy:
-    if: ${{ github.event_name != 'release' || (!github.event.release.prerelease && !github.event.release.draft) }}
+    # Upstream's Cloudflare deployment: forks have no CLOUDFLARE_API_TOKEN.
+    if: ${{ github.repository == 'getpaseo/paseo' && (github.event_name != 'release' || (!github.event.release.prerelease && !github.event.release.draft)) }}
     runs-on: ubuntu-latest
 
     steps:
