@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.820 - 2026-10-25
+
+### Fixed
+
+- Startup diagnostics run automatically after 15 seconds, independently of the interface download and document load events. Bounded, deduplicated checks resume after offline or background delays, cancel after startup, and distinguish endpoint health from daemon authentication and session readiness.
+- The default V spinner transitions into a compact, scrollable diagnostic panel with reduced-motion support. Pending script downloads stay indeterminate because browsers do not expose live script byte progress; completed timings, observed script events, safe build provenance and existing public restart-request counts retain their limits and freshness.
+- Production exports preload the existing entry script without changing its execution order, integrity or cross-origin policy. Optional font CSS no longer blocks the inline diagnostic bootstrap.
+
 ## 0.11.0-beta.3.vorteo.819 - 2026-10-25
 
 ### Fixed

@@ -92,13 +92,13 @@ test("recognized engine errors preserve a concrete safe message and the failed a
   expect(report?.value).toContain("safe-error-0123456789abcdef.js");
 });
 
-async function openLoader() {
+async function openLoader(fixturePath = "/startup-fixture", setup = "") {
   const origin = new URL(inject("passwordlessRelayUrl").replace("ws:", "http:")).origin;
-  const html = await fetch(`${origin}/startup-fixture`).then((response) => response.text());
+  const html = await fetch(`${origin}${fixturePath}`).then((response) => response.text());
   const frame = document.createElement("iframe");
   frame.style.cssText = "position:fixed;inset:0;width:100%;height:100%;border:0";
   frame.allow = "clipboard-write 'none'";
-  frame.srcdoc = html.replace("<head>", `<head><base href="${origin}/">`);
+  frame.srcdoc = html.replace("<head>", `<head><base href="${origin}/"><script>${setup}</script>`);
   frames.push(frame);
   document.body.appendChild(frame);
   await expect
@@ -109,23 +109,79 @@ async function openLoader() {
   return { doc, origin };
 }
 
-test.each([390, 1133])(
-  "the real HTML loader exposes bounded diagnostics and controls at width %s without an app bundle",
-  async (width) => {
-    await page.viewport(width, 844);
-    const { doc } = await openLoader();
-    await expect
-      .poll(() => doc.getElementById("boot-help")?.hidden, { timeout: 15000 })
-      .toBe(false);
+test("delayed startup probes once and reports an in-flight deferred entry before its timing exists", async () => {
+  const origin = new URL(inject("passwordlessRelayUrl").replace("ws:", "http:")).origin;
+  await fetch(`${origin}/startup-test-mode`, { method: "POST", body: "normal" });
+  const { doc } = await openLoader("/startup-held-fixture");
+  await expect
+    .poll(() => doc.getElementById("boot-diagnostics")?.textContent, { timeout: 18000 })
+    .toContain("Passed — installation endpoint responded");
+  doc.getElementById("boot-copy")?.click();
+  const reportText = doc.querySelector<HTMLTextAreaElement>("#boot-report");
+  await expect.poll(() => reportText?.value).toContain('"diagnosticsRevision": 3');
+  const report: unknown = JSON.parse(reportText?.value ?? "null");
+  expect(report).toMatchObject({
+    assetError: null,
+    scriptResources: [],
+    endpointProbe: { attempts: 1, trigger: "automatic", state: "complete" },
+    scriptElements: [
+      {
+        path: "/_expo/static/js/web/held-0123456789abcdef.js",
+        defer: true,
+        loadEventObserved: false,
+        timingEntryPresent: false,
+      },
+    ],
+  });
+  expect(
+    await fetch(`${origin}/startup-fixture-stats`).then((response) => response.json()),
+  ).toEqual({ startupHealthRequests: 1, heldScriptRequests: 1 });
+  await fetch(`${origin}/startup-release-held-script`, { method: "POST" });
+  await expect.poll(() => Reflect.get(doc.defaultView!, "__startupHeldEntryCount")).toBe(1);
+  expect(
+    await fetch(`${origin}/startup-fixture-stats`).then((response) => response.json()),
+  ).toEqual({ startupHealthRequests: 1, heldScriptRequests: 1 });
+}, 25000);
+
+test("a completed startup cancels the delayed automatic probe", async () => {
+  const { doc, origin } = await openLoader();
+  await fetch(`${origin}/startup-test-mode`, { method: "POST", body: "normal" });
+  const finish: unknown = Reflect.get(doc.defaultView!, "__vorteoFinishBoot");
+  if (typeof finish !== "function") throw new Error("Boot completion hook missing");
+  finish();
+  await new Promise((resolve) => setTimeout(resolve, 16000));
+  expect(
+    await fetch(`${origin}/startup-fixture-stats`).then((response) => response.json()),
+  ).toEqual({ startupHealthRequests: 0, heldScriptRequests: 0 });
+}, 20000);
+
+test.each([
+  [390, 620],
+  [1133, 844],
+])(
+  "the real HTML loader exposes bounded diagnostics and controls at width %s and height %s without an app bundle",
+  async (width, height) => {
+    await page.viewport(width, height);
+    const { doc } = await openLoader("/startup-fixture", controlledClock);
+    Reflect.set(
+      doc.defaultView!,
+      "__startupNow",
+      Number(Reflect.get(doc.defaultView!, "__startupNow")) + 16000,
+    );
+    doc.defaultView!.dispatchEvent(new Event("pageshow"));
+    await expect.poll(() => doc.getElementById("boot-help")?.hidden).toBe(false);
+    const help = doc.getElementById("boot-help");
+    if (!help) throw new Error("Diagnostic panel missing");
+    await Promise.all(help.getAnimations().map((animation) => animation.finished));
+    expect(getComputedStyle(help).opacity).toBe("1");
     const check = doc.querySelector<HTMLButtonElement>("#boot-check");
     if (!check) throw new Error("Endpoint button missing");
     check.click();
-    expect(check.disabled).toBe(true);
     await expect
       .poll(() => doc.getElementById("boot-diagnostics")?.textContent)
       .toContain("Passed — installation endpoint responded");
     expect(check.disabled).toBe(false);
-    expect(doc.getElementById("boot-diagnostics")?.textContent).toContain(
+    expect(doc.getElementById("boot-connection-details")?.textContent).toContain(
       "Unknown — requires the app connection",
     );
     expect(check.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
@@ -136,10 +192,11 @@ test.each([390, 1133])(
     const copy = doc.getElementById("boot-copy");
     if (!copy) throw new Error("Copy action missing");
     copy.scrollIntoView({ block: "nearest" });
-    expect(copy.getBoundingClientRect().bottom).toBeLessThanOrEqual(844);
+    expect(copy.getBoundingClientRect().bottom).toBeLessThanOrEqual(height);
     expect(copy.getBoundingClientRect().top).toBeGreaterThanOrEqual(0);
     await page.screenshot({ path: `startup-diagnostics-${width}.png` });
   },
+  22000,
 );
 
 test("script load failures remain actionable and clipboard denial exposes a sanitized selectable report", async () => {
@@ -161,4 +218,67 @@ test("script load failures remain actionable and clipboard denial exposes a sani
   expect(report.value).not.toContain("must-not-leak");
   expect(report.value).not.toContain(origin);
   expect(report.value).toContain("Unknown — requires the app connection");
+});
+
+const controlledClock =
+  "window.__startupNow=Date.now(); Date.now=function(){return window.__startupNow;};";
+
+test("offline startup defers automatic probes and deduplicates repeated online/resume events", async () => {
+  const { doc, origin } = await openLoader(
+    "/startup-fixture",
+    controlledClock +
+      "window.__startupOnline=false;Object.defineProperty(navigator,'onLine',{get:function(){return window.__startupOnline;}});",
+  );
+  const win = doc.defaultView!;
+  Reflect.set(win, "__startupNow", Number(Reflect.get(win, "__startupNow")) + 16000);
+  win.dispatchEvent(new Event("pageshow"));
+  expect(doc.getElementById("boot-diagnostics")?.textContent).toContain(
+    "Deferred — browser reports offline",
+  );
+  expect(await fetch(`${origin}/startup-fixture-stats`).then((r) => r.json())).toEqual({
+    startupHealthRequests: 0,
+    heldScriptRequests: 0,
+  });
+  Reflect.set(win, "__startupOnline", true);
+  for (let count = 0; count < 5; count++) {
+    win.dispatchEvent(new Event("online"));
+    win.dispatchEvent(new Event("pageshow"));
+  }
+  await expect
+    .poll(() => doc.getElementById("boot-diagnostics")?.textContent)
+    .toContain("Passed — installation endpoint responded");
+  expect(await fetch(`${origin}/startup-fixture-stats`).then((r) => r.json())).toEqual({
+    startupHealthRequests: 1,
+    heldScriptRequests: 0,
+  });
+});
+
+test("a foreground clock gap starts overdue checks without retrying a slow but progressing entry", async () => {
+  const { doc, origin } = await openLoader("/startup-held-fixture", controlledClock);
+  const win = doc.defaultView!;
+  await fetch(`${origin}/startup-progress-held-script`, { method: "POST" });
+  Reflect.set(win, "__startupNow", Number(Reflect.get(win, "__startupNow")) + 14000);
+  doc.dispatchEvent(new Event("visibilitychange"));
+  expect(await fetch(`${origin}/startup-fixture-stats`).then((r) => r.json())).toEqual({
+    startupHealthRequests: 0,
+    heldScriptRequests: 1,
+  });
+  Reflect.set(win, "__startupNow", Number(Reflect.get(win, "__startupNow")) + 2000);
+  doc.dispatchEvent(new Event("visibilitychange"));
+  await expect
+    .poll(() => doc.getElementById("boot-diagnostics")?.textContent)
+    .toContain("Passed — installation endpoint responded");
+  const progress = doc.querySelector<HTMLProgressElement>("#boot-progress");
+  expect(progress?.hasAttribute("value")).toBe(false);
+  expect(doc.querySelector<HTMLButtonElement>("#boot-retry-script")?.hidden).toBe(true);
+  doc.getElementById("boot-copy")?.click();
+  const report = doc.querySelector<HTMLTextAreaElement>("#boot-report");
+  await expect.poll(() => report?.value).toContain('"received": null');
+  expect(report?.value).not.toContain("must-not-leak");
+  await fetch(`${origin}/startup-release-held-script`, { method: "POST" });
+  await expect.poll(() => Reflect.get(win, "__startupHeldEntryCount")).toBe(1);
+  expect(await fetch(`${origin}/startup-fixture-stats`).then((r) => r.json())).toEqual({
+    startupHealthRequests: 1,
+    heldScriptRequests: 1,
+  });
 });

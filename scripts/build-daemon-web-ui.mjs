@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
-import { cp, mkdir, readdir, rm, stat } from "node:fs/promises";
+import { cp, mkdir, readdir, rm, stat, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { compressFile } from "./compress-web-asset.mjs";
+import { preloadWebEntry } from "./preload-web-entry.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -107,6 +108,8 @@ async function main() {
 
   await cleanTarget();
   await copyAssets();
+  const indexPath = path.join(TARGET_DIST, "index.html");
+  await writeFile(indexPath, preloadWebEntry(await readFile(indexPath, "utf8")));
   await precompressAssets(TARGET_DIST);
 
   const sizes = await measureBundle(TARGET_DIST);
