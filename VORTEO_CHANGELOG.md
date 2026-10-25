@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.828 - 2026-10-25
+
+### Maintenance
+
+- Merge macOS-only immutable flag clearing: release removal no longer runs chflags on Linux and Windows
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-25
+
+### Fixed
+
+- Removing a release tree no longer needs macOS file-flag tooling on other systems. Clearing immutable flags ran `/usr/bin/chflags` everywhere, so on Linux and Windows every removal failed and Host release retention's test removed nothing. Only macOS can set those flags, so clearing them elsewhere now does nothing. The macOS Host was unaffected.
+
 ## 0.11.0-beta.3.vorteo.827 - 2026-10-25
 
 ### Maintenance

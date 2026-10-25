@@ -12,6 +12,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, test } from "vitest";
+import { setReleaseImmutable } from "./coordinator-bootstrap-release-seal.js";
 import { pruneHostReleases } from "./host-release-retention.js";
 
 const roots: string[] = [];
@@ -70,4 +71,25 @@ test("one release that cannot be removed is reported and the rest continue", asy
   expect(failed).toEqual([id(1)]);
   expect(removed.sort()).toEqual([id(0), id(2), id(3)]);
   expect(existsSync(f.release(1))).toBe(true);
+});
+
+test("off macOS, release trees are removed without immutable-flag tooling", async () => {
+  const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  Object.defineProperty(process, "platform", { value: "linux" });
+  try {
+    // chflags would fail on a missing path, so resolving proves it was not called.
+    await expect(setReleaseImmutable(["/nonexistent/release"], false)).resolves.toBeUndefined();
+    const f = fixture(4);
+    const failed: string[] = [];
+    const removed = await pruneHostReleases({
+      releaseRoot: f.root,
+      referenced: [f.current],
+      keepNewest: 1,
+      onError: (folder) => failed.push(path.basename(folder)),
+    });
+    expect(failed).toEqual([]);
+    expect(removed.sort()).toEqual([id(0), id(1), id(2)]);
+  } finally {
+    Object.defineProperty(process, "platform", platform);
+  }
 });

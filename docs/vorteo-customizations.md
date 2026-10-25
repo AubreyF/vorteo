@@ -24,6 +24,8 @@ Maintenance review (2026-10-24): scripts run through a symlinked installation pa
 
 Maintenance review (2026-10-25): Windows server CI skips the POSIX-only Docker restart and Factory check suites; no feature changed. README overview and onboarding are unchanged.
 
+Maintenance review (2026-10-25): release-tree removal skips clearing macOS immutable flags on other systems, where none can exist, so retention works and tests pass on Linux and Windows. Host behaviour is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-23): automatic coordinator renewals can close a failed automatic update that never reached promotion, proven under the journal lock and bound to the same coordinator process. Owner-reviewed and other failures still need owner review. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-23): app installation client tests now expect the Docker restart and Host launcher query flags on restart routes. Behavior is unchanged. README overview and onboarding are unchanged.
