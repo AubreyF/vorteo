@@ -1339,7 +1339,13 @@ test.runIf(process.platform === "darwin").each(["isolated", "shared-group"])(
       "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js",
     );
     mkdirSync(path.dirname(entry), { recursive: true });
-    writeFileSync(entry, 'process.send("ready"); setInterval(() => {}, 1000);', { mode: 0o600 });
+    // The detached executor outlives a killed or timed-out test worker unless it exits
+    // when the IPC channel to that worker closes; one such pair ran for 12 hours.
+    writeFileSync(
+      entry,
+      'process.on("disconnect", () => process.exit(0)); process.send("ready"); setInterval(() => {}, 1000);',
+      { mode: 0o600 },
+    );
     const node = realpathSync(process.execPath);
     const setup = path.join(f.directory, "setup.json");
     const executor = spawn(node, [entry, setup, "executor", f.request.plan.original.id], {
