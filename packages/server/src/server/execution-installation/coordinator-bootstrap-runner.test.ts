@@ -627,10 +627,12 @@ test("an interrupted runner leaves phase evidence without claiming failure or li
     });
     evidence.run('renewal-validation', () => new Promise(() => {}));
     process.stdout.write(evidence.file);
+    process.on('disconnect', () => process.exit(0));
     setInterval(() => {}, 1000);
   `,
     ],
-    { stdio: ["ignore", "pipe", "pipe"] },
+    // The IPC channel ends the fixture if the test worker dies before cleanup.
+    { stdio: ["ignore", "pipe", "pipe", "ipc"] },
   );
   const exited = once(child, "close");
   try {

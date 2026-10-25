@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.851 - 2026-10-25
+
+### Maintenance
+
+- Four more coordinator test fixtures that loop forever now exit when their link to the test process closes, so a test worker that dies mid-test no longer leaves them running. A fifth, which must run as an orphan, now exits on its own after two minutes. A sixth already had its own time limit and is unchanged.
+
 ## 0.11.0-beta.3.vorteo.850 - 2026-10-25
 
 ### Maintenance

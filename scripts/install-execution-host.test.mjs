@@ -395,14 +395,19 @@ test.skipIf(process.platform !== "linux")(
       path.join(previous, ".installation-source.json"),
       JSON.stringify({ sourceCommit: baseCommit }),
     );
-    const supervisor = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
-      env: {
-        ...process.env,
-        PASEO_MANAGED_RELEASE_LINK: link,
-        PASEO_MANAGED_RELEASE_ROOT: releases,
+    const supervisor = spawn(
+      process.execPath,
+      ["-e", "process.on('disconnect',()=>process.exit(0));setInterval(()=>{},1000)"],
+      {
+        env: {
+          ...process.env,
+          PASEO_MANAGED_RELEASE_LINK: link,
+          PASEO_MANAGED_RELEASE_ROOT: releases,
+        },
+        // The IPC channel ends the fixture if the test worker dies before cleanup.
+        stdio: ["ignore", "ignore", "ignore", "ipc"],
       },
-      stdio: "ignore",
-    });
+    );
     writeFileSync(
       path.join(home, "managed-supervisor.json"),
       JSON.stringify({ version: 1, pid: supervisor.pid, root: releases, link }),
