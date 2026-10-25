@@ -4,6 +4,23 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.823 - 2026-10-25
+
+### Maintenance
+
+- Merge four timing fixes: large validators and draft modules load outside test timeouts, built-in plugins start concurrently so daemons boot about twice as fast, and small artifact digests hash on the scan thread
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Changed
+
+- The daemon starts its built-in plugins concurrently instead of one after another. It accepts connections only once they have all started, so each daemon start or restart waited for every plugin's compile and launch in turn; a test daemon now boots in about 7 seconds instead of 16.
+- Artifact verification hashes small artifacts on its scan worker instead of starting a separate reader thread, halving the threads started per verification. Large release trees still use parallel readers.
+
+### Maintenance
+
+- Fix four tests that timed out in full runs. Two loaded large modules inside their timeout: the protocol snapshot test imported the 9.6 MB generated validator, and the composer draft test imported its hook in a setup hook. Both now import at module load. The native helper replacement and compiled held restart tests sped up from the two changes above.
+
 ## 0.11.0-beta.3.vorteo.822 - 2026-10-25
 
 ### Maintenance
