@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.838 - 2026-10-25
+
+### Maintenance
+
+- Retire the Standard mode queue test and the Standard half of the title suggestions test, citing 471d7f22a.
+- Skill library tests open Skills as a pane of the single settings page.
+- Locators narrowed to one element:
+  - The outer subagents card, since group bodies reuse its test ID.
+  - The visible journal card, which also appears among the history cards.
+  - The plugin source Docs link, since metadata generation has its own.
+
 ## 0.11.0-beta.3.vorteo.837 - 2026-10-25
 
 ### Maintenance

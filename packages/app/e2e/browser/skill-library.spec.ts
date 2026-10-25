@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { test as base, expect } from "../support/fixtures";
 import { gotoAppShell, openSettings } from "../support/helpers/app";
-import { openSettingsHost } from "../support/helpers/settings";
+import { openSettingsHost, revealSettingsLocation } from "../support/helpers/settings";
 import { getServerId } from "../support/helpers/server-id";
 
 const test = base.extend<{}, { skillHome: string }>({
@@ -65,8 +65,8 @@ test("inspects skills and preserves an edit made after removal preview", async (
 }) => {
   await gotoAppShell(page);
   await openSettings(page);
-  await page.getByRole("button", { name: "Skills", exact: true }).click();
-  await expect(page).toHaveURL(/\/settings\/skills$/);
+  // Skills is a pane of Agent behavior on the single settings page.
+  await revealSettingsLocation(page, "skills");
   await page.getByPlaceholder("Name, provider, ownership, or environment").fill("browser-example");
   await expect(page.getByText("browser-example", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Details", exact: true }).click();
@@ -120,8 +120,7 @@ test("groups provider links and keeps removal scoped to the selected path", asyn
 test("opens Skills from compact settings and a direct link", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/settings");
-  await page.getByRole("button", { name: "Skills", exact: true }).click();
-  await expect(page).toHaveURL(/\/settings\/skills$/);
+  await revealSettingsLocation(page, "skills");
   await expect(page.getByPlaceholder("Name, provider, ownership, or environment")).toBeVisible();
   await page.reload();
   await expect(page.getByPlaceholder("Name, provider, ownership, or environment")).toBeVisible();
@@ -132,9 +131,10 @@ test.describe("Legacy product preference migration", () => {
   test("keeps the skill library available with a legacy disabled preference", async ({ page }) => {
     await gotoAppShell(page);
     await openSettings(page);
-    await expect(page.getByRole("button", { name: "Skills", exact: true })).toBeVisible();
+    await revealSettingsLocation(page, "skills");
+    await expect(page.getByPlaceholder("Name, provider, ownership, or environment")).toBeVisible();
     await openSettingsHost(page, getServerId());
-    await page.getByRole("button", { name: "Agents", exact: true }).click();
+    await revealSettingsLocation(page, "agents");
     await expect(page.getByText("Orchestration skills", { exact: true }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Skill library", exact: true })).toBeVisible();
   });

@@ -728,33 +728,5 @@ async function checkQueueOrbitTransition({ page }: { page: Page }) {
   }
 }
 
-test("queue orbit stays hidden in Standard mode", async ({ page }) => {
-  const agent = await seedMockAgentWorkspace({
-    repoPrefix: "queue-standard-",
-    title: "Standard queue",
-  });
-  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "queue-standard" });
-  try {
-    await client.mutateMessageQueue(agent.agentId, {
-      kind: "pause",
-      paused: true,
-      operationId: "pause-standard",
-      expectedRevision: 0,
-    });
-    await client.mutateMessageQueue(agent.agentId, {
-      kind: "enqueue",
-      operationId: "standard-enqueue",
-      messageId: "standard-message",
-      text: "Shared queue remains stored",
-      attachments: [],
-    });
-    await openAgentRoute(page, agent);
-    await expectComposerVisible(page, { timeout: 30_000 });
-    await expect(page.getByTestId("shared-message-queue")).toHaveCount(0);
-    await expect(page.getByTestId("queue-local-indicator")).toHaveCount(0);
-    expect((await client.readMessageQueue(agent.agentId)).snapshot?.items).toHaveLength(1);
-  } finally {
-    await client.close();
-    await agent.cleanup();
-  }
-});
+// Retired 2026-10-25: "queue orbit stays hidden in Standard mode" asserted the Standard mode that
+// 471d7f22a removed.

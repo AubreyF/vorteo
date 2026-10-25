@@ -155,7 +155,8 @@ for (const width of [1400, 390]) {
         await expect(toggle).toBeVisible();
         if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
       }
-      const card = page.getByTestId("agent-journal-card");
+      // The journal card shows in the conversation and among the history cards; read the visible one.
+      const card = page.getByTestId("agent-journal-card").filter({ visible: true }).first();
       await expect(async () => {
         await card.scrollIntoViewIfNeeded();
         await expect(card).toBeVisible();

@@ -130,7 +130,8 @@ export async function seedParentWithCrossWorkspaceSubagent(
 
 /** Expand each available group without closing one that is already open. */
 export async function openSubagentsTrack(page: Page): Promise<void> {
-  const card = page.getByTestId("subagents-card");
+  // Each group's body reuses the card's test ID, so the outer card is the first match.
+  const card = page.getByTestId("subagents-card").first();
   await expect(card).toBeVisible({ timeout: 30_000 });
   const toggles = card.getByTestId(/^subagents-group-(paseo|provider)-toggle$/);
   for (const toggle of await toggles.all()) {

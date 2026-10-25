@@ -249,7 +249,8 @@ async function expectPluginSourceDocsOpen(page: Page): Promise<void> {
       (request) => request.isNavigationRequest() && request.url().startsWith("https://paseo.sh/"),
     );
   const docsPagePromise = page.context().waitForEvent("page");
-  await page.getByRole("link", { name: "Docs", exact: true }).click();
+  // The single settings page has other Docs links, such as metadata generation's.
+  await page.getByTestId("plugin-source-docs-link").click();
   const request = await requestedPage;
   const docsPage = await docsPagePromise;
   try {

@@ -29,9 +29,7 @@ async function openRename(page: Page, key: string) {
   await page.getByTestId(`sidebar-workspace-menu-rename-${key}`).click();
 }
 
-test("title failures use a warning card and preserve manual rename in Vorton only", async ({
-  page,
-}, info) => {
+test("title failures use a warning card and preserve manual rename", async ({ page }, info) => {
   const workspace = await seedWorkspace({ repoPrefix: "title-warning-" });
   try {
     await gotoAppShell(page);
@@ -57,12 +55,8 @@ test("title failures use a warning card and preserve manual rename in Vorton onl
     await page.getByTestId(`${modal}-input`).fill("Manually named workspace");
     await page.getByTestId(`${modal}-submit`).click();
     await expect(row).toContainText("Manually named workspace");
-    await setMode(page, false);
-    await openRename(page, key);
-    await expect(page.getByTestId(`${modal}-input`)).toBeVisible();
-    await expect(warning).toHaveCount(0);
-    await expect(page.getByTestId("workspace-title-suggestions")).toHaveCount(0);
-    await page.getByTestId(`${modal}-cancel`).click();
+    // Retired 2026-10-25: the Standard mode half, which hid suggestions, went with the mode in
+    // 471d7f22a.
     await page.setViewportSize({ width: 390, height: 844 });
     await setMode(page, true);
     await page.getByRole("button", { name: "Open menu", exact: true }).click();
