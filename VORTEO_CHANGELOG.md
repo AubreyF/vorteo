@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.818 - 2026-10-25
+
+### Added
+
+- The delayed startup screen now offers the existing connection checker, separating endpoint health, WebSocket transport, app authentication and thread-directory readiness. It includes elapsed time and reload; a connected directory does not claim a selected workspace is ready.
+- The initial HTML loader can check its installation endpoint and copy a sanitized report even when the app bundle has not started. Failed script loads remain visible, and clipboard denial leaves a selectable report. Unknown daemon and session states remain unknown.
+
 ## 0.11.0-beta.3.vorteo.817 - 2026-10-25
 
 ### Maintenance

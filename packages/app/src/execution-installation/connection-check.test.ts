@@ -4,6 +4,7 @@ import {
   checkInstallationConnection,
   connectionEndpointLabel,
   connectionSessionDescription,
+  connectionReadinessDescription,
 } from "./connection-check";
 
 import {
@@ -95,6 +96,36 @@ test("network reachability never conceals rejected authentication or missing cli
   expect(connectionEndpointLabel("wss://user:secret@host.example:44445/socket?token=private")).toBe(
     "host.example:44445",
   );
+});
+
+test("session readiness requires an authenticated connection and a measured directory", () => {
+  expect(connectionReadinessDescription(null)).toBe(
+    "Session readiness: unknown until the app connects.",
+  );
+  expect(
+    connectionReadinessDescription({
+      state: "online",
+      authentication: null,
+      endpoint: null,
+      directory: "ready",
+    }),
+  ).toBe("Thread directory: ready. Selected workspace readiness is not measured by this check.");
+  expect(
+    connectionReadinessDescription({
+      state: "online",
+      authentication: null,
+      endpoint: null,
+      directory: "failed",
+    }),
+  ).toContain("failed to load");
+  expect(
+    connectionReadinessDescription({
+      state: "offline",
+      authentication: null,
+      endpoint: null,
+      directory: "ready",
+    }),
+  ).toContain("unknown until the app connects");
 });
 
 function diagnostic(): ConnectionDiagnostic {

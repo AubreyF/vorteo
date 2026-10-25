@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { InstallationConnectionCheck } from "@/execution-installation/connection-check-wrapper";
+import { Button } from "@/components/ui/button";
+import { isWeb } from "@/constants/platform";
 
 const Spinner = withUnistyles(LoadingSpinner, (theme) => ({
   color: theme.colors.foregroundMuted,
@@ -18,15 +21,28 @@ const labels = {
   workspace: "Loading workspace",
 };
 
+function reloadStartup(): void {
+  if (isWeb) window.location.reload();
+}
+
 export function StartupStatus({ phase }: StartupStatusProps) {
   const [delayed, setDelayed] = useState(false);
+  const [startedAt] = useState(Date.now);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   useEffect(() => {
     setDelayed(false);
 
     const timer = setTimeout(() => setDelayed(true), 10_000);
-    return () => clearTimeout(timer);
-  }, []);
+    const clock = setInterval(
+      () => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000)),
+      1000,
+    );
+    return () => {
+      clearTimeout(timer);
+      clearInterval(clock);
+    };
+  }, [startedAt]);
 
   return (
     <View style={styles.content} testID="startup-status">
@@ -35,20 +51,43 @@ export function StartupStatus({ phase }: StartupStatusProps) {
         {labels[phase]}
       </Text>
       {delayed ? (
-        <View style={styles.help} testID="startup-diagnostics" accessibilityLiveRegion="polite">
-          <Text style={styles.hint}>Taking longer than expected.</Text>
-          <Text style={styles.hint}>Check your internet connection and VPN, if required.</Text>
-          <Text style={styles.hint}>Make sure the host is awake and Vorteo is running.</Text>
-          <Text style={styles.hint}>If this persists, check the host address in Settings.</Text>
-        </View>
+        <ScrollView
+          style={styles.help}
+          contentContainerStyle={styles.details}
+          testID="startup-diagnostics"
+        >
+          <Text style={styles.hint}>
+            Taking longer than expected · {elapsedSeconds} seconds elapsed.
+          </Text>
+          <Text style={styles.hint}>
+            Interface assets: running. The page may have loaded from cache.
+          </Text>
+          <Text style={styles.hint}>
+            Use the connection check when available. A successful health check does not prove
+            session readiness. Check your connection and VPN, and the host address in Settings.
+          </Text>
+          <InstallationConnectionCheck />
+          {isWeb ? (
+            <Button variant="outline" onPress={reloadStartup}>
+              Reload
+            </Button>
+          ) : null}
+        </ScrollView>
       ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
-  content: { alignItems: "center", gap: theme.spacing[3], maxWidth: 360 },
+  content: {
+    alignItems: "center",
+    gap: theme.spacing[3],
+    maxWidth: 640,
+    width: "100%",
+    flexShrink: 1,
+  },
   label: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.base },
-  help: { gap: theme.spacing[2], paddingTop: theme.spacing[3] },
+  help: { alignSelf: "stretch", maxHeight: 480, flexShrink: 1 },
+  details: { gap: theme.spacing[2], padding: theme.spacing[3] },
   hint: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm, textAlign: "center" },
 }));

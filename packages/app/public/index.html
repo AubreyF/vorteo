@@ -166,9 +166,20 @@
         </div>
         <div id="boot-help" hidden role="status">
           <p>Taking longer than expected.</p>
-          <p>Check your internet connection and VPN, if required.</p>
-          <p>Make sure the host is awake and Vorteo is running, then reload.</p>
+          <p>Check the connection stages below, then retry or reload.</p>
+          <p id="boot-elapsed"></p>
+          <div id="boot-diagnostics" aria-live="polite"></div>
+          <p>The page may be cached. These results describe this device only.</p>
+          <button id="boot-check" type="button">Check endpoint</button>
           <button type="button" onclick="window.location.reload()">Reload</button>
+          <button id="boot-copy" type="button">Copy diagnostics</button>
+          <p id="boot-copy-feedback" role="status"></p>
+          <textarea
+            id="boot-report"
+            aria-label="Sanitized connection diagnostics"
+            readonly
+            hidden
+          ></textarea>
         </div>
       </div>
     </div>
@@ -185,7 +196,10 @@
       #boot-status {
         margin: auto;
         padding: 24px;
-        max-width: 360px;
+        width: min(100%, 600px);
+        max-height: 90%;
+        overflow-y: auto;
+        box-sizing: border-box;
         text-align: center;
         font:
           14px system-ui,
@@ -206,6 +220,20 @@
         color: inherit;
         font: inherit;
         cursor: pointer;
+      }
+      #boot-help button {
+        margin: 4px;
+      }
+      #boot-diagnostics {
+        text-align: left;
+        overflow-wrap: anywhere;
+      }
+      #boot-report {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 140px;
+        color: inherit;
+        background: transparent;
       }
       .boot-emblem {
         position: relative;
@@ -293,7 +321,124 @@
       } catch (_) {
         /* Storage may be unavailable; the neutral dark loader remains usable. */
       }
+      var bootStarted = Date.now();
+      var bootAssets = "Waiting for the interface to start";
+      var bootEndpoint = "Unknown — not checked";
+      var bootChecking = false;
+      var bootController = null;
+      var bootTimer = null;
+      function bootSummary() {
+        return JSON.stringify(
+          {
+            format: "vorteo-startup-diagnostics-v1",
+            elapsedSeconds: Math.floor((Date.now() - bootStarted) / 1000),
+            page: "HTML and diagnostic script loaded; cache freshness unknown",
+            assets: bootAssets,
+            endpoint: bootEndpoint,
+            websocket: "Unknown — interface has not reported a connection",
+            authenticationAndHostRegistration: "Unknown — requires the app connection",
+            sessionReadiness: "Unknown — requires the app connection",
+          },
+          null,
+          2,
+        );
+      }
+      function renderBootDiagnostics() {
+        var panel = document.getElementById("boot-diagnostics");
+        if (!panel) return;
+        panel.replaceChildren();
+        var report = JSON.parse(bootSummary());
+        [
+          "page",
+          "assets",
+          "endpoint",
+          "websocket",
+          "authenticationAndHostRegistration",
+          "sessionReadiness",
+        ].forEach(function (key) {
+          var row = document.createElement("p");
+          var labels = {
+            page: "Page",
+            assets: "Interface assets",
+            endpoint: "Endpoint reachability",
+            websocket: "WebSocket",
+            authenticationAndHostRegistration: "Authentication / host registration",
+            sessionReadiness: "Session readiness",
+          };
+          row.textContent = labels[key] + ": " + report[key];
+          panel.appendChild(row);
+        });
+        document.getElementById("boot-elapsed").textContent =
+          report.elapsedSeconds + " seconds elapsed";
+      }
+      function bootResourceError(event) {
+        if (event.target instanceof HTMLScriptElement || event.target === window) {
+          bootAssets = "Failed — interface script could not load or execute; reload to retry";
+          renderBootDiagnostics();
+        }
+      }
+      window.addEventListener("error", bootResourceError, true);
+      var bootClock = setInterval(renderBootDiagnostics, 1000);
+      document.getElementById("boot-check").addEventListener("click", async function () {
+        if (bootChecking) return;
+        bootChecking = true;
+        var button = document.getElementById("boot-check");
+        button.disabled = true;
+        bootEndpoint = "Checking this device's installation endpoint";
+        renderBootDiagnostics();
+        bootController = new AbortController();
+        bootTimer = setTimeout(function () {
+          bootController.abort();
+        }, 8000);
+        try {
+          var response = await fetch("/api/installation/health", {
+            cache: "no-store",
+            credentials: "omit",
+            redirect: "error",
+            signal: bootController.signal,
+          });
+          if (!response.ok) {
+            bootEndpoint = "Failed — HTTP " + response.status;
+          } else {
+            var text = await response.text();
+            var body = text.length <= 4096 ? JSON.parse(text) : null;
+            bootEndpoint =
+              body && typeof body.installationId === "string"
+                ? "Passed — installation endpoint responded; identity, daemon authentication and session remain unverified"
+                : "Failed — endpoint did not return installation health";
+          }
+        } catch (_) {
+          bootEndpoint =
+            "Failed — no usable health response within 8 seconds; network, browser policy and server cause are unknown";
+        } finally {
+          clearTimeout(bootTimer);
+          bootChecking = false;
+          button.disabled = false;
+          renderBootDiagnostics();
+        }
+      });
+      document.getElementById("boot-copy").addEventListener("click", async function () {
+        var report = bootSummary();
+        var feedback = document.getElementById("boot-copy-feedback");
+        try {
+          await navigator.clipboard.writeText(report);
+          feedback.textContent =
+            "Diagnostics copied. No credentials, addresses or private session data are included.";
+        } catch (_) {
+          var area = document.getElementById("boot-report");
+          area.value = report;
+          area.hidden = false;
+          area.focus();
+          area.select();
+          feedback.textContent = "Clipboard unavailable. Select and copy the report below.";
+        }
+      });
+      renderBootDiagnostics();
       window.__vorteoFinishBoot = function () {
+        clearInterval(bootClock);
+        clearTimeout(bootTimer);
+        if (bootController) bootController.abort();
+        window.removeEventListener("error", bootResourceError, true);
         var overlay = document.getElementById("boot-overlay");
         if (!overlay || overlay.dataset.leaving) return;
         overlay.dataset.leaving = "true";

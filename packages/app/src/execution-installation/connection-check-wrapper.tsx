@@ -5,11 +5,21 @@ import { readExecutionInstallation } from "./policy";
 import { connectionEndpointLabel, type ConnectionSession } from "./connection-check";
 import { InstallationConnectionCheckSection } from "./connection-check-section";
 
+const directoryReadiness = {
+  idle: "unknown",
+  initial_loading: "loading",
+  revalidating: "loading",
+  ready: "ready",
+  error_before_first_success: "failed",
+  error_after_ready: "failed",
+} as const;
+
 function currentSession(serverId: string): ConnectionSession {
   const state = getHostRuntimeStore().getSnapshot(serverId);
   return {
     state: state?.connectionStatus ?? "uninitialized",
     authentication: state?.authFailureReason ?? null,
+    directory: state ? directoryReadiness[state.agentDirectoryStatus] : "unknown",
     endpoint: connectionEndpointLabel(state?.activeConnection?.endpoint),
   };
 }
