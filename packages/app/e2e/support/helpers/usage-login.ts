@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { UsageReport } from "@getpaseo/protocol/messages";
 import { expect, type Page } from "@playwright/test";
-import { expectPinnedUsage, pinRow, usageItem } from "./usage-sidebar-item";
 import { connectNewWorkspaceDaemonClient } from "./new-workspace";
 import { pluginRequirements } from "./plugin-fixture";
 
@@ -117,18 +116,12 @@ export default function contribute(server) {
 }
 
 export async function expectCodexReportedWindows(page: Page, shape: "seven-day-only" | "Spark") {
-  await expectPinnedUsage(page, ["11% wk"]);
-  await expect(pinRow(page.locator("body"), "Codex", "Weekly")).toBeChecked();
-  await expect(page.getByText("Session", { exact: true })).toHaveCount(0);
+  const card = page.locator('[data-testid^="usage-report-"]').filter({ hasText: "Codex" }).first();
+  await expect(card.getByText("Weekly", { exact: true })).toBeVisible();
+  await expect(card.getByText(/^11% · resets /)).toBeVisible();
+  await expect(card.getByText("Session", { exact: true })).toHaveCount(0);
   if (shape === "Spark") {
-    const fiveHour = pinRow(page.locator("body"), "Codex", "GPT-5.3-Codex-Spark · 5-hour");
-    const weekly = pinRow(page.locator("body"), "Codex", "GPT-5.3-Codex-Spark · Weekly");
-    await expect(fiveHour).not.toBeChecked();
-    await expect(weekly).not.toBeChecked();
-    await fiveHour.click();
-    await expect(fiveHour).toBeChecked();
-    await expect(usageItem(page)).toHaveAccessibleName(
-      /Codex Weekly 11% used, Codex GPT-5.3-Codex-Spark · 5-hour 0% used/,
-    );
+    await expect(card.getByText("GPT-5.3-Codex-Spark · 5-hour", { exact: true })).toBeVisible();
+    await expect(card.getByText("GPT-5.3-Codex-Spark · Weekly", { exact: true })).toBeVisible();
   }
 }

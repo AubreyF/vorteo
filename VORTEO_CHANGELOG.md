@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.817 - 2026-10-24
+
+### Maintenance
+
+- Usage screen tests open Usage by its address, since the sidebar Usage row and icon are gone, and check report windows, provider window durations and source logos on the screen itself.
+- Retire the tests for the sidebar Usage summary, its pins and the sidebar footer rows: usage-sidebar-item.spec.ts, sidebar-nav-settings.spec.ts, and the pin, pin glyph and sidebar-host tests in usage-screen.spec.ts. 9332fbd2d hid the sidebar Usage item and 471d7f22a removed its switch, icon and the Sidebar settings pane.
+
 ## 0.11.0-beta.3.vorteo.816 - 2026-10-24
 
 ### Maintenance

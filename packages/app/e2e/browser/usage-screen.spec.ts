@@ -5,10 +5,7 @@ import type { Page } from "@playwright/test";
 import type { UsageReportEntry } from "@getpaseo/protocol/messages";
 import { expect, test } from "../support/fixtures";
 import { gotoAppShell } from "../support/helpers/app";
-import { addConnectedHostAndReload } from "../support/helpers/hosts";
-import { startIsolatedHostDaemon } from "../support/helpers/isolated-host-daemon";
 import { getServerId } from "../support/helpers/server-id";
-import { seedSidebarFooterPreferences } from "../support/helpers/sidebar-nav-settings";
 import {
   installUsageReportsFixture,
   type UsageListRequest,
@@ -20,17 +17,12 @@ import {
   expectCodexReportedWindows,
   openUsage,
   refreshLoginUsage,
-  hoverUsageWindow,
 } from "../support/helpers/usage-login";
 import {
   claudeAndCodexReports,
-  expectPinnedUsage,
-  pinRow,
   openUsageOptions,
   showUsageAs,
   refreshAllUsage,
-  togglePin,
-  usageItem,
 } from "../support/helpers/usage-sidebar-item";
 
 const emptyHome = path.join(tmpdir(), `paseo-usage-empty-${randomUUID()}`);
@@ -58,11 +50,6 @@ test.use({
   },
 });
 
-// These tests read the sidebar summary and pin windows, which both need the Usage item on.
-test.beforeEach(async ({ page }) => {
-  await seedSidebarFooterPreferences(page, [{ key: "usage", visible: true }]);
-});
-
 function forcedRefreshes(usage: UsageReportsFixture): UsageListRequest[] {
   return usage.listRequests().filter((request) => request.forceRefresh);
 }
@@ -85,21 +72,8 @@ function hostFilter(page: Page) {
   return page.locator('[data-testid="usage-host-filter-trigger"]:visible');
 }
 
-function weeklyReport(sourceId: string, usedPct: number): UsageReportEntry {
-  return {
-    id: `${sourceId}:a`,
-    account: {},
-    fetchedAt: twoHoursAgo(),
-    sourceId,
-    sourceLabel: `${sourceId} plan`,
-    report: { status: "available", windows: [{ id: "weekly", label: "Weekly", usedPct }] },
-  };
-}
-
 test.describe("usage screen", () => {
-  test("opens from the sidebar on the host's reports, with no host filter for one host", async ({
-    page,
-  }) => {
+  test("opens on the host's reports, with no host filter for one host", async ({ page }) => {
     test.setTimeout(120_000);
     const serverId = getServerId();
     const usage = await installUsageReportsFixture(page, {
@@ -132,7 +106,7 @@ test.describe("usage screen", () => {
     });
 
     await gotoAppShell(page);
-    await page.locator('[data-testid="sidebar-usage"]:visible').first().click();
+    await openUsage(page);
     await expect(page).toHaveURL(/\/usage$/);
     await usage.waitForListRequests(1);
 
@@ -185,7 +159,7 @@ test.describe("usage screen", () => {
     });
 
     await gotoAppShell(page);
-    await page.locator('[data-testid="sidebar-usage"]:visible').first().click();
+    await openUsage(page);
     const group = page.getByTestId(`usage-host-${serverId}`);
     await expect(group.getByText("31%")).toBeVisible({ timeout: 10_000 });
 
@@ -236,8 +210,7 @@ test.describe("usage screen", () => {
     const usage = await installUsageReportsFixture(page, { usageSupported: false });
 
     await gotoAppShell(page);
-    // Without reports the footer has no Usage item; its Usage icon opens the screen.
-    await page.locator('[data-testid="sidebar-usage-icon"]:visible').first().click();
+    await openUsage(page);
 
     await expect(
       page.getByTestId(`usage-host-${serverId}`).getByText(/^Update .+ to see usage$/),
@@ -246,56 +219,6 @@ test.describe("usage screen", () => {
     await expect(page.getByTestId("usage-options-toggle")).toHaveCount(0);
     await expect(page.getByTestId("usage-refresh-all")).toHaveCount(0);
     expect(usage.listRequests()).toHaveLength(0);
-  });
-
-  test("a host picked on the Usage screen is the sidebar's host too, after a reload", async ({
-    page,
-  }) => {
-    test.setTimeout(420_000);
-    const primaryServerId = getServerId();
-    const secondary = await startIsolatedHostDaemon(
-      `srv_usage_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
-    );
-    try {
-      await installUsageReportsFixture(page, { lists: [[weeklyReport("alpha", 31)]] });
-      await installUsageReportsFixture(page, {
-        port: secondary.port,
-        lists: [[weeklyReport("beta", 12)]],
-      });
-      await gotoAppShell(page);
-      await addConnectedHostAndReload(page, {
-        serverId: secondary.serverId,
-        label: "Secondary box",
-        port: secondary.port,
-      });
-
-      // Nothing picked and no workspace open: the first host.
-      await expectPinnedUsage(page, ["31% Weekly"]);
-      await usageItem(page).click();
-      await expect(page.getByTestId(`usage-host-${primaryServerId}`)).toBeVisible();
-
-      await hostFilter(page).click();
-      await page.getByTestId(`usage-host-filter-item-${secondary.serverId}`).click();
-      await expect(
-        page.getByTestId(`usage-host-${secondary.serverId}`).getByText("12%"),
-      ).toBeVisible({ timeout: 30_000 });
-      await expect(hostFilter(page)).toContainText("Secondary box");
-      await qaScreenshot(page, "usage-screen-picked-host");
-      await expectPinnedUsage(page, ["12% Weekly"]);
-
-      // The e2e seed resets the host list on every load, so reopening re-adds the second host.
-      await addConnectedHostAndReload(page, {
-        serverId: secondary.serverId,
-        label: "Secondary box",
-        port: secondary.port,
-      });
-      await expectPinnedUsage(page, ["12% Weekly"]);
-      await expect(
-        page.getByTestId(`usage-host-${secondary.serverId}`).getByText("12%"),
-      ).toBeVisible({ timeout: 30_000 });
-    } finally {
-      await secondary.close().catch(() => undefined);
-    }
   });
 });
 
@@ -307,7 +230,7 @@ const loginWindows: UsageReportEntry["report"] = {
   ],
 };
 
-test("expired login refreshes to windows with visible pin toggles", async ({ page }) => {
+test("expired login refreshes to its usage windows", async ({ page }) => {
   const fixture = await installLoginUsage({
     status: "unavailable",
     problem: {
@@ -329,56 +252,44 @@ test("expired login refreshes to windows with visible pin toggles", async ({ pag
     await expect(
       page.getByText("Login expired 1h ago. Run claude to refresh it.", { exact: true }),
     ).toHaveCount(0);
-    await expectPinnedUsage(page, ["31% 5h", "54% wk"]);
-    const row = page.getByRole("checkbox", { name: /^Pin Claude Weekly, / });
-    await expect(row).toBeChecked();
-    await expect(row.getByTestId("usage-pin-glyph-pinned")).toHaveCSS("opacity", "1");
-    await hoverUsageWindow(page, "Weekly");
-    await expect(page.getByText("Unpin", { exact: true })).toBeVisible();
-    await expect(row.getByTestId("usage-pin-glyph-pinned")).toHaveCSS("opacity", "1");
-    await expect(row.getByTestId("usage-pin-glyph-pinned").locator("svg")).not.toHaveAttribute(
-      "fill",
-      "none",
-    );
-    await qaScreenshot(page, "usage-pin-hover");
-    await togglePin(page.getByTestId("usage-report-login-journey:account"), "Claude", "Weekly");
-    await expect(row.getByTestId("usage-pin-glyph-unpinned")).toHaveCSS("opacity", "1");
-    await expect(row.getByTestId("usage-pin-glyph-unpinned").locator("svg")).toHaveAttribute(
-      "fill",
-      "none",
-    );
-    await hoverUsageWindow(page, "Weekly");
-    await expect(page.getByText("Pin", { exact: true })).toBeVisible();
-    await expectPinnedUsage(page, ["31% 5h"]);
-    await qaScreenshot(page, "usage-pin-unselected");
-    await togglePin(page.getByTestId("usage-report-login-journey:account"), "Claude", "Weekly");
-    await expect(row.getByTestId("usage-pin-glyph-pinned")).toHaveCSS("opacity", "1");
-    await expectPinnedUsage(page, ["31% 5h", "54% wk"]);
+    const card = page.getByTestId("usage-report-login-journey:account");
+    await expect(card.getByText("Session", { exact: true })).toBeVisible();
+    await expect(card.getByText("31%", { exact: true })).toBeVisible();
+    await expect(card.getByText("Weekly", { exact: true })).toBeVisible();
+    await expect(card.getByText("54%", { exact: true })).toBeVisible();
   } finally {
     await fixture.cleanup();
   }
 });
 
-test("compact usage rows always show the pin glyph", async ({ page }) => {
-  const fixture = await installLoginUsage(loginWindows);
-  try {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await gotoAppShell(page);
-    await openUsage(page);
-    const card = page.getByTestId("usage-report-login-journey:account");
-    await expect(card.getByTestId("usage-pin-glyph-pinned")).toHaveCount(2);
-    await expect(card.getByTestId("usage-pin-glyph-pinned").nth(0)).toHaveCSS("opacity", "1");
-    await expect(card.getByTestId("usage-pin-glyph-pinned").nth(1)).toHaveCSS("opacity", "1");
-    await qaScreenshot(page, "usage-pin-compact");
-  } finally {
-    await fixture.cleanup();
-  }
+test("released hosts supply source logos through the client conversion", async ({ page }) => {
+  await installUsageReportsFixture(page, {
+    lists: [() => claudeAndCodexReports()],
+    providerUsageListOnly: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoAppShell(page);
+  await openUsage(page);
+  // Source logos are decorative SVGs with no accessible role. Their path data distinguishes
+  // the source artwork from the fallback gauge.
+  const claudePath = /<path[^>]* d="([^"]+)"/.exec(claudeAndCodexReports()[0]!.icon!)![1]!;
+  const codexPath = /<path[^>]* d="([^"]+)"/.exec(claudeAndCodexReports()[1]!.icon!)![1]!;
+  const screen = page.getByTestId(`usage-host-${getServerId()}`);
+  await expect(
+    screen.getByTestId("usage-report-claude").locator("svg path").first(),
+  ).toHaveAttribute("d", claudePath, { timeout: 30_000 });
+  await expect(
+    screen.getByTestId("usage-report-codex").locator("svg path").first(),
+  ).toHaveAttribute("d", codexPath);
+  await qaScreenshot(page, "released-host-usage-screen");
 });
+
+// Retired 2026-10-24: 9332fbd2d and 471d7f22a removed the sidebar Usage summary, its Usage icon
+// and the Summary in sidebar switch. Usage windows are pinnable only for that summary, so the pin
+// toggle, pin glyph and sidebar-host sync tests went with it, as did usage-sidebar-item.spec.ts.
 
 for (const shape of ["seven-day-only", "Spark"] as const) {
-  test(`Codex ${shape} windows use provider durations on the card and sidebar`, async ({
-    page,
-  }) => {
+  test(`Codex ${shape} windows use provider durations on the card`, async ({ page }) => {
     const reset = Math.floor(Date.now() / 1000) + 5 * 86400;
     const source = await installCodexWindowUsage({
       rate_limit: {
@@ -410,11 +321,9 @@ for (const shape of ["seven-day-only", "Spark"] as const) {
     try {
       await page.setViewportSize({ width: 1440, height: 900 });
       await gotoAppShell(page);
-      await expect(usageItem(page)).toBeVisible();
-      await usageItem(page).click();
-      await qaScreenshot(page, `codex-${shape}-card-and-summary`);
+      await openUsage(page);
       await expectCodexReportedWindows(page, shape);
-      await qaScreenshot(page, `codex-${shape}-pins`);
+      await qaScreenshot(page, `codex-${shape}-card`);
     } finally {
       await source.cleanup();
     }
@@ -446,20 +355,11 @@ for (const theme of ["light", "dark"] as const) {
       await expect(settings).toHaveAttribute("aria-expanded", "false");
       await expect(chevron).toHaveCSS("transform", "none");
       await expect(screen.getByTestId("usage-display-used")).toHaveCount(0);
-      await expect(
-        pinRow(screen, "Claude", "Weekly").getByTestId("usage-pin-glyph-pinned"),
-      ).toHaveCSS("opacity", "1");
       await captureSettingsState(page, testInfo, `${size}-${theme}-collapsed`);
 
-      await togglePin(screen, "Claude", "Weekly");
-      await page.mouse.move(0, viewport.height - 1);
-      await expect(
-        pinRow(screen, "Claude", "Weekly").getByTestId("usage-pin-glyph-unpinned"),
-      ).toHaveCSS("opacity", "1");
       await openUsageOptions(page);
       await expect(settings).toHaveAttribute("aria-expanded", "true");
       await expect(chevron).toHaveCSS("transform", "matrix(0, 1, -1, 0, 0, 0)");
-      await expect(screen.getByText("Pinned windows show in the sidebar footer")).toBeVisible();
       await expect(screen.getByTestId("usage-display-used")).toHaveAttribute(
         "aria-selected",
         "true",
@@ -470,9 +370,7 @@ for (const theme of ["light", "dark"] as const) {
       await showUsageAs(page, "remaining");
       await expect(screen.getByText("69% left")).toBeVisible();
       await showUsageAs(page, "used");
-      await expect(pinRow(screen, "Claude", "Session")).toHaveAccessibleName(
-        /^Pin Claude Session, 31% · resets /,
-      );
+      await expect(screen.getByText("31%").first()).toBeVisible();
       await settings.click();
       await expect(settings).toHaveAttribute("aria-expanded", "false");
       await expect(screen.getByTestId("usage-display-used")).toHaveCount(0);
