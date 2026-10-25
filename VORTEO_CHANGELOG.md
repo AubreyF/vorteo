@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Fixed
+
+- A git command that times out is killed with its whole process tree. Before, a timed-out fetch or clone over HTTP left its git-remote-http helper running until the remote gave up; on Windows it also kept the repository folder locked.
+
 ## 0.11.0-beta.3.vorteo.817 - 2026-10-25
 
 ### Maintenance
