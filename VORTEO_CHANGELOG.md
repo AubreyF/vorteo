@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.826 - 2026-10-24
+
+### Maintenance
+
+- Sidebar tests close the phone sidebar from its toolbar's collapse toggle, open a row's actions from its context menu when no overflow button shows, toggle the desktop sidebar between its collapse button and the icon rail's Expand button (ab60c1e39), and check the Files card and sidebar instead of the New workspace row, which moved to the More menu.
+- Mark the sidebar scroll test as a known failure: since the icon rail (ab60c1e39) collapsing and expanding the sidebar resets its project list scroll. The product fix follows separately.
+
 ## 0.11.0-beta.3.vorteo.825 - 2026-10-24
 
 ### Maintenance

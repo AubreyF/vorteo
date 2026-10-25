@@ -117,9 +117,15 @@ async function openWorkspaceSidebarKebab(page: Page, workspaceId: string) {
   await expect(row).toBeVisible({ timeout: 30_000 });
   await row.hover();
 
+  // Compact and touch rows have no overflow button (2415534c8); their context menu carries the
+  // same items, so open that when no kebab appears on hover.
   const kebab = page.getByTestId(`sidebar-workspace-kebab-${serverId}:${workspaceId}`);
-  await expect(kebab).toBeVisible({ timeout: 10_000 });
-  await kebab.click();
+  const shown = await kebab
+    .waitFor({ state: "visible", timeout: 3_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (shown) await kebab.click();
+  else await row.click({ button: "right" });
 
   return serverId;
 }
@@ -211,8 +217,9 @@ export async function openMobileAgentSidebar(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Open menu" }).filter({ visible: true }).first().click();
 }
 
+/** The phone sidebar closes from the collapse toggle at the start of its own toolbar. */
 export async function closeMobileAgentSidebar(page: Page): Promise<void> {
-  const closeButton = page.getByTestId("sidebar-close");
+  const closeButton = page.locator('[data-testid="sidebar-collapse"]:visible').first();
   await expect(closeButton).toBeInViewport({ ratio: 1, timeout: 5_000 });
   await closeButton.click();
 }
