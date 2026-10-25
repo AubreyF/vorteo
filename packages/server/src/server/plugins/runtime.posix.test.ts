@@ -9,7 +9,9 @@ import type { ProviderEvent, ProviderRegistration } from "@getpaseo/plugin/serve
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentStreamEvent } from "../agent/agent-sdk-types.js";
 import { PluginAgentClientRegistry } from "../agent/plugin-provider.js";
-import { PluginRuntime } from "./runtime.js";
+import { compilePlugin } from "./compiler.js";
+import { writePrebuiltBundles } from "./builtin/prebuilt.js";
+import { PluginRuntime, resolveEntryPaths } from "./runtime.js";
 import type { PluginSessionSocket } from "./session-socket.js";
 
 const temporaryDirectories: string[] = [];
@@ -1845,6 +1847,31 @@ export default function contribute(plugin: any) {
     expect(runtime.isBuiltinPluginLoaded("factory")).toBe(true);
     await runtime.stopAll();
     expect(runtime.isBuiltinPluginLoaded("factory")).toBe(false);
+  });
+
+  it("starts a built-in from its verified prebuilt bundle and compiles when it is stale", async () => {
+    const answerPlugin = (answer: string) => `import { z } from "zod";
+import { defineRpc } from "@getpaseo/plugin";
+const answerRpc = defineRpc({ name: "answer", input: z.object({}), output: z.string() });
+export default function contribute(plugin: any) {
+  plugin.handle(answerRpc, async () => ${JSON.stringify(answer)});
+  return () => undefined;
+}`;
+    const directory = await createPlugin("factory", answerPlugin("source"));
+    // The prebuilt bundle answers differently from the source, so the answer shows which ran.
+    const prebuiltSource = await createPlugin("factory", answerPlugin("prebuilt"));
+    const bundles = await compilePlugin(await resolveEntryPaths(prebuiltSource));
+    await writePrebuiltBundles(directory, "0.4.0", bundles);
+    const runtime = createTestRuntime();
+
+    await runtime.startBuiltinPlugin({ id: "factory", directory });
+    await expect(runtime.invoke("factory", "answer", {})).resolves.toBe("prebuilt");
+    await runtime.stopPluginById("factory");
+
+    await writeFile(path.join(directory, "index.server.ts"), answerPlugin("edited"), "utf8");
+    await runtime.startBuiltinPlugin({ id: "factory", directory });
+    await expect(runtime.invoke("factory", "answer", {})).resolves.toBe("edited");
+    await runtime.stopAll();
   });
 
   it("uses the config key as runtime identity without comparing the manifest id", async () => {
