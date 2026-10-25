@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.841 - 2026-10-25
+
+### Maintenance
+
+- Queue tests:
+  - Expect the card title Queue (0d18398e7).
+  - Read the visible copy of the card.
+  - Retire the Vorton-off reload, citing 471d7f22a.
+- Mark the queue heading height test for owner review: the card grows from 90.5px to 128px while a held status shows, and the phone drag handle exposes no pressed state.
+- The open questions sidebar test seeds a usage report, so the Quota card no longer depends on the machine's accounts.
+
 ## 0.11.0-beta.3.vorteo.840 - 2026-10-25
 
 ### Maintenance

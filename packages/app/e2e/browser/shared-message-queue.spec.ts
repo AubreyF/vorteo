@@ -10,10 +10,7 @@ import {
   expectComposerVisible,
 } from "../support/helpers/composer";
 
-test("shared queue survives reload and synchronizes a second device with Vorton off/on", async ({
-  page,
-  browser,
-}) => {
+test("shared queue survives reload and synchronizes a second device", async ({ page, browser }) => {
   test.setTimeout(300_000);
   const agent = await seedMockAgentWorkspace({
     repoPrefix: "shared-queue-",
@@ -200,7 +197,8 @@ test("shared queue survives reload and synchronizes a second device with Vorton 
       "data-testid",
       "queue-message-" + initialOrder[0],
     );
-    await expect(queue).toContainText("Messages");
+    // The queue card is titled Queue since 0d18398e7.
+    await expect(queue).toContainText("Queue");
     await expect(
       page.getByTestId("agent-chat-scroll").getByTestId("shared-message-queue"),
     ).toHaveCount(1);
@@ -213,7 +211,7 @@ test("shared queue survives reload and synchronizes a second device with Vorton 
     for (const target of [page, other]) {
       const card = target.getByTestId("shared-message-queue");
       await card.scrollIntoViewIfNeeded();
-      const heading = card.getByText("Messages", { exact: true });
+      const heading = card.getByText("Queue", { exact: true });
       const icon = card.getByTestId("message-queue-pause-resume").locator("svg");
       await expect(heading).toBeVisible();
       await expect(icon).toBeVisible();
@@ -274,21 +272,8 @@ test("shared queue survives reload and synchronizes a second device with Vorton 
       contentType: "image/png",
     });
 
-    await page.evaluate(() => {
-      const key = "@paseo:create-agent-preferences";
-      localStorage.setItem(
-        key,
-        JSON.stringify({ ...JSON.parse(localStorage.getItem(key) ?? "{}"), vortonMode: false }),
-      );
-    });
-    await reloadPreservingPreferences(page);
-    await expectComposerVisible(page, { timeout: 30_000 });
-    await expect(queue).toHaveCount(0);
-    await expect(page.getByTestId(/^workspace-queue-count-/)).toHaveCount(0);
-    await test.info().attach("queue-vorton-off", {
-      body: await page.screenshot(),
-      contentType: "image/png",
-    });
+    // Retired 2026-10-25: the Vorton-off reload that hid the queue went with the Standard mode in
+    // 471d7f22a.
     expect((await client.readMessageQueue(agent.agentId)).snapshot?.items).toHaveLength(2);
     await expect(other.getByTestId("shared-message-queue")).toContainText("From another device");
   } catch (error) {

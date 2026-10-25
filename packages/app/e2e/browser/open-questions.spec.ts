@@ -8,6 +8,7 @@ import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import { daemonWsRoutePattern, getE2EDaemonPort } from "../support/helpers/daemon-port";
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
 import { openMobileAgentSidebar } from "../support/helpers/sidebar";
+import { installProviderUsageFixture } from "../support/helpers/provider-usage";
 
 test.use({ e2eInjectPaseoTools: true });
 
@@ -175,6 +176,21 @@ for (const [label, width, height] of [
     test.setTimeout(120_000);
     await page.setViewportSize({ width, height });
     await page.emulateMedia({ reducedMotion: "reduce" });
+    // The Quota card lists only accounts that report usage, so give it one report.
+    await installProviderUsageFixture(page, [
+      {
+        fetchedAt: new Date().toISOString(),
+        providers: [
+          {
+            providerId: "codex",
+            displayName: "Codex",
+            status: "available",
+            planLabel: "Pro",
+            windows: [{ id: "weekly", label: "Weekly", usedPct: 20 }],
+          },
+        ],
+      },
+    ]);
     const first = await seedMockAgentWorkspace({
       repoPrefix: "global-questions-a-",
       title: "Beta launch",
