@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.857 - 2026-10-25
+
+### Maintenance
+
+- The browser test notice handler gives up after two seconds when the worktree setup notice disappears before its dismiss click, instead of holding the test until it times out.
+- The local plugin journey test gets a 120-second budget; its five Settings phases take about 37 seconds locally and overran 60 seconds on CI.
+
 ## 0.11.0-beta.3.vorteo.856 - 2026-10-25
 
 ### Maintenance

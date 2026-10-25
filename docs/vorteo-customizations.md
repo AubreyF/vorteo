@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): test-only change. The worktree notice handler stops waiting for a vanished notice, and the local plugin journey test gets a longer budget. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): merge and test-only change. The browser test repair branch takes main 67375bccd and re-enables the favourites migration and saved layout recovery tests now that both fixes are on main. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): test-only change. Layout, appearance, chat outline, startup and card tests follow the current design; two layout regressions are marked and three geometry differences go to owner review. Functionality is unchanged. README overview and onboarding are unchanged.

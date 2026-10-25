@@ -331,6 +331,8 @@ test("installs, reloads, recovers, disables, and removes a trusted local plugin"
   page,
   pluginEnvironment,
 }, testInfo) => {
+  // Five phases through Settings take about 37 seconds locally and overran 60 seconds on CI.
+  test.setTimeout(120_000);
   const directory = await installLocalPluginWithStatusExamples(page, pluginEnvironment, testInfo);
   await reloadAndRecoverLocalPlugin(page, pluginEnvironment.client, directory);
   await toggleRemoveAndReinstallLocalPlugin(page, directory);

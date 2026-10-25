@@ -146,7 +146,11 @@ const test = daemonTest.extend<{
           async () => {
             // An open overlay, such as the command center, can cover the notice. Dispatching the
             // click reaches its Pressable without a pointer, so the overlay stays open.
-            await dismiss.dispatchEvent("click");
+            // The notice can also disappear between detection and the click, for example when
+            // the route changes; give up quickly then, so the handler never holds the test.
+            await dismiss
+              .dispatchEvent("click", undefined, { timeout: 2_000 })
+              .catch(() => undefined);
           },
           // Several projects can each show a notice; the handler runs again for the next one
           // instead of waiting for every notice to disappear at once.
