@@ -4,6 +4,25 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.841 - 2026-10-25
+
+### Maintenance
+
+- Merge background Host release retention: old releases are removed after readiness is verified, plain deletion first, with the outcome recorded in the job folder
+
+## 0.11.0-beta.3.vorteo.840 - 2026-10-25
+
+### Fixed
+
+- Host release cleanup always keeps the releases that hold the coordinator's update tooling. Reviewed tooling selection points the Host updater at an old release's scripts folder, and the first backlog cleanup removed that release, so every later Host install failed at its first step until the folder was restored from git.
+
+## 0.11.0-beta.3.vorteo.839 - 2026-10-25
+
+### Fixed
+
+- Cleaning up old Host releases no longer makes a successful Host install report failure. The first cleanup after release retention shipped deleted a backlog of about 40 old releases inside the install, past its 10-minute readiness deadline, so a verified install was marked failed. Cleanup now starts after the install reports its result, records its outcome in `retention.json` in the job's folder, and never runs twice at once.
+- Old releases are deleted directly. The slower path that first clears immutable file flags, about half a minute per release, runs only for a release that refuses plain deletion.
+
 ## 0.11.0-beta.3.vorteo.839 - 2026-10-25
 
 ### Maintenance
@@ -45,6 +64,14 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Merge the published startup diagnostics and recovery interface into the combined Host batch
+
+## 0.11.0-beta.3.vorteo.820 - 2026-10-25
+
+### Fixed
+
+- Startup diagnostics run automatically after 15 seconds, independently of the interface download and document load events. Bounded, deduplicated checks resume after offline or background delays, cancel after startup, and distinguish endpoint health from daemon authentication and session readiness.
+- The default V spinner transitions into a compact, scrollable diagnostic panel with reduced-motion support. Pending script downloads stay indeterminate because browsers do not expose live script byte progress; completed timings, observed script events, safe build provenance and existing public restart-request counts retain their limits and freshness.
+- Production exports preload the existing entry script without changing its execution order, integrity or cross-origin policy. Optional font CSS no longer blocks the inline diagnostic bootstrap.
 
 ## 0.11.0-beta.3.vorteo.836 - 2026-10-25
 
@@ -292,14 +319,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Fixed
 
 - The pre-commit hook no longer fails typecheck on stale protocol or client declarations after a branch switch. It rebuilds them first, only when their sources are newer than the last successful build, which costs nothing on a clean commit.
-
-## 0.11.0-beta.3.vorteo.820 - 2026-10-25
-
-### Fixed
-
-- Startup diagnostics run automatically after 15 seconds, independently of the interface download and document load events. Bounded, deduplicated checks resume after offline or background delays, cancel after startup, and distinguish endpoint health from daemon authentication and session readiness.
-- The default V spinner transitions into a compact, scrollable diagnostic panel with reduced-motion support. Pending script downloads stay indeterminate because browsers do not expose live script byte progress; completed timings, observed script events, safe build provenance and existing public restart-request counts retain their limits and freshness.
-- Production exports preload the existing entry script without changing its execution order, integrity or cross-origin policy. Optional font CSS no longer blocks the inline diagnostic bootstrap.
 
 ## 0.11.0-beta.3.vorteo.819 - 2026-10-25
 
