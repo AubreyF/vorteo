@@ -40,6 +40,8 @@ Maintenance review (2026-10-24): the late worker output supervisor test is POSIX
 
 Maintenance review (2026-10-24): the supervisor keeps a worker's final output and its exit lines in daemon.log when it exits right after the worker; two timing-dependent installation tests were repaired. Not yet installed. README overview and onboarding are unchanged.
 
+Maintenance review (2026-10-25): session host markers are written atomically, and the initial Host module contract tests no longer depend on shared folders staying unchanged. Not yet installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-23): automatic coordinator renewals can close a failed automatic update that never reached promotion, proven under the journal lock and bound to the same coordinator process. Owner-reviewed and other failures still need owner review. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-23): app installation client tests now expect the Docker restart and Host launcher query flags on restart routes. Behavior is unchanged. README overview and onboarding are unchanged.

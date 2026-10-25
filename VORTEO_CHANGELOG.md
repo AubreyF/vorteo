@@ -4,6 +4,22 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.834 - 2026-10-25
+
+### Maintenance
+
+- Merge atomic session host markers: the upgrade and restart markers are written to a temporary file and renamed, so a visible marker always has its full content, and the module contract tests no longer depend on changes above their fixtures
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-25
+
+### Fixed
+
+- The session host writes its upgrade and restart markers through a temporary file and a rename, so anything that sees a marker also sees its whole content. A reader could previously find the upgrade marker empty while it was still being written.
+
+### Tests
+
+- Initial Host module contract tests freeze the stat of directories above their fixture. The contract pins every ancestor's identity, and other processes keep creating entries in the shared temp and home folders, which failed these tests on every retry.
+
 ## 0.11.0-beta.3.vorteo.833 - 2026-10-25
 
 ### Maintenance
