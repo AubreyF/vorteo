@@ -19,6 +19,24 @@ function assertBuildsCoordinator(action) {
   );
 }
 
+/** Reviewed plan options and the request field each binds, in request order. */
+const PLAN_OPTIONS = [
+  ["supervisor-plan", "supervisorPlanSha256"],
+  ["factory-runtime-plan", "factoryRuntimePlanSha256"],
+  ["factory-runtime-recovery-of", "factoryRuntimeRecoveryOf"],
+  ["engine-restart-plan", "engineRestartPlanSha256"],
+  ["host-launcher-plan", "hostLauncherPlanSha256"],
+];
+
+function planBindings(values) {
+  return Object.fromEntries(
+    PLAN_OPTIONS.filter(([option]) => values[option]).map(([option, field]) => [
+      field,
+      values[option],
+    ]),
+  );
+}
+
 /** This client is copied alone into Dev. Use built-ins, not an undeclared
  * dispatcher dependency, to avoid fetch's shorter independent headers timeout.
  * One deadline covers connection, headers and body; failure never retries. */
@@ -400,19 +418,7 @@ if (
       body = {
         target: values.target,
         ...(values["require-owner-approval"] ? { requireOwnerApproval: true } : {}),
-        ...(values["supervisor-plan"] ? { supervisorPlanSha256: values["supervisor-plan"] } : {}),
-        ...(values["factory-runtime-plan"]
-          ? { factoryRuntimePlanSha256: values["factory-runtime-plan"] }
-          : {}),
-        ...(values["factory-runtime-recovery-of"]
-          ? { factoryRuntimeRecoveryOf: values["factory-runtime-recovery-of"] }
-          : {}),
-        ...(values["engine-restart-plan"]
-          ? { engineRestartPlanSha256: values["engine-restart-plan"] }
-          : {}),
-        ...(values["host-launcher-plan"]
-          ? { hostLauncherPlanSha256: values["host-launcher-plan"] }
-          : {}),
+        ...planBindings(values),
         reason: readFileSync(values["reason-file"], "utf8"),
         ...(values.requester ? { requester: values.requester } : {}),
       };
