@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.849 - 2026-10-25
+
+### Maintenance
+
+- Retire composer-diff-stat.spec.ts, citing 471d7f22a: the composer diff pill showed only in the Standard mode it removed.
+- The diff counter test checks the toolbar counter with the supporting cards open.
+  - Its height alignment with the scripts button awaits owner review: 26px against 44px.
+  - Its phone placement is a known regression: phones show no counter since 195e1c044.
+- The Cmd+E test expects the Changes card, which keeps its saved collapse state.
+- The New tab no-flash test waits for the tab count to settle before sampling.
+
 ## 0.11.0-beta.3.vorteo.848 - 2026-10-25
 
 ### Maintenance

@@ -23,7 +23,7 @@ async function openExplorerWithKeyboard(page: Page): Promise<Locator> {
 }
 
 test.describe("New tab keyboard launcher", () => {
-  test("Cmd+E reveals the repository Changes tree", async ({ page }) => {
+  test("Cmd+E reveals the repository Changes card", async ({ page }) => {
     const workspace = await seedWorkspace({ repoPrefix: "explorer-keyboard-" });
 
     try {
@@ -31,8 +31,9 @@ test.describe("New tab keyboard launcher", () => {
       await waitForWorkspaceTabsVisible(page);
 
       const explorer = await openExplorerWithKeyboard(page);
+      // Cmd+E reveals the cards with their saved collapse state; only explicit Changes commands
+      // expand the Changes card itself.
       await expect(explorer.getByTestId("supporting-card-changes_tree")).toBeVisible();
-      await expect(explorer.getByTestId("changes-tree-panel")).toBeVisible();
     } finally {
       await workspace.cleanup();
     }

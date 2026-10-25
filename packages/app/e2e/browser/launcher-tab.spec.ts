@@ -324,6 +324,20 @@ test.describe("Tab transitions (no flash)", () => {
     await expect(
       page.getByTestId("workspace-new-tab-panel").filter({ visible: true }),
     ).toBeVisible();
+    // The New tab's chip can render after its panel; start sampling once the tab count settles.
+    const tabs = page.locator('[data-testid^="workspace-tab-"]').filter({ visible: true });
+    let previousCount = -1;
+    await expect
+      .poll(
+        async () => {
+          const count = await tabs.count();
+          const settled = count > 0 && count === previousCount;
+          previousCount = count;
+          return settled;
+        },
+        { intervals: [300] },
+      )
+      .toBe(true);
 
     // Sample the single New → Agent replacement, not the separate action that
     // creates the New tab in the first place.
