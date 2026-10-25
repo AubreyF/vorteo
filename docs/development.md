@@ -533,6 +533,7 @@ The app Metro config disables Watchman and uses Metro's node crawler for exports
 For tighter loops, you can rebuild a single workspace:
 
 - Changed `packages/protocol/src/*` or `packages/client/src/*`: `npm run build:client`.
+- The pre-commit hook runs `scripts/ensure-fresh-declarations.mjs` before typecheck. It rebuilds protocol, or the client chain, only when their sources are newer than the last successful build's stamp, so a branch switch no longer fails the hook on stale declarations.
 - Changed `packages/server/src/*`, `packages/cli/src/*`, `packages/relay/src/*`, or `packages/highlight/src/*`: `npm run build:server`.
 - Changed app build dependencies: `npm run build:app-deps`.
 
