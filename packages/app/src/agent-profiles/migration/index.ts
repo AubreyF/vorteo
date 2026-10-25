@@ -2,11 +2,18 @@ import AsyncStorage from "@/storage/app-storage";
 import { z } from "zod";
 import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
 import type { AgentProfile } from "@getpaseo/protocol/messages";
-import { FormPreferencesSchema } from "@/create-agent-preferences/preferences";
-import { readValidatedJson, readValidatedString } from "@/storage/validated-storage";
+import {
+  FormPreferencesSchema,
+  StoredFormPreferencesSchema,
+  type FormPreferences,
+} from "@/create-agent-preferences/preferences";
+import { readValidatedString } from "@/storage/validated-storage";
 
 const PREFERENCES_KEY = "@paseo:create-agent-preferences";
 const COMPLETION_KEY_PREFIX = "@paseo:legacy-favorites-to-agent-profiles:v1:";
+// Holds a preferences value this migration could not read, so a later fix can still recover it.
+export const UNREADABLE_PREFERENCES_BACKUP_KEY =
+  "@paseo:create-agent-preferences:legacy-favorites-backup";
 const CATALOG_LOADING_RETRY_DELAYS_MS = [100, 250, 500, 1_000, 2_000, 4_000] as const;
 
 type LegacyFavorite = NonNullable<z.infer<typeof FormPreferencesSchema>["favoriteModels"]>[number];
@@ -132,6 +139,15 @@ function catalogIsLoading(
   return entries.some((entry) => providers.has(entry.provider) && entry.status === "loading");
 }
 
+/** Undecodable JSON yields `undefined`, which no preferences schema accepts. */
+function parseJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -187,11 +203,11 @@ export class LegacyFavoriteProfileMigration {
       return;
     }
 
-    const preferences = await readValidatedJson(
-      this.storage,
-      PREFERENCES_KEY,
-      FormPreferencesSchema,
-    );
+    const preferences = await this.readPreferences();
+    if (preferences === "unreadable") {
+      // Leave the host unmarked so a later release can retry once it reads this shape.
+      return;
+    }
     const favorites = preferences?.favoriteModels ?? [];
     if (favorites.length === 0) {
       await this.storage.setItem(markerKey, "1");
@@ -208,6 +224,22 @@ export class LegacyFavoriteProfileMigration {
       await host.patchDaemonConfig({ agentProfiles: [...existing, ...migrated] });
     }
     await this.storage.setItem(markerKey, "1");
+  }
+
+  /**
+   * Reads the shared create-agent preferences without ever removing them: other code owns
+   * that entry. The stored schema accepts legacy fields such as `vortonMode`, which values
+   * saved before 471d7f22a still carry. A value it cannot read is copied to a backup key.
+   */
+  private async readPreferences(): Promise<FormPreferences | null | "unreadable"> {
+    const raw = await this.storage.getItem(PREFERENCES_KEY);
+    if (raw === null) return null;
+    const result = StoredFormPreferencesSchema.safeParse(parseJson(raw));
+    if (result.success) return result.data;
+    if ((await this.storage.getItem(UNREADABLE_PREFERENCES_BACKUP_KEY)) === null) {
+      await this.storage.setItem(UNREADABLE_PREFERENCES_BACKUP_KEY, raw);
+    }
+    return "unreadable";
   }
 }
 

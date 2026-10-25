@@ -31,6 +31,8 @@ test.describe("Agent profiles settings", () => {
     };
 
     try {
+      // The fixture's seeded preferences carry the legacy `vortonMode` field, as values saved
+      // before 471d7f22a do, so this also covers upgrades from that shape.
       await stageLegacyFavoritesForHostMigration(page, [
         { provider: "mock", modelId: "one-minute-stream" },
       ]);
