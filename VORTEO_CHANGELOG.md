@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.827 - 2026-10-24
+
+### Maintenance
+
+- Appearance theme tests look for the theme save error among the page's alerts, since Settings also shows plugin trust notices, and give the palette walk three minutes.
+- Mark two theme picker geometry tests for owner review: sidebar theme bubble centres measure up to 8.7px apart instead of within 1px, and the touch swatch measures 44.3px wide instead of 48px, with no recorded design change since 1d041fbea.
+
 ## 0.11.0-beta.3.vorteo.826 - 2026-10-24
 
 ### Maintenance

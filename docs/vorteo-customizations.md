@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-24): test-only change. Appearance theme tests scope their alerts and timeouts; two geometry checks are marked for owner review. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-24): test-only change. Sidebar workspace tests follow the toolbar, icon rail and context menus; one is marked as a known regression. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-24): test-only change. Browser tests find desktop workspace actions in the pane menu. Functionality is unchanged. README overview and onboarding are unchanged.
