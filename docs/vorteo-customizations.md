@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-24): test-only change. The desktop shortcut unassign test timeout is raised. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-24): merged main into the browser test repair branch; only release notes conflicted and both histories are kept. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-24): test-only change. Demo compact theme tests use the inline Files card; three phone Changes tests are marked as a known regression. Functionality is unchanged. README overview and onboarding are unchanged.

@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.816 - 2026-10-24
+
+### Maintenance
+
+- The desktop shortcut unassign test allows two minutes, since its Settings and Help round trips ran past one minute on a shared Linux runner.
+
 ## 0.11.0-beta.3.vorteo.815 - 2026-10-24
 
 ### Maintenance

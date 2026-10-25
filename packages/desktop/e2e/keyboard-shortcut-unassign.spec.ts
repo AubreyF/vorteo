@@ -103,6 +103,8 @@ async function eraseLastCapturedCombo(page: Page, firstCombo: string, secondComb
 }
 
 test("unassigning a shortcut leaves it inert until it is reset", async ({ page }) => {
+  // Several Settings and Help round trips; shared Linux runners need more than the default.
+  test.setTimeout(120_000);
   await openShortcutsSettings(page);
 
   const clear = page.getByTestId(`shortcut-clear-${SHORTCUTS_ROW}`);
