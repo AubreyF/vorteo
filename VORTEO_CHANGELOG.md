@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.840 - 2026-10-25
+
+### Maintenance
+
+- Provider settings stacking tests open provider settings from a new schedule's model picker, since the composer's model selector went with the Paseo mode in 471d7f22a. Closing provider settings in the schedule form returns focus to the picker's Back button rather than the settings button; the test checks that focus stays in the selector and the gap is reported.
+
 ## 0.11.0-beta.3.vorteo.839 - 2026-10-25
 
 ### Maintenance

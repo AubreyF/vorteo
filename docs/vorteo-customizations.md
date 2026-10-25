@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): test-only change. Provider settings stacking tests use the schedule form model picker. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): test-only change. Codex speed coverage moved to the profile editor, and profile editor helpers support the phone sheet. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): test-only change. Standard mode checks are retired, skill library tests use the settings pane, and duplicate locators are narrowed. Functionality is unchanged. README overview and onboarding are unchanged.
