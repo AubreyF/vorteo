@@ -69,6 +69,7 @@ import {
   createNativeBootstrapServiceReader,
 } from "./coordinator-bootstrap-service.js";
 import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
+import { createRuntimeCustody } from "./coordinator-bootstrap-runtime-custody.js";
 
 import {
   executeCoordinatorBootstrap,
@@ -1431,12 +1432,33 @@ test.runIf(process.platform === "darwin").each([
     };
     const calls: string[][] = [];
     const observations: string[] = [];
+    // Every awaited context callback, to prove the runtime digest is the last one.
+    const events: string[] = [];
     let owned = true;
+    const runtime = path.join(f.root, "runtime");
+    mkdirSync(runtime);
+    writeFileSync(path.join(runtime, "main.js"), "export {};");
+    const requireCustody = createRuntimeCustody({
+      custody: { runtimeDirectory: runtime, runtimeSha256: await digestBootstrapArtifact(runtime) },
+      digest: (directory) => digestBootstrapArtifact(directory),
+    });
     const reader = {
-      readService: async () => `${f.plan.service} = {\n\tpid = ${identity.pid}\n}`,
-      inspectProcess: async () => identity,
-      inspectStoppedProcess: async () => ({ ...identity, stopped: true as const, childPids: [] }),
-      inspectRunningProcess: async () => ({ ...identity, stopped: false as const }),
+      readService: async () => {
+        events.push("read-service");
+        return `${f.plan.service} = {\n\tpid = ${identity.pid}\n}`;
+      },
+      inspectProcess: async () => {
+        events.push("inspect");
+        return identity;
+      },
+      inspectStoppedProcess: async () => {
+        events.push("inspect");
+        return { ...identity, stopped: true as const, childPids: [] };
+      },
+      inspectRunningProcess: async () => {
+        events.push("inspect");
+        return { ...identity, stopped: false as const };
+      },
       verifyProcessExited: async () => {
         observations.push("exited");
       },
@@ -1455,11 +1477,17 @@ test.runIf(process.platform === "darwin").each([
           throw new Error("Unexpected fixture health read");
         },
         requireOwnership: async () => {
+          events.push("ownership");
           if (!owned) throw new Error("Ownership lost");
+        },
+        requireRuntimeCustody: async (boundary) => {
+          events.push(`custody:${boundary}`);
+          await requireCustody(boundary);
         },
       },
       {
         run: async (command) => {
+          events.push("command");
           calls.push([...command]);
         },
       },
@@ -1472,6 +1500,22 @@ test.runIf(process.platform === "darwin").each([
     await actions[operation](record);
     expect(calls).toEqual([[...args, f.plan.service]]);
     expect(observations).toEqual(operation === "unload" ? ["exited", "absent"] : []);
+    const custody = events.filter((event) => event.startsWith("custody:"));
+    if (operation === "resumePrevious") expect(custody).toEqual([]);
+    else {
+      // One full runtime digest, immediately before the native effect.
+      expect(custody).toEqual([`custody:${operation}`]);
+      expect(events.slice(events.indexOf("command") - 2, events.indexOf("command") + 1)).toEqual([
+        "ownership",
+        `custody:${operation}`,
+        "command",
+      ]);
+      // A runtime change after admission is refused at this boundary, with no effect.
+      writeFileSync(path.join(runtime, "main.js"), "export const changed = true;");
+      await expect(actions[operation](record)).rejects.toThrow(`refused before ${operation}`);
+      expect(calls).toHaveLength(1);
+      writeFileSync(path.join(runtime, "main.js"), "export {};");
+    }
     owned = false;
     await expect(actions[operation](record)).rejects.toThrow("Ownership lost");
     expect(calls).toHaveLength(1);

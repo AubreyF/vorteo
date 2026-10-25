@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): coordinator renewals hash the runtime tree only at admission, freeze, unload, start and release, and derive the renewal once at the claim. All other per-step custody checks are unchanged. Not yet installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): Host release cleanup keeps the releases holding the live Host and Dev update tooling, so cleanup can no longer remove the scripts that Host installs run. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): Host release cleanup runs after an install reports its result, with a receipt and no overlap, and deletes plain trees directly, so cleanup time no longer counts against the install's readiness deadline. Not yet installed. README overview and onboarding are unchanged.

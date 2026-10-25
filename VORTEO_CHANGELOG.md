@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.843 - 2026-10-25
+
+### Changed
+
+- Coordinator renewal custody checks hash the coordinator's whole runtime five times instead of about thirty: at admission and immediately before freeze, unload, start and release. Each check compares against the hash admission accepted and fails closed. Every other step keeps its setup, pinned-file, journal and lock checks, and the renewal is re-derived once, at the claim, instead of six times. The separate candidate release checks are unchanged. Expected saving is 200 to 300 seconds per renewal. Watchdog and maintenance runners are unchanged.
+
 ## 0.11.0-beta.3.vorteo.842 - 2026-10-25
 
 ### Maintenance
