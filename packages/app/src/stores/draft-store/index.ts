@@ -35,6 +35,7 @@ import {
   PersistedDraftStoreSchema,
 } from "./migration";
 import { createDraftPersistStorage } from "./persistence";
+import { DRAFT_STORE_STORAGE_KEY } from "@/stores/draft-keys";
 import { createValidatedPersistStorage } from "@/storage/validated-persist-storage";
 
 export type { DraftInput, DraftLifecycleState } from "./state";
@@ -426,7 +427,7 @@ export const useDraftStore = create<DraftStore>()(
       },
     }),
     {
-      name: "paseo-drafts",
+      name: DRAFT_STORE_STORAGE_KEY,
       version: DRAFT_STORE_VERSION,
       storage: draftPersistStorage,
       partialize: ({ drafts, createModalDraft }) => ({ drafts, createModalDraft }),

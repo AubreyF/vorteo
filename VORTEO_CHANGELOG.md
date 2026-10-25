@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.829 - 2026-10-25
+
+### Maintenance
+
+- Merge legacy layout freeze fix: restoring an old layout drops empty Explorer drafts instead of mounting thousands of composers, and touch and zoom listeners are shared
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Fixed
+
+- Reloading a workspace whose saved Explorer pane collected thousands of empty drafts no longer freezes the page. Every Explorer tab now renders as a supporting card, so each draft mounted a full composer. Restore drops Explorer drafts that hold no saved text, attachments, setup or tab state, and keeps the ones that do. Drafts in ordinary panes are untouched, and when saved drafts cannot be read every Explorer draft is kept. Touch detection and interface zoom now share one window listener each instead of adding one per mounted component.
+
 ## 0.11.0-beta.3.vorteo.828 - 2026-10-25
 
 ### Maintenance
