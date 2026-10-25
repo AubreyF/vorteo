@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.856 - 2026-10-25
+
+### Maintenance
+
+- Merge Windows CI exclusions: POSIX-only runtime custody and Host launcher suites, and the restart settings drift test, skip on Windows
+
+## 0.11.0-beta.3.vorteo.852 - 2026-10-25
+
+### Maintenance
+
+- Windows CI skips the coordinator runtime custody and Host launcher update suites, and the restart settings drift test. They exercise Host-only code with POSIX ownership, user IDs and `/`-rooted paths, and failed nine tests on the Windows server job.
+
 ## 0.11.0-beta.3.vorteo.855 - 2026-10-25
 
 ### Maintenance
