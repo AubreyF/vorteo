@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.821 - 2026-10-25
+
+### Tests
+
+- The live draft and agent history tests mock the host runtime instead of loading it. Its module graph, the daemon runtime and protocol validators, took about 10 seconds to transform, so the draft test's setup missed its 10 second limit even on a lightly loaded Mac. Neither test uses a host client. The draft test now takes about 4 seconds and the history test under half a second, both with plain static imports.
+
 ## 0.11.0-beta.3.vorteo.820 - 2026-10-25
 
 ### Fixed
