@@ -472,9 +472,10 @@ test("shows an actionable error when the connection drops during creation", asyn
   await nameInput.press("Enter");
   await disconnect.wait();
 
-  await expect(page.getByText(/Context action connection failed/i)).toBeVisible({
-    timeout: 30_000,
-  });
+  // Connection failures read in plain words in a toast since 68faa7a52.
+  await expect(
+    page.getByText("Lost connection to the host. Try again once it reconnects.", { exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
   await expect(
     page.getByTestId("file-explorer-tree-scroll").getByText("disconnected.txt", { exact: true }),
   ).toHaveCount(0);

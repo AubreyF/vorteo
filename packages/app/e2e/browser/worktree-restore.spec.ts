@@ -295,9 +295,13 @@ test.describe("Worktree restore", () => {
       to: switchedBranch,
     });
     await expectWorkspaceBranch(page, switchedBranch);
+    // Desktop has no title header since 195e1c044; the workspace's sidebar row carries the title.
     await expect(
-      page.getByTestId("workspace-header-title").filter({ visible: true }).first(),
-    ).toHaveText(switchedBranch, { timeout: 30_000 });
+      page
+        .getByTestId(`sidebar-workspace-row-${getServerId()}:${worktree.workspaceId}`)
+        .filter({ visible: true })
+        .first(),
+    ).toContainText(switchedBranch, { timeout: 30_000 });
   });
 
   test("restores the workspace before explicitly unarchiving each selected agent", async ({

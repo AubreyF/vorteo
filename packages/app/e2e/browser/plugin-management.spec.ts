@@ -383,8 +383,10 @@ async function expectSourceHierarchy(page: Page, description: string, source: st
     Number.parseFloat(getComputedStyle(element).fontSize),
   );
   expect(sourceSize).toBeLessThan(descriptionSize);
-  await expect(sourceText).toHaveCSS("color", "rgb(120, 116, 111)");
-  await expect(descriptionText).toHaveCSS("color", "rgb(173, 169, 165)");
+  // Dark Star became the default dark appearance in 60f4899a6: the source uses its muted
+  // #aeaeb2 and the description its secondary #c7c7cc.
+  await expect(sourceText).toHaveCSS("color", "rgb(174, 174, 178)");
+  await expect(descriptionText).toHaveCSS("color", "rgb(199, 199, 204)");
 }
 
 async function installLocalPluginWithStatusExamples(

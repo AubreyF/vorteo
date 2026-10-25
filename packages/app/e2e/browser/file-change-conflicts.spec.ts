@@ -129,22 +129,22 @@ async function restoreFileAfterWatcherObservedTemporaryAbsence(input: {
 }
 
 test.describe("Workspace file change conflicts", () => {
-  test("binary preview downloads the original file in Vorteo mode", async ({
-    page,
-    withWorkspace,
-  }, testInfo) => {
+  // 471d7f22a removed the Standard mode that hid this action, so it shows straight away.
+  test("binary preview downloads the original file", async ({ page, withWorkspace }, testInfo) => {
     const content = new Uint8Array([0, 1, 2, 3, 255]);
     await openTrackedFile(page, withWorkspace, {
       prefix: "binary-preview-download-",
       relativePath: "artifact.bin",
       content,
     });
-    const button = filePane(page).getByRole("button", { name: "Download", exact: true });
+    // The pane toolbar has its own Download for every preview (864855f71); this checks the
+    // binary placeholder's action.
+    const button = filePane(page)
+      .getByRole("button", { name: "Download", exact: true })
+      .and(page.locator(':not([data-testid="file-download"])'));
     await expect(
       filePane(page).getByText("Binary preview unavailable", { exact: true }),
     ).toBeVisible();
-    await expect(button).toHaveCount(0);
-
     await expect(button).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("binary-download-desktop.png") });
     const downloading = page.waitForEvent("download");

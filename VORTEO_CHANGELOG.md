@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.853 - 2026-10-25
+
+### Maintenance
+
+- Repair the files, Explorer and plugin browser tests:
+  - Count only visible tree matches, since a hidden Files card can stay mounted (60f4899a6).
+  - Expect toasts for failed actions (68faa7a52).
+  - Follow the Dark Star default colors (60f4899a6) and the host line in tab tooltips (d9b7a2d60).
+  - Expect the single-script play button (fa9a1859d) and the checklist count badge label (9883656f9).
+  - Read workspace titles from the sidebar row (195e1c044).
+  - Re-home the Explorer upgrade tests onto the supporting cards and the icon rail (ab60c1e39).
+- Retire explorer-plugin-menu.spec.ts and its helper, citing 60f4899a6: supporting cards replaced the Explorer tab dock and its + menu.
+- Mark the canvas diff thumb drag as a known regression: at 1400px the supporting cards' resize handle covers the overlay scrollbar's grab area.
+
 ## 0.11.0-beta.3.vorteo.852 - 2026-10-25
 
 ### Maintenance
