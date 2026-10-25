@@ -79,9 +79,10 @@ test.describe("Question prompt pagination", () => {
   });
 
   for (const width of [1280, 390]) {
-    // Geometry drift, owner review (2026-10-25). Measured at 1280px and 390px: right inset 17 and
-    // 16 (expected 9), bottom inset 21 (expected 17), input-to-actions gap 2 (expected 12, which
-    // 9b6263e7c describes). Row centering and action order still hold.
+    // Product regression and owner review (2026-10-25). The input-to-actions gap measures 2px
+    // against the 12px 9b6263e7c states, a regression. The right inset (17 and 16 at 1280px and
+    // 390px, expected 9) and bottom inset (21, expected 17) await owner review. Row centering and
+    // action order still hold.
     test.fixme(`free-write questions use Next before final Submit at ${width}px`, async ({
       page,
     }, info) => {

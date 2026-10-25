@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.845 - 2026-10-25
+
+### Maintenance
+
+- Sidebar helpers wait for a visible project row and accept the display preferences sheet on touch layouts, since the shell keeps a hidden copy of the other layout's sidebar.
+- Sidebar reorder tests:
+  - Open the phone sidebar through the shared helper.
+  - Expect a refused move as a toast (68faa7a52).
+- The pin shortcut tests restore project grouping and expand a Pinned section left collapsed. Sidebar grouping and section collapse now sync through the host, so they carried between tests.
+- Mark the touch title width test for owner review: diff stats now take 52px of title space on touch rows.
+- The question pagination test now records its 2px input-to-actions gap as a regression against 9b6263e7c; its insets still await owner review.
+
 ## 0.11.0-beta.3.vorteo.844 - 2026-10-25
 
 ### Maintenance

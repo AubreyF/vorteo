@@ -7,7 +7,10 @@ import {
 } from "../support/helpers/new-workspace";
 import { seedWorkspace, type SeededWorkspace } from "../support/helpers/seed-client";
 import { getServerId } from "../support/helpers/server-id";
-import { selectSidebarStatusGrouping } from "../support/helpers/sidebar";
+import {
+  selectSidebarStatusGrouping,
+  selectSidebarProjectGrouping,
+} from "../support/helpers/sidebar";
 
 // The pin shortcut used to be registered by the sidebar row itself, so it silently did nothing
 // whenever the row was unmounted — a collapsed project section being the common case. It now
@@ -236,12 +239,26 @@ test.describe("Pin workspace shortcut", () => {
       await page.keyboard.press(PIN_SHORTCUT);
 
       await expect(pinnedSection(page)).toBeVisible({ timeout: 10_000 });
+      // Section collapse state syncs through the host, so a Pinned section collapsed by an
+      // earlier test can arrive collapsed here; this test is about the status group.
+      const pinnedRow = pinnedSection(page).getByTestId(
+        `sidebar-workspace-row-${getServerId()}:${workspace.workspaceId}`,
+      );
+      const shown = await pinnedRow
+        .waitFor({ state: "visible", timeout: 3_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (!shown) await page.getByTestId("sidebar-pinned-section-header").click();
       await expect(
         pinnedSection(page).getByTestId(
           `sidebar-workspace-row-${getServerId()}:${workspace.workspaceId}`,
         ),
       ).toBeVisible();
     } finally {
+      // Sidebar grouping syncs through the host; restore project grouping for later tests.
+      await page.keyboard.press("Escape").catch(() => undefined);
+      await selectSidebarProjectGrouping(page).catch(() => undefined);
+      await page.keyboard.press("Escape").catch(() => undefined);
       await workspace.cleanup();
     }
   });

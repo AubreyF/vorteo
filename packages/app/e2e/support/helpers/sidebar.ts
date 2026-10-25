@@ -182,9 +182,14 @@ export async function expectWorkspaceAbsentFromSidebar(
 export async function openSidebarDisplayPreferences(page: Page): Promise<void> {
   await page.locator('[data-testid="sidebar-footer-overflow"]:visible').first().click();
   await page.getByTestId("sidebar-display-preferences-action").click();
-  await expect(page.getByTestId("sidebar-display-preferences-content")).toBeVisible({
-    timeout: 10_000,
-  });
+  // Touch layouts open the menu as a sheet, whose scroll content adds a "-content" suffix.
+  await expect(
+    page
+      .getByTestId("sidebar-display-preferences-content")
+      .or(page.getByTestId("sidebar-display-preferences-content-content"))
+      .filter({ visible: true })
+      .first(),
+  ).toBeVisible({ timeout: 10_000 });
 }
 
 export async function openSidebarDisplayPage(page: Page, branchTestID: string): Promise<void> {
@@ -216,6 +221,11 @@ export async function closeSidebarDisplayPreferences(page: Page): Promise<void> 
 export async function selectSidebarStatusGrouping(page: Page): Promise<void> {
   await openSidebarDisplayPage(page, "sidebar-display-grouping");
   await page.getByTestId("sidebar-grouping-status").click();
+}
+
+export async function selectSidebarProjectGrouping(page: Page): Promise<void> {
+  await openSidebarDisplayPage(page, "sidebar-display-grouping");
+  await page.getByTestId("sidebar-grouping-project").click();
 }
 
 export async function openMobileAgentSidebar(page: Page): Promise<void> {
