@@ -48,7 +48,7 @@ import {
 import { prepareSourceBatch } from "./source-batches.js";
 import { prepareDevRepairBundle } from "./dev-source-repair.js";
 import { assertReleaseSelectionAllowed } from "./release-selection-guard.js";
-import { pruneHostReleases } from "./host-release-retention.js";
+import { pruneHostReleases, startHostReleaseRetention } from "./host-release-retention.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { isCompletedBootstrap, openBootstrapRequests } from "./coordinator-bootstrap.js";
 import { isDeepStrictEqual } from "node:util";
@@ -722,8 +722,13 @@ export class InstallationSourceUpdates {
       update,
       status: "succeeded",
     });
-    const retention = await this.retainHostReleases(previous);
-    return `Installed source ${update.sourceCommit}. Host replacement identity and readiness verified; interface published. Previous release retained at ${previous}.${retention}`;
+    // Cleanup runs after this result, outside the readiness deadline: a first prune of a
+    // large backlog once took longer than the whole install window.
+    startHostReleaseRetention(
+      () => this.retainHostReleases(previous),
+      path.join(work, "retention.json"),
+    );
+    return `Installed source ${update.sourceCommit}. Host replacement identity and readiness verified; interface published. Previous release retained at ${previous}. Old Host releases are removed in the background; the result is recorded in retention.json in this job's folder.`;
   }
 
   /**

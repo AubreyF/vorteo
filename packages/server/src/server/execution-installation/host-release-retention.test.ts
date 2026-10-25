@@ -1,5 +1,7 @@
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
+  readFileSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
@@ -13,7 +15,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { setReleaseImmutable } from "./coordinator-bootstrap-release-seal.js";
-import { pruneHostReleases } from "./host-release-retention.js";
+import {
+  hostReleaseRetentionIdle,
+  pruneHostReleases,
+  removeReleaseTree,
+  startHostReleaseRetention,
+} from "./host-release-retention.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -92,4 +99,66 @@ test("off macOS, release trees are removed without immutable-flag tooling", asyn
   } finally {
     Object.defineProperty(process, "platform", platform);
   }
+});
+
+test("plain release trees are removed without the seal-aware walk", async () => {
+  const f = fixture(1);
+  const sealAware: string[] = [];
+  await removeReleaseTree(f.release(0), async (directory) => {
+    sealAware.push(directory);
+  });
+  expect(existsSync(f.release(0))).toBe(false);
+  expect(sealAware).toEqual([]);
+});
+
+test.skipIf(process.platform !== "darwin")(
+  "a tree that refuses plain deletion falls back to the seal-aware removal",
+  async () => {
+    const f = fixture(1);
+    const locked = path.join(f.release(0), "locked.json");
+    writeFileSync(locked, "{}");
+    execFileSync("/usr/bin/chflags", ["uchg", locked]);
+    const sealAware: string[] = [];
+    try {
+      await removeReleaseTree(f.release(0), async (directory) => {
+        sealAware.push(directory);
+        execFileSync("/usr/bin/chflags", ["-R", "nouchg", directory]);
+        await rm(directory, { recursive: true, force: true });
+      });
+    } finally {
+      if (existsSync(locked)) execFileSync("/usr/bin/chflags", ["nouchg", locked]);
+    }
+    expect(sealAware).toEqual([f.release(0)]);
+    expect(existsSync(f.release(0))).toBe(false);
+  },
+);
+
+test("cleanup runs after the caller returns, one at a time, with a receipt", async () => {
+  const f = fixture(1);
+  const receipt = path.join(f.base, "retention.json");
+  const skipped = path.join(f.base, "skipped.json");
+  let finish!: (note: string) => void;
+  const prune = () => new Promise<string>((resolve) => (finish = resolve));
+  const read = (file: string) => JSON.parse(readFileSync(file, "utf8"));
+  expect(startHostReleaseRetention(prune, receipt)).toBe(true);
+  // The caller is not held: the cleanup is still running when this returns.
+  expect(read(receipt)).toMatchObject({ status: "running" });
+  expect(startHostReleaseRetention(async () => "unexpected", skipped)).toBe(false);
+  expect(read(skipped)).toMatchObject({ status: "skipped" });
+  finish(" Removed 4 old Host releases.");
+  await hostReleaseRetentionIdle();
+  expect(read(receipt)).toMatchObject({
+    status: "finished",
+    note: "Removed 4 old Host releases.",
+  });
+  // A failed cleanup is recorded and frees the next one.
+  expect(
+    startHostReleaseRetention(async () => {
+      throw new Error("disk busy");
+    }, receipt),
+  ).toBe(true);
+  await hostReleaseRetentionIdle();
+  expect(read(receipt)).toMatchObject({ status: "failed", error: "disk busy" });
+  expect(startHostReleaseRetention(async () => "", skipped)).toBe(true);
+  await hostReleaseRetentionIdle();
 });
