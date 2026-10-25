@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createIconCatalog } from "./icon-catalog-state";
@@ -41,6 +42,31 @@ describe("web icon imports", () => {
     expect(result?.code).toContain("LucideProvider as Provider");
     expect(result?.code).toContain("context.mjs");
     expect(result?.code).toContain('from "lucide-react-native/icons/settings"');
+  });
+
+  it("imports the provider context relative to the file, identical in every build root", () => {
+    const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+    const context = iconImports.readContextExports().path;
+    const code = (root: string) =>
+      transformSync(
+        'import { LucideProvider } from "lucide-react-native"; console.log(LucideProvider);',
+        {
+          configFile: false,
+          babelrc: false,
+          filename: path.join(root, "src/app/_layout.tsx"),
+          plugins: [iconImports],
+        },
+      )?.code;
+    // Metro reuses transform output across builds of the same commit in other
+    // roots, so the output must carry no path of the root that produced it.
+    const output = code(appRoot) ?? "";
+    expect(output).not.toContain(appRoot);
+    const specifier = /from "([^"]+context\.mjs)"/.exec(output)?.[1];
+    expect(specifier).toBe(
+      path.relative(path.join(appRoot, "src/app"), context).split(path.sep).join("/"),
+    );
+    expect(specifier?.startsWith("../")).toBe(true);
+    expect(path.resolve(appRoot, "src/app", specifier!)).toBe(context);
   });
 
   it("retains the original provider context and explicit presentation defaults", async () => {

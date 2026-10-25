@@ -55,13 +55,23 @@ function readIconExports() {
   return exports;
 }
 
+/** The context module as seen from the importing file. Metro shares transform output
+ * between build roots, so an absolute path would point a later build at another
+ * build's tree; the package's exports map refuses a package subpath. A relative path
+ * is identical in every root with the same layout and resolves inside its own. */
+function contextSpecifier(filename, context) {
+  if (!filename) return context;
+  const relative = path.relative(path.dirname(filename), context).split(path.sep).join("/");
+  return relative.startsWith(".") ? relative : `./${relative}`;
+}
+
 module.exports = function modularLucideImports({ types: t }) {
   const exports = readIconExports();
   const context = readContextExports();
   return {
     name: "vorteo-web-icon-imports",
     visitor: {
-      ImportDeclaration(statement) {
+      ImportDeclaration(statement, state) {
         if (
           statement.node.source.value !== "lucide-react-native" ||
           statement.node.importKind === "type"
@@ -77,7 +87,7 @@ module.exports = function modularLucideImports({ types: t }) {
             direct.push(
               t.importDeclaration(
                 [t.importSpecifier(specifier.local, t.identifier(imported))],
-                t.stringLiteral(context.path),
+                t.stringLiteral(contextSpecifier(state.filename, context.path)),
               ),
             );
             continue;

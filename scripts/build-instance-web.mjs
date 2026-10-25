@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { installationWebEntry } from "./installation-web-entry.mjs";
 import { installDependencies } from "./lib/dependency-cache.mjs";
 import { preloadWebEntry } from "./preload-web-entry.mjs";
+import { webExportEnvironment } from "./lib/web-export.mjs";
 import {
   claimBuild,
   pruneInstanceBuildsInBackground,
@@ -92,8 +93,8 @@ async function build() {
     APP_VARIANT: "production",
     PASEO_BUILD_COMMIT: sourceCommit,
   };
-  function run(command, args, cwd = root) {
-    execFileSync(command, args, { cwd, env, stdio: "inherit" });
+  function run(command, args, cwd = root, environment = {}) {
+    execFileSync(command, args, { cwd, env: { ...env, ...environment }, stdio: "inherit" });
   }
   const exported = path.join(root, "web-export");
   if (entry) {
@@ -111,6 +112,7 @@ async function build() {
       "npx",
       ["expo", "export", "--platform", "web", "--output-dir", exported],
       path.join(root, "packages/app"),
+      webExportEnvironment(),
     );
   }
   const indexPath = path.join(exported, "index.html");
