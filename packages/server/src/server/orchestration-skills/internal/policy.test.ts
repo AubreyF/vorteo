@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, rm, cp } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, writeFile, rm, cp, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -322,6 +322,32 @@ it("turns off a built-in name claimed later by frontmatter in the account's skil
     "example",
     "simplify",
   ]);
+});
+
+it("reads the claimed name of a skill the inventory could not fully inspect", async () => {
+  const { config, account } = await bundledSetup();
+  // A symlinked file stops the package read, so inventory records only the folder name.
+  const linked = path.join(account, "skills/helper");
+  await writeSkill(linked, "simplify");
+  await symlink(path.join(linked, "SKILL.md"), path.join(linked, "linked.md"));
+  // More files than a package may hold has the same effect.
+  const large = path.join(account, "skills/large");
+  await writeSkill(large, "claude-api");
+  for (let index = 0; index < 257; index++)
+    await writeFile(path.join(large, `file-${index}.txt`), "x");
+  expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
+});
+
+it("keeps no built-ins when a skill's frontmatter cannot be read", async () => {
+  const { config, account } = await bundledSetup();
+  const unreadable = path.join(account, "skills/locked");
+  await writeSkill(unreadable, "other");
+  await chmod(path.join(unreadable, "SKILL.md"), 0o000);
+  try {
+    expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
+  } finally {
+    await chmod(path.join(unreadable, "SKILL.md"), 0o644);
+  }
 });
 
 it("keeps no built-ins when an account skill folder cannot be read", async () => {

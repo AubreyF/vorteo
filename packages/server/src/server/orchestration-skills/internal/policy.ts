@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AgentSessionConfig } from "../../agent/agent-sdk-types.js";
@@ -6,8 +7,15 @@ import type {
   SkillSnapshot,
   InstallationSkill,
   SkillInstallation,
+  SkillInventory,
 } from "@getpaseo/protocol/skill-library";
-import { inventorySkills, readPackage, skillRoots, SkillLibraryError } from "./inventory.js";
+import {
+  inventorySkills,
+  readPackage,
+  skillMetadata,
+  skillRoots,
+  SkillLibraryError,
+} from "./inventory.js";
 
 export function isRestricted(policy: SkillPolicy | undefined): boolean {
   if (!policy) return false;
@@ -195,12 +203,8 @@ export async function verifySkillSnapshot(
     // name is turned off instead of admitting an unverified package. Plugin skills claim
     // their bare name, which Claude's allowlist matches as a ":name" suffix. If any root
     // could not be read, a claim may be hidden, so no built-ins are kept.
-    const claimed = new Set<string>();
-    for (const skill of current.skills)
-      if (skill.providers.includes("claude"))
-        for (const name of packageNames(skill)) claimed.add(name);
-    const unreadable = current.roots.some((root) => root.status === "error");
-    builtins = unreadable ? [] : builtins.filter((name) => !claimed.has(name));
+    const claimed = await claimedSkillNames(current);
+    builtins = claimed ? builtins.filter((name) => !claimed.has(name)) : [];
     // Config-folder roots join the inventory only to find claims on built-in names; the
     // package selector check keeps its earlier scope.
     const baseline = (await skillRoots(os.homedir(), config.cwd)).map((root) => root.path);
@@ -242,4 +246,32 @@ async function bundledSkillNames(
 // Claude's skill allowlist matches a package's frontmatter name or its folder name.
 function packageNames(skill: { name: string; path: string }): string[] {
   return [skill.name, path.basename(skill.path)];
+}
+
+/** Every name a Claude skill in the inventory claims; null when some claim is unknown. */
+async function claimedSkillNames(inventory: SkillInventory): Promise<Set<string> | null> {
+  if (inventory.roots.some((root) => root.status === "error")) return null;
+  const claimed = new Set<string>();
+  for (const skill of inventory.skills) {
+    if (!skill.providers.includes("claude")) continue;
+    const names = await claimedNames(skill);
+    if (!names) return null;
+    for (const name of names) claimed.add(name);
+  }
+  return claimed;
+}
+
+/**
+ * Names a skill can be enabled by. Inventory records a package it could not fully read
+ * (symlinked files, size limits) under its folder name, so read the frontmatter name
+ * directly; null when even that fails, because the claimed name is then unknown.
+ */
+async function claimedNames(skill: SkillInstallation): Promise<string[] | null> {
+  if (!skill.issues.length) return packageNames(skill);
+  try {
+    const { name } = skillMetadata(await readFile(path.join(skill.path, "SKILL.md")));
+    return [name, path.basename(skill.path)];
+  } catch {
+    return null;
+  }
 }
