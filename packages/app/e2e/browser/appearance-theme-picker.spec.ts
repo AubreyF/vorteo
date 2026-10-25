@@ -208,6 +208,9 @@ test("stacks font labels above inputs on compact screens", async ({ page }, test
   const label = page.getByText("Interface font", { exact: true });
   const input = page.getByLabel("Interface font family", { exact: true });
   await expect(input).toBeVisible();
+  // The single settings page scrolls to Appearance after load; measure once it stops moving.
+  await waitForSettledPosition(label);
+  await waitForSettledPosition(input);
   const labelBox = await label.boundingBox();
   const inputBox = await input.boundingBox();
   expect(labelBox).not.toBeNull();
@@ -461,8 +464,9 @@ test("keeps System appearance available without plugin themes", async ({ page })
 });
 
 test("keeps shared button labels themed across palette changes", async ({ page }, info) => {
-  // Seven themes at three widths each outlast the default timeout.
-  test.setTimeout(180_000);
+  // Seven themes at three widths each outlast the default timeout. The run takes about 90 seconds
+  // locally and reached 180 seconds on CI.
+  test.setTimeout(300_000);
   const agent = await seedLongMockAgentTimeline({ turns: 16 });
   const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "button-colors" });
   try {
@@ -537,18 +541,21 @@ test.describe("whole-interface zoom", () => {
       const swatch = page.getByTestId("theme-preview-neon");
       const initialHeight = (await swatch.boundingBox())!.height;
       if (width === 1133) {
-        // Settings panes above the slider can still be loading; drag only once it stops moving.
-        await waitForSettledPosition(slider);
-        const track = (await slider.boundingBox())!;
-        await page.mouse.move(track.x + track.width * 0.2, track.y + track.height / 2);
-        await page.mouse.down();
-        await page.mouse.move(track.x + track.width * 0.6, track.y + track.height / 2, {
-          steps: 8,
-        });
-        expect((await slider.boundingBox())!.width).toBeCloseTo(track.width, 0);
-        await expect(page.locator("html")).toHaveAttribute("data-interface-zoom", "100");
-        await page.mouse.up();
-        await expect(slider).not.toHaveValue("100");
+        // Settings panes above the slider can still be loading and move it after it first
+        // settles, so a drag that missed the track is measured and made again.
+        await expect(async () => {
+          await waitForSettledPosition(slider);
+          const track = (await slider.boundingBox())!;
+          await page.mouse.move(track.x + track.width * 0.2, track.y + track.height / 2);
+          await page.mouse.down();
+          await page.mouse.move(track.x + track.width * 0.6, track.y + track.height / 2, {
+            steps: 8,
+          });
+          expect((await slider.boundingBox())!.width).toBeCloseTo(track.width, 0);
+          await expect(page.locator("html")).toHaveAttribute("data-interface-zoom", "100");
+          await page.mouse.up();
+          await expect(slider).not.toHaveValue("100", { timeout: 2_000 });
+        }).toPass({ timeout: 20_000 });
       }
       for (const zoom of [125, 75, 200, 100]) {
         await slider.fill(String(zoom));

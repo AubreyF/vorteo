@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.860 - 2026-10-25
+
+### Maintenance
+
+- Make three appearance browser tests reliable on CI without loosening their checks:
+  - The compact font layout test measures the label and input after the settings page stops scrolling to Appearance.
+  - The 1133px interface zoom drag is measured and made again if late-loading settings panes move the slider first.
+  - The palette button test gets a 300-second budget; it takes about 90 seconds locally and reached 180 seconds on CI.
+
 ## 0.11.0-beta.3.vorteo.859 - 2026-10-25
 
 ### Maintenance

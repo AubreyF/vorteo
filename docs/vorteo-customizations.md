@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): test-only change. Three appearance browser tests wait for settled settings layout or get a longer budget. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): merge-only change. The browser test repair branch takes main b08980d36. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): test-only change. Composer, agent stream and card tests follow current behaviour; one queue test is retired, two regressions are marked and two layout differences go to owner review. Functionality is unchanged. README overview and onboarding are unchanged.
