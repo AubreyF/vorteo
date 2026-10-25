@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.829 - 2026-10-24
+
+### Maintenance
+
+- Retire the Explorer tab dock tests: explorer-sidebar.spec.ts and the Explorer pane tab placement test. Files and Changes became supporting cards beside the conversation in 60f4899a6, 2e2921f79 and 73be0edc5. The split pane tests now use the primary pane menu's Split right item.
+- Mark the saved Explorer layout recovery test as a known failure: reloading a workspace whose saved layout has a hidden Explorer and 2,250 saved drafts now freezes the page. The product fix follows separately.
+
 ## 0.11.0-beta.3.vorteo.828 - 2026-10-24
 
 ### Maintenance

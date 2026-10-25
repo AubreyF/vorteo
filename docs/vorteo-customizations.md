@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-24): test-only change. Explorer tab dock tests are retired, split pane tests use the pane menu, and the saved layout recovery test is marked as a known regression. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-24): test-only change. Context window, workspace setup and launcher tests follow the current loading pulse, menus, script button and settings addresses. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-24): test-only change. Appearance theme tests scope their alerts and timeouts; two geometry checks are marked for owner review. Functionality is unchanged. README overview and onboarding are unchanged.
