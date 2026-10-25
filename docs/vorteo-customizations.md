@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-24): removed six duplicate vorteo.758 release-note copies; no feature changed. README overview and onboarding are unchanged.
+
 ## Startup connection diagnostics
 
 The delayed startup screen exposes the existing device connection checker before the host is available. It separates health HTTP, WebSocket transport, saved app authentication and thread-directory readiness, with elapsed time, reload and a sanitized copyable report. The initial HTML loader distinguishes script transfer errors, JavaScript execution errors, invalid health responses, network rejection and actual timeouts even without the application bundle. A confirmed failed entry-script download can be retried once without reloading, preserving its integrity and browser security attributes. Reports include safe script timing, exception class and allowlisted engine messages, current origin and service-worker control, excluding query strings and private exception text. Clipboard failure exposes selectable text. A cached page, successful health response or loaded directory does not establish remote-client or selected-workspace readiness. This interface change does not restart daemons or change credentials, permissions or network settings. The README overview and onboarding are unchanged.
