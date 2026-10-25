@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.832 - 2026-10-25
+
+### Maintenance
+
+- Merge precompiled built-in plugins: releases compile built-in plugins at build time and the daemon uses them when their digests verify, instead of running esbuild at every start
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Changed
+
+- Built-in plugins are compiled when the release is built, so the daemon no longer runs esbuild for them at every start. Each release stores a prebuilt bundle beside every built-in plugin. The daemon uses it only when the bundle's digest and the plugin's source and daemon version still match, and otherwise compiles from source as before. On an idle Mac the plugin phase of a boot drops from about 1 second to about 0.3 seconds; under heavy load, compiling had stretched daemon starts to tens of seconds.
+
 ## 0.11.0-beta.3.vorteo.831 - 2026-10-25
 
 ### Maintenance
