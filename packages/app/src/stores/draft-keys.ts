@@ -1,5 +1,8 @@
 import { generateMessageId } from "@/types/stream";
 
+/** The storage key the draft store persists under. */
+export const DRAFT_STORE_STORAGE_KEY = "paseo-drafts";
+
 export const NEW_WORKSPACE_DRAFT_KEY = "new-workspace";
 const NEW_WORKSPACE_FORK_DRAFT_PREFIX = `${NEW_WORKSPACE_DRAFT_KEY}:draft:`;
 

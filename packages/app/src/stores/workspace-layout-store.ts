@@ -2,7 +2,7 @@ import AsyncStorage from "@/storage/app-storage";
 import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { z } from "zod";
+import { z } from "zod";
 import { WorkspaceLayoutPersistedStateSchema } from "./workspace-layout-storage";
 import type { JsonValue } from "@getpaseo/protocol/agent-types";
 import type { WorkspaceTab, WorkspaceTabTarget } from "@/workspace-tabs/model";
@@ -34,6 +34,7 @@ import {
   insertSplit,
   moveTabToPaneInLayout,
   normalizeLayout,
+  dropEmptyExplorerDraftTabs,
   openTabInLayoutBackground,
   replaceTabTargetInLayout,
   revealTargetInLayout,
@@ -61,6 +62,7 @@ import {
 } from "@/stores/workspace-layout-actions";
 import { normalizeWorkspaceTabTarget } from "@/workspace-tabs/identity";
 import { createValidatedPersistStorage } from "@/storage/validated-persist-storage";
+import { DRAFT_STORE_STORAGE_KEY } from "@/stores/draft-keys";
 import { panelTargetSupportsHostForWorkspaceKey } from "@/plugins/workspace-panels/locations";
 
 export {
@@ -651,9 +653,65 @@ function createExplorerSidebarPane(
   return targetPaneId ? splitPaneEmpty(workspaceKey, { targetPaneId, position: "right" }) : null;
 }
 
+const SavedDraftsSchema = z.object({
+  state: z.object({ drafts: z.record(z.string(), z.unknown()) }),
+});
+const SavedDraftInputSchema = z.object({
+  text: z.string().optional(),
+  attachments: z.array(z.unknown()).optional(),
+  images: z.array(z.unknown()).optional(),
+});
+const SavedDraftRecordSchema = z.object({
+  lifecycle: z.string().optional(),
+  input: SavedDraftInputSchema.optional(),
+});
+
+function savedDraftHasContent(record: unknown): boolean {
+  const parsed = SavedDraftRecordSchema.safeParse(record);
+  if (!parsed.success) return false;
+  if (parsed.data.lifecycle !== undefined && parsed.data.lifecycle !== "active") return false;
+  // Records saved before the lifecycle envelope kept their input at the top level.
+  const input = parsed.data.input ?? SavedDraftInputSchema.safeParse(record).data;
+  return Boolean(
+    input?.text?.trim() ||
+    (input?.attachments?.length ?? 0) > 0 ||
+    (input?.images?.length ?? 0) > 0,
+  );
+}
+
+/**
+ * The draft ids whose saved composer holds text or attachments, read from the draft store's
+ * storage without importing it. Null when that storage is unreadable, so restore keeps every
+ * draft rather than guessing.
+ */
+async function loadSavedDraftIds(): Promise<ReadonlySet<string> | null> {
+  try {
+    const raw = await AsyncStorage.getItem(DRAFT_STORE_STORAGE_KEY);
+    if (raw === null) return new Set();
+    const parsed = SavedDraftsSchema.safeParse(JSON.parse(raw));
+    if (!parsed.success) return null;
+    const ids = new Set<string>();
+    for (const [key, record] of Object.entries(parsed.data.state.drafts)) {
+      // Workspace draft tabs save under draft:<serverId>:<draftId>.
+      if (key.startsWith("draft:") && savedDraftHasContent(record)) {
+        ids.add(key.slice(key.lastIndexOf(":") + 1));
+      }
+    }
+    return ids;
+  } catch {
+    return null;
+  }
+}
+
 export function createWorkspaceLayoutStore(
   ids: WorkspaceLayoutIdSource = defaultWorkspaceLayoutIds,
 ) {
+  const layoutStorage = createValidatedPersistStorage(
+    AsyncStorage,
+    WorkspaceLayoutPersistedStateSchema,
+  );
+  // Read alongside the layout so restore can decide synchronously which Explorer drafts to keep.
+  let savedDraftIds: ReadonlySet<string> | null = null;
   return create<WorkspaceLayoutStore>()(
     persist(
       (set, get) => ({
@@ -1706,7 +1764,17 @@ export function createWorkspaceLayoutStore(
       {
         name: "workspace-layout-state",
         version: WORKSPACE_LAYOUT_PERSIST_VERSION,
-        storage: createValidatedPersistStorage(AsyncStorage, WorkspaceLayoutPersistedStateSchema),
+        storage: {
+          ...layoutStorage,
+          getItem: async (name) => {
+            const [value, draftIds] = await Promise.all([
+              layoutStorage.getItem(name),
+              loadSavedDraftIds(),
+            ]);
+            savedDraftIds = draftIds;
+            return value;
+          },
+        },
         migrate: (persistedState, version) =>
           migrateWorkspaceLayoutPersistedState(persistedState, version, ids),
         partialize: (state) => {
@@ -1746,12 +1814,18 @@ export function createWorkspaceLayoutStore(
           for (const [workspaceKey, persistedLayout] of Object.entries(
             result.data.layoutByWorkspace,
           )) {
+            const explorerPaneId = resolveExplorerSidebarPaneId(
+              persistedLayout,
+              explorerSidebarPaneIdByWorkspace[workspaceKey],
+            );
+            const draftIds = savedDraftIds;
             const restoredLayout = restoreWorkspaceLayout(
-              stripEphemeralTabsFromLayout(persistedLayout),
-              resolveExplorerSidebarPaneId(
-                persistedLayout,
-                explorerSidebarPaneIdByWorkspace[workspaceKey],
+              dropEmptyExplorerDraftTabs(
+                stripEphemeralTabsFromLayout(persistedLayout),
+                explorerPaneId,
+                (draftId) => draftIds === null || draftIds.has(draftId),
               ),
+              explorerPaneId,
               ids.createNodeId,
             );
             const explorerSidebar = ensurePersistedExplorerSidebarPane({

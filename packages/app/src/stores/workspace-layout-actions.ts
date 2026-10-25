@@ -1147,6 +1147,64 @@ export function stripEphemeralTabsFromLayout(layout: WorkspaceLayout): Workspace
   });
 }
 
+function filterPaneTabsInNode(
+  node: SplitNodeInternal,
+  paneId: string,
+  keep: (tab: WorkspaceTab) => boolean,
+): SplitNodeInternal {
+  if (node.kind === "pane") {
+    if (node.pane.id !== paneId) return node;
+    const nextTabs = node.pane.tabs.filter(keep);
+    return nextTabs.length === node.pane.tabs.length
+      ? node
+      : createPaneNode({
+          id: node.pane.id,
+          tabs: nextTabs,
+          focusedTabId: node.pane.focusedTabId,
+          hidden: node.pane.hidden,
+        });
+  }
+  const children = node.group.children.map((child) => filterPaneTabsInNode(child, paneId, keep));
+  return children.every((child, index) => child === node.group.children[index])
+    ? node
+    : createGroupNode({
+        id: node.group.id,
+        direction: node.group.direction,
+        children,
+        sizes: node.group.sizes,
+      });
+}
+
+/**
+ * Drops draft tabs that hold nothing from the Explorer pane. Every Explorer tab renders as a
+ * supporting card, so a saved Explorer that collected thousands of generated drafts would mount
+ * thousands of composers on restore. A draft stays when its tab carries saved state or setup, or
+ * when `hasSavedDraft` reports text or attachments for its draft id.
+ */
+export function dropEmptyExplorerDraftTabs(
+  layout: WorkspaceLayout,
+  explorerSidebarPaneId: string | null,
+  hasSavedDraft: (draftId: string) => boolean,
+): WorkspaceLayout {
+  if (!explorerSidebarPaneId) return layout;
+  const internalLayout = asInternalLayout(layout);
+  const nextRoot = filterPaneTabsInNode(
+    internalLayout.root,
+    explorerSidebarPaneId,
+    (tab) =>
+      tab.target.kind !== "draft" ||
+      tab.state !== undefined ||
+      tab.target.setup !== undefined ||
+      hasSavedDraft(tab.target.draftId),
+  );
+  if (nextRoot === internalLayout.root) return layout;
+  return withNormalizedParentTabMap({
+    root: nextRoot,
+    focusedPaneId: internalLayout.focusedPaneId,
+    parentTabIdByTabId: layout.parentTabIdByTabId,
+  });
+}
+
 function restoreEmptyPanesInNode(
   node: SplitNodeInternal,
   explorerSidebarPaneId: string | null,
