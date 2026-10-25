@@ -41,6 +41,13 @@ interface PhaseEntry {
 interface PhaseEvent extends PhaseEntry {
   event: "started" | "completed" | "failed";
 }
+/** Wall time spent per phase or executor operation. Diagnostic only; bounded by the
+ * fixed set of names, so it never grows with the number of events. */
+interface StepTiming {
+  count: number;
+  totalMs: number;
+  maxMs: number;
+}
 interface PhaseFailure extends PhaseEntry {
   category: "conflict" | "authentication" | "error" | "non-error";
 }
@@ -73,7 +80,15 @@ export function createBootstrapRunnerEvidence(input: {
     active: [] as PhaseEntry[],
     recent: [] as PhaseEvent[],
     failure: null as PhaseFailure | null,
+    timings: {} as Record<string, StepTiming>,
   };
+  function addTiming(name: string, startedMs: number) {
+    const elapsed = Date.now() - startedMs;
+    const timing = (state.timings[name] ??= { count: 0, totalMs: 0, maxMs: 0 });
+    timing.count += 1;
+    timing.totalMs += elapsed;
+    timing.maxMs = Math.max(timing.maxMs, elapsed);
+  }
   let available = true;
   function persist() {
     if (!available) return;
@@ -125,6 +140,7 @@ export function createBootstrapRunnerEvidence(input: {
       state.active.push(entry);
       state.outcome = "running";
       record(entry, "started");
+      const startedMs = Date.now();
       let event: PhaseEvent["event"] = "completed";
       try {
         return await operation();
@@ -140,7 +156,18 @@ export function createBootstrapRunnerEvidence(input: {
       } finally {
         state.active = state.active.filter((active) => active.sequence !== entry.sequence);
         if (state.active.length === 0) state.outcome = event;
+        addTiming(phase, startedMs);
         record(entry, event);
+      }
+    },
+    /** Times one executor operation. Memory only: it is written at the next phase
+     * event, so it never adds writes or changes the watchdog's activity signal. */
+    async timed<T>(name: string, operation: () => Promise<T>): Promise<T> {
+      const startedMs = Date.now();
+      try {
+        return await operation();
+      } finally {
+        addTiming(`operation:${name}`, startedMs);
       }
     },
   };
