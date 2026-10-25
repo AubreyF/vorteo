@@ -296,6 +296,17 @@ for (const width of [1280, 390]) {
     // Environment cards also appear in other sections' panes; scope to this one.
     const pane = page.getByTestId("settings-environment-scroll");
     const tabs = page.getByTestId("settings-environment-tabs");
+    // The deep link pins Environments while the panes above it load, which takes about two
+    // seconds; wait until the tabs rest inside the viewport before measuring.
+    let previousTabTop: number | undefined;
+    await expect
+      .poll(async () => {
+        const top = (await tabs.boundingBox())?.y;
+        const settled = top !== undefined && top >= 0 && top < 500 && top === previousTabTop;
+        previousTabTop = top;
+        return settled;
+      })
+      .toBe(true);
     const hostTab = page.getByRole("tab", { name: "Host", exact: true });
     const devTab = page.getByRole("tab", {
       name: "Dev container",

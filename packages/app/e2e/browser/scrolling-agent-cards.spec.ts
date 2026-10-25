@@ -1154,15 +1154,28 @@ async function checkCollapsedGrid(page: Page, info: TestInfo) {
       const button = page.getByTestId(id).filter({ visible: true });
       if ((await button.getAttribute("aria-expanded")) === "true") await button.click();
     }
+    // The details sidebar shows full-width headers once every card in it is collapsed
+    // (bd1db0362), and the queue left that column for the conversation in b5ee41fb8, so on wide
+    // layouts the closed cards stack. Narrower layouts keep the compact tile grid.
+    const stacked = width === 1800;
     await expect(async () => {
       const boxes = await Promise.all(
         ids.map((id) => page.getByTestId(id).filter({ visible: true }).boundingBox()),
       );
       expect(boxes.every(Boolean)).toBe(true);
+      if (stacked) {
+        for (let index = 1; index < boxes.length; index++) {
+          const previous = boxes[index - 1]!;
+          expect(Math.abs(boxes[index]!.x - boxes[0]!.x)).toBeLessThan(1);
+          expect(boxes[index]!.y).toBeGreaterThanOrEqual(previous.y + previous.height);
+        }
+        return;
+      }
       expect(Math.abs(boxes[0]!.y - boxes[1]!.y)).toBeLessThan(1);
       expect(boxes[1]!.x).toBeGreaterThan(boxes[0]!.x + boxes[0]!.width);
     }).toPass();
     for (const id of ids) {
+      if (stacked) continue;
       await expect(page.getByTestId(`${id}-title`).filter({ visible: true })).toHaveCount(0);
       await expect(page.getByTestId(`${id}-metadata`).filter({ visible: true })).toBeVisible();
     }
@@ -1445,8 +1458,9 @@ test("workspace checklist flower combines unopened threads and survives reload",
     const ring = page.getByTestId(/^workspace-task-progress-/);
     await expect(card.getByTestId("checklist-count")).toHaveText("0 / 1");
     await expect(card).toContainText("stress-update-1");
-    await expect(ring).toHaveAttribute("aria-valuenow", "1");
-    await expect(ring).toHaveAttribute("aria-valuemax", "2");
+    // The ring's value is a percentage since fc8b28074; the label carries the task counts.
+    await expect(ring).toHaveAttribute("aria-valuenow", "50");
+    await expect(ring).toHaveAttribute("aria-valuemax", "100");
     await expect(ring).toHaveAttribute("aria-label", /1\/2 tasks \(50%\).*active/);
     await client.sendAgentMessage(sibling.id, "emit 2 agent stream updates");
     await expect(ring).toHaveAttribute("aria-valuenow", "0");
@@ -1454,7 +1468,7 @@ test("workspace checklist flower combines unopened threads and survives reload",
     await expect(card.getByTestId("checklist-count")).toHaveText("0 / 1");
     await expect(ring).toHaveAttribute("aria-label", /0\/2 tasks \(0%\).*active/);
     await client.archiveAgent(sibling.id);
-    await expect(ring).toHaveAttribute("aria-valuemax", "1");
+    await expect(ring).toHaveAttribute("aria-label", /^0\/1 tasks/);
     await client.sendAgentMessage(agent.agentId, "emit 1 agent stream updates");
     await expect(card.getByTestId("checklist-count")).toHaveText("1 / 1");
     await expect(ring).toHaveAttribute("aria-label", /1\/1 tasks \(100%\).*active/);
@@ -1608,9 +1622,10 @@ for (const width of [1400, 390]) {
         .getByTestId("agent-task-progress-card")
         .getByRole("checkbox", { name: "Complete Build card", exact: true })
         .click();
-      await expect(
-        page.getByTestId("agent-task-progress-card").getByRole("alert").first(),
-      ).toContainText("Complete dependency");
+      // Failed task actions report through a toast since 68faa7a52, not inline in the card.
+      await expect(page.getByTestId("app-toast").filter({ visible: true })).toContainText(
+        "Complete dependency",
+      );
       await page
         .getByTestId("agent-task-progress-card")
         .getByRole("checkbox", { name: "Complete Build API", exact: true })
@@ -2010,7 +2025,8 @@ test("task flowers stay bounded through 300 tasks and follow sidebar labels", as
       await expect(flower.locator("svg path[fill]:not([fill='none'])")).toHaveCount(count);
       await expect(sidebar.locator("svg path[fill]:not([fill='none'])")).toHaveCount(count);
       await expect(flower.locator("svg path[fill='none']")).toHaveCount(0);
-      await expect(sidebar).toHaveAttribute("aria-valuemax", String(index + 1));
+      // The value is a percentage since fc8b28074, so read the task total from the label.
+      await expect(sidebar).toHaveAttribute("aria-label", new RegExp(`^0/${index + 1} tasks`));
       const label = page.getByTestId("workspace-label-chip-Later");
       const labelBox = (await label.boundingBox())!;
       expect((await sidebar.boundingBox())!.x).toBeGreaterThan(labelBox.x + labelBox.width);
@@ -2147,7 +2163,8 @@ test("shared card group and thread resize independently and preserve saved width
     const text = page.getByTestId("thread-text-column");
     const region = page.getByTestId("thread-content-region");
     await expect(cards).toBeVisible();
-    await expect(cards.getByTestId("shared-message-queue")).toBeAttached();
+    // The queue stays in the conversation since b5ee41fb8, outside the supporting cards.
+    await expect(page.getByTestId("shared-message-queue")).toBeAttached();
     await expect(page.getByTestId("thread-cards-scroll")).toHaveCount(0);
     const box = async (locator: Locator) => {
       const result = await locator.boundingBox();

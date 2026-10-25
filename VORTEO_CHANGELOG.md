@@ -4,6 +4,24 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.855 - 2026-10-25
+
+### Maintenance
+
+- Repair the layout and appearance browser tests:
+  - Demo cards follow the "2 / 4" count (6717047e5), 44px headings (0fd42877e), the softer sidebar divider (6ee6bfd23), the demo subagents (ce0345cfc), edge-to-edge toolbar buttons (87db69fbd) and Settings staying in the toolbar (7a4c33777).
+  - Desktop task rows are 32px tall (2cf5e0cbb), and the display font check reads its CSS variable, since desktop has no title header (195e1c044).
+  - Branded loader tests block development bundles too, so the app cannot boot before the logo check. Settings and theme picker tests wait for scrolling and sliders to settle.
+- Mark known regressions: phone navigation starts below 500px instead of 720px (94087127e), and subagent rows nest buttons inside a button. Three geometry differences go to owner review.
+- Repair other browser tests:
+  - The chat outline split test uses a width where a split pane is narrower than the rail's minimum.
+  - Startup diagnostics show the connection advice from 24e167c54.
+  - The sidebar toolbar target check rounds 43.99999px boxes.
+  - Workspace task flowers report percentages (fc8b28074).
+  - Task dependency errors arrive as toasts (68faa7a52).
+  - The queue sits in the conversation (b5ee41fb8).
+  - Closed sidebar cards stack as full-width headers (bd1db0362).
+
 ## 0.11.0-beta.3.vorteo.854 - 2026-10-25
 
 ### Maintenance

@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): test-only change. Layout, appearance, chat outline, startup and card tests follow the current design; two layout regressions are marked and three geometry differences go to owner review. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): test-only change. Settings, provider and sidebar tests follow current sign-in, settings and startup behaviour; Standard-mode checks are retired and one favourites migration regression is marked. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): test-only change. File, Explorer and plugin tests follow supporting cards, toasts and current colors; the Explorer plugin menu test is retired and one diff scrollbar regression is marked. Functionality is unchanged. README overview and onboarding are unchanged.

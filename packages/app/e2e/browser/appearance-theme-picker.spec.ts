@@ -11,6 +11,7 @@ import { gotoAppShell } from "../support/helpers/app";
 import { seedWorkspace } from "../support/helpers/seed-client";
 import { getServerId } from "../support/helpers/server-id";
 import { openSettingsSection } from "../support/helpers/settings";
+import { waitForSettledPosition } from "../support/helpers/sheet-layout";
 import { TerminalE2EHarness } from "../support/helpers/terminal-dsl";
 import { getTerminalBufferText, waitForTerminalContent } from "../support/helpers/terminal-perf";
 
@@ -535,6 +536,8 @@ test.describe("whole-interface zoom", () => {
       const swatch = page.getByTestId("theme-preview-neon");
       const initialHeight = (await swatch.boundingBox())!.height;
       if (width === 1133) {
+        // Settings panes above the slider can still be loading; drag only once it stops moving.
+        await waitForSettledPosition(slider);
         const track = (await slider.boundingBox())!;
         await page.mouse.move(track.x + track.width * 0.2, track.y + track.height / 2);
         await page.mouse.down();

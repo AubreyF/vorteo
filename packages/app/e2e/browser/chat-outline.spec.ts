@@ -322,8 +322,11 @@ test.describe("desktop chat outline", () => {
   test("hides the rail when a split makes its panel narrow", async ({ page }) => {
     const agent = await seedLongMockAgentTimeline({ turns: 2 });
     try {
-      await page.setViewportSize(WIDE_VIEWPORT);
+      // At 2400px each split pane is about 1030px, still above the rail's 918px minimum, so use a
+      // width where one panel fits the rail and half of it does not.
+      await page.setViewportSize({ width: 1900, height: 900 });
       await openAgentTimeline(page, agent);
+      await expectChatOutlinePrompts(page, 2);
 
       await splitCurrentPanelRight(page);
 

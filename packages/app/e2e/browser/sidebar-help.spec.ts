@@ -205,9 +205,10 @@ async function expectFingerSizedToolbarTargets(page: Page): Promise<void> {
   const buttons = compactToolbar(page).getByTestId(TOOLBAR_BUTTON_TEST_IDS);
   await expect(buttons).toHaveCount(6);
   for (const button of await buttons.all()) {
-    const bounds = await button.boundingBox();
-    expect(bounds?.width).toBeGreaterThanOrEqual(44);
-    expect(bounds?.height).toBeGreaterThanOrEqual(44);
+    const bounds = (await button.boundingBox())!;
+    // Flex layout can report a 44px box as 43.99999px; round to a hundredth before comparing.
+    expect(Math.round(bounds.width * 100) / 100).toBeGreaterThanOrEqual(44);
+    expect(Math.round(bounds.height * 100) / 100).toBeGreaterThanOrEqual(44);
   }
 }
 

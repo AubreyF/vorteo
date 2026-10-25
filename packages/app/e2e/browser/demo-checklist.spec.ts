@@ -29,12 +29,13 @@ for (const width of [1800, 390]) {
     ).toBeChecked();
     if (width === 1800)
       await expect(workspace.getByRole("progressbar")).toHaveAttribute("aria-label", /3\/4 tasks/);
+    // 2cf5e0cbb made desktop card rows 32px tall to match the sidebar.
     await expect
       .poll(
         async () =>
           (await page.getByTestId("checklist-row-demo-task-1-4").boundingBox())?.height ?? 0,
       )
-      .toBeGreaterThanOrEqual(39.9);
+      .toBeGreaterThanOrEqual(width === 1800 ? 31.9 : 39.9);
     await page.screenshot({ path: info.outputPath("demo-checklist.png"), fullPage: true });
     if (width === 390) await page.getByTestId("menu-button").click();
     await page.getByTestId("demo-reset").click();
