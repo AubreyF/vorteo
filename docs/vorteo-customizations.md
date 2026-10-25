@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): test-only change. Composer model and mode tests are retired with the Paseo mode, and New workspace entry tests use the More menu. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): test-only change. The composer diff pill test is retired, diff counter and Explorer keyboard tests follow the supporting cards, and one geometry drift and one phone regression are marked. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): merge of main through 24e167c54 into the test repair branch, plus supporting card targets for Explorer shortcut tests. Functionality from main is unchanged by the merge. README overview and onboarding are unchanged.

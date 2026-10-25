@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.850 - 2026-10-25
+
+### Maintenance
+
+- Retired, citing 471d7f22a, which moved model, mode and permissions into profiles:
+  - new-workspace-codex-mode-preferences.spec.ts, which tested remembering a composer mode in drafts.
+  - bottom-sheet-reopen.spec.ts, which tested the composer's model sheets. The provider settings stack on the schedule picker covers phone sheet reopening.
+  - The draft-tab case of the composer density test.
+  - The model and mode assertions of the slash clear test.
+- Tests reach the app-wide New workspace entry through the sidebar's More menu (ab60c1e39).
+
 ## 0.11.0-beta.3.vorteo.849 - 2026-10-25
 
 ### Maintenance

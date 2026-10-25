@@ -64,12 +64,10 @@ async function expectAgentArchivedInSessions(page: Page, title: string): Promise
   await expectSessionRowArchived(page, title);
 }
 
+// The composer's model and mode controls went with the Paseo mode in 471d7f22a; a draft's setup
+// now comes from its profile, so the replacement is checked as a usable draft composer.
 async function expectReplacementDraftMatchesPreviousSetup(page: Page): Promise<void> {
   await expectComposerVisible(page);
-  await expect(
-    page.getByRole("button", { name: "Select model (Ten second stream)" }),
-  ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Select agent mode (Load test)" })).toBeVisible();
 }
 
 async function createAgentFromReplacementDraft(page: Page): Promise<void> {
