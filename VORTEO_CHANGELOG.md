@@ -8,6 +8,24 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ### Maintenance
 
+- Merge draft and agent history test import fix: the two tests mock the host runtime instead of importing it during setup
+
+## 0.11.0-beta.3.vorteo.840 - 2026-10-25
+
+### Maintenance
+
+- Merge draft and agent history test import fix: the two tests mock the host runtime instead of importing it during setup
+
+## 0.11.0-beta.3.vorteo.821 - 2026-10-25
+
+### Tests
+
+- The live draft and agent history tests mock the host runtime instead of loading it. Its module graph, the daemon runtime and protocol validators, took about 10 seconds to transform, so the draft test's setup missed its 10 second limit even on a lightly loaded Mac. Neither test uses a host client. The draft test now takes about 4 seconds and the history test under half a second, both with plain static imports.
+
+## 0.11.0-beta.3.vorteo.839 - 2026-10-25
+
+### Maintenance
+
 - Merge favourites migration fix: legacy model favourites saved beside the old mode setting migrate, stored preferences are never deleted, and a host is marked migrated only after its favourites are imported
 
 ## 0.11.0-beta.3.vorteo.820 - 2026-10-25
@@ -27,14 +45,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Merge the published startup diagnostics and recovery interface into the combined Host batch
-
-## 0.11.0-beta.3.vorteo.820 - 2026-10-25
-
-### Fixed
-
-- Startup diagnostics run automatically after 15 seconds, independently of the interface download and document load events. Bounded, deduplicated checks resume after offline or background delays, cancel after startup, and distinguish endpoint health from daemon authentication and session readiness.
-- The default V spinner transitions into a compact, scrollable diagnostic panel with reduced-motion support. Pending script downloads stay indeterminate because browsers do not expose live script byte progress; completed timings, observed script events, safe build provenance and existing public restart-request counts retain their limits and freshness.
-- Production exports preload the existing entry script without changing its execution order, integrity or cross-origin policy. Optional font CSS no longer blocks the inline diagnostic bootstrap.
 
 ## 0.11.0-beta.3.vorteo.836 - 2026-10-25
 
@@ -282,6 +292,14 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Fixed
 
 - The pre-commit hook no longer fails typecheck on stale protocol or client declarations after a branch switch. It rebuilds them first, only when their sources are newer than the last successful build, which costs nothing on a clean commit.
+
+## 0.11.0-beta.3.vorteo.820 - 2026-10-25
+
+### Fixed
+
+- Startup diagnostics run automatically after 15 seconds, independently of the interface download and document load events. Bounded, deduplicated checks resume after offline or background delays, cancel after startup, and distinguish endpoint health from daemon authentication and session readiness.
+- The default V spinner transitions into a compact, scrollable diagnostic panel with reduced-motion support. Pending script downloads stay indeterminate because browsers do not expose live script byte progress; completed timings, observed script events, safe build provenance and existing public restart-request counts retain their limits and freshness.
+- Production exports preload the existing entry script without changing its execution order, integrity or cross-origin policy. Optional font CSS no longer blocks the inline diagnostic bootstrap.
 
 ## 0.11.0-beta.3.vorteo.819 - 2026-10-25
 
