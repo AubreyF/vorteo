@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-24): test-only change. Plugin sidebar item tests follow the toolbar and footer layout; steps for removed sidebar customization are retired. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-24): test-only change. Usage screen tests open Usage directly; tests for the removed sidebar Usage summary, pins and footer rows are retired. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-24): test-only change. The desktop shortcut unassign test timeout is raised. Functionality is unchanged. README overview and onboarding are unchanged.

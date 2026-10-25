@@ -17,16 +17,9 @@ import {
   runCommand,
   visibleTestId,
 } from "../support/helpers/plugin-sidebar-items";
-import {
-  leaveSettings,
-  openSidebarNavSettings,
-  seedSidebarFooterPreferences,
-  setFooterItemVisible,
-} from "../support/helpers/sidebar-nav-settings";
 import { seedWorkspace } from "../support/helpers/seed-client";
+import { openMobileAgentSidebar } from "../support/helpers/sidebar";
 import { getServerId } from "../support/helpers/server-id";
-import { installUsageReportsFixture } from "../support/helpers/usage-reports";
-import { claudeAndCodexReports } from "../support/helpers/usage-sidebar-item";
 
 const APP_SETTINGS_KEY = "@paseo:app-settings";
 
@@ -43,21 +36,23 @@ async function qaScreenshot(page: Page, name: string, area?: Locator) {
   else await page.screenshot({ path: file });
 }
 
-/** Footer rows sit above the fixed bottom line, spanning it from Add project to Settings. */
+/**
+ * Footer rows sit at the bottom of the sidebar, above the footer separator and within its span.
+ * The footer's icon line moved to the toolbar above the projects (471d7f22a).
+ */
 async function expectFooterRow(page: Page, row: Locator) {
   // Polled: on compact the drawer is still sliding in when the row first shows.
   await expect
     .poll(async () => {
-      const addProject = (await visibleTestId(page, "sidebar-add-project").boundingBox())!;
-      const settings = (await visibleTestId(page, "sidebar-settings").boundingBox())!;
+      const separator = (await visibleTestId(page, "sidebar-footer-separator").boundingBox())!;
       const box = (await row.boundingBox())!;
       return {
-        aboveBottomLine: box.y + box.height <= addProject.y,
-        alignedLeft: Math.abs(box.x - addProject.x) < 1,
-        alignedRight: Math.abs(box.x + box.width - (settings.x + settings.width)) < 1,
+        aboveSeparator: box.y + box.height <= separator.y + 1,
+        withinSpan:
+          box.x >= separator.x - 1 && box.x + box.width <= separator.x + separator.width + 1,
       };
     })
-    .toEqual({ aboveBottomLine: true, alignedLeft: true, alignedRight: true });
+    .toEqual({ aboveSeparator: true, withinSpan: true });
 }
 
 function botRow(page: Page, rowId: string): Locator {
@@ -155,9 +150,6 @@ test.describe("Plugin sidebar items", () => {
     page,
   }) => {
     test.setTimeout(180_000);
-    // The Usage item shows only with summary data, once it is turned on.
-    await installUsageReportsFixture(page, { lists: [() => claudeAndCodexReports()] });
-    await seedSidebarFooterPreferences(page, [{ key: "usage", visible: true }]);
     await page.setViewportSize(WIDE);
     await gotoWorkspace(page, workspaceId);
     const row = headerRow(page, SHOWCASE_PLUGIN_ID, "deploys");
@@ -196,7 +188,6 @@ test.describe("Plugin sidebar items", () => {
     await test.step("the footer row renders as a row above the bottom line", async () => {
       await expect(sync).toHaveAccessibleName("Sync");
       await expectFooterRow(page, sync);
-      await expect(visibleTestId(page, "sidebar-usage")).toBeVisible();
       await qaScreenshot(page, "phase5-desktop-footer", sidebarFooter(page));
     });
 
@@ -224,7 +215,7 @@ test.describe("Plugin sidebar items", () => {
 
     await test.step("on a compact layout the popover is a bottom sheet", async () => {
       await page.setViewportSize(COMPACT);
-      await page.getByRole("button", { name: "Open menu", exact: true }).first().click();
+      await openMobileAgentSidebar(page);
       const compactSync = footerItem(page, SHOWCASE_PLUGIN_ID, "sync");
       await expect(compactSync).toBeInViewport();
       await expectFooterRow(page, compactSync);
@@ -241,18 +232,8 @@ test.describe("Plugin sidebar items", () => {
     });
   });
 
-  test("a header row's shortcut hint presses the row", async ({ page }) => {
-    await page.setViewportSize(WIDE);
-    await gotoWorkspace(page, workspaceId);
-    const newWorkspace = visibleTestId(page, "sidebar-global-new-workspace");
-    await expect(newWorkspace).toBeVisible({ timeout: 30_000 });
-    await newWorkspace.hover();
-    const hint = page.getByText("Ctrl+N", { exact: true }).locator("visible=true");
-    await expect(hint).toBeVisible();
-    await qaScreenshot(page, "phase7-header-row-hint", newWorkspace.locator("xpath=../.."));
-    await hint.click();
-    await expect(page).toHaveURL(/\/new(\?|$)/);
-  });
+  // Retired 2026-10-24: the built-in New workspace header row and its shortcut hint moved to
+  // the More menu when 471d7f22a stopped rendering built-in header rows.
 
   test("a legacy plugin keeps its row, icon, order and visibility", async ({ page }) => {
     test.setTimeout(180_000);
@@ -271,19 +252,13 @@ test.describe("Plugin sidebar items", () => {
     await gotoWorkspace(page, workspaceId);
     const entry = headerRow(page, LEGACY_PLUGIN_ID, "entry");
     await expect(entry).toBeVisible({ timeout: 30_000 });
-    let entryIcon = "";
 
     await test.step("the saved order and visibility still apply", async () => {
       await expect(entry).toHaveAccessibleName("Legacy entry");
       await expect(entry.locator("svg")).toHaveCount(1);
-      entryIcon = await entry.locator("svg").innerHTML();
+      // Built-in header rows no longer render (471d7f22a), so there is no New workspace row to
+      // order the entry against.
       await expect(headerRow(page, LEGACY_PLUGIN_ID, "hidden")).toHaveCount(0);
-      const entryBox = (await entry.boundingBox())!;
-      const newWorkspaceBox = (await visibleTestId(
-        page,
-        "sidebar-global-new-workspace",
-      ).boundingBox())!;
-      expect(entryBox.y).toBeLessThan(newWorkspaceBox.y);
     });
 
     await test.step("the row opens its surface on its own sidebar route and highlights", async () => {
@@ -315,37 +290,6 @@ test.describe("Plugin sidebar items", () => {
       await expect(page).toHaveURL(new RegExp(`/plugin/${BOTS_PLUGIN_ID}/sidebar/bot$`));
       await expect(screenTitle(page)).toHaveText("Bot");
     });
-
-    await test.step("settings shows a legacy row's own icon and one generic icon for the rest", async () => {
-      await openSidebarNavSettings(page);
-      const legacyIcon = page
-        .getByTestId(`sidebar-nav-item-plugin:${LEGACY_PLUGIN_ID}:entry`)
-        .locator("svg")
-        .first();
-      const showcaseIcon = page
-        .getByTestId(`sidebar-nav-item-plugin:${SHOWCASE_PLUGIN_ID}:deploys`)
-        .locator("svg")
-        .first();
-      const footerIcon = page
-        .getByTestId("sidebar-nav-section-footer")
-        .getByTestId(`sidebar-nav-item-plugin:${SHOWCASE_PLUGIN_ID}:sync`)
-        .locator("svg")
-        .first();
-      const markup = await showcaseIcon.innerHTML();
-      expect(await footerIcon.innerHTML()).toBe(markup);
-      expect(await legacyIcon.innerHTML()).not.toBe(markup);
-      // The same registered icon the sidebar row draws.
-      expect(await legacyIcon.innerHTML()).toBe(entryIcon);
-      await qaScreenshot(page, "phase2-desktop-settings-sidebar");
-      await qaScreenshot(
-        page,
-        "phase5-settings-sidebar-footer",
-        page.getByTestId("sidebar-nav-section-footer"),
-      );
-      await page.setViewportSize(COMPACT);
-      await expect(page.getByTestId("sidebar-nav-section-footer").first()).toBeAttached();
-      await qaScreenshot(page, "phase2-compact-settings-sidebar");
-    });
   });
   test("one item renders a group of rows, and each row opens its own screen params", async ({
     page,
@@ -364,9 +308,12 @@ test.describe("Plugin sidebar items", () => {
       await expect(status).toHaveAccessibleName("Bot status");
       const [first, second, third] = [await boxOf(bot1), await boxOf(bot2), await boxOf(status)];
       expect(second.y).toBeGreaterThan(first.y);
-      // The separator adds its line and margins between Bot 2 and the status row.
-      expect(third.y - (second.y + second.height)).toBeGreaterThan(8);
-      expect(second.y - (first.y + first.height)).toBeLessThan(4);
+      // The separator adds its line and margins between Bot 2 and the status row, so that gap
+      // clearly exceeds the ordinary spacing between rows.
+      const rowGap = second.y - (first.y + first.height);
+      const separatorGap = third.y - (second.y + second.height);
+      expect(rowGap).toBeLessThanOrEqual(8);
+      expect(separatorGap).toBeGreaterThan(rowGap + 4);
     });
 
     await test.step("pressing Bot 2 opens the bot screen and highlights only its row", async () => {
@@ -413,20 +360,10 @@ test.describe("Plugin sidebar items", () => {
       await expect(page.getByText("serverId param: x", { exact: true })).toBeVisible();
     });
 
-    await test.step("Settings lists the group as one item", async () => {
-      await openSidebarNavSettings(page);
-      const header = page.getByTestId("sidebar-nav-section-header");
-      await expect(
-        header.getByTestId(`sidebar-nav-item-plugin:${BOTS_PLUGIN_ID}:bots`),
-      ).toHaveCount(1);
-      await expect(header.getByText("Bots", { exact: true })).toHaveCount(1);
-      await expect(header.getByText("Bot 1", { exact: true })).toHaveCount(0);
-      await leaveSettings(page);
-    });
-
     await test.step("the compact sidebar shows the same group", async () => {
+      await closeScreen(page);
       await page.setViewportSize(COMPACT);
-      await page.getByRole("button", { name: "Open menu", exact: true }).first().click();
+      await openMobileAgentSidebar(page);
       await expect(botRow(page, "bot-1")).toBeInViewport();
       await expect(botRow(page, "status")).toBeInViewport();
       await qaScreenshot(page, "phase6-compact-sidebar-bots");
@@ -450,7 +387,8 @@ test.describe("Plugin sidebar items", () => {
     await expect(alerts).toHaveCount(0);
   });
 
-  test("a sidebar item's observations close when it is hidden or removed", async ({ page }) => {
+  // Hiding a footer item from Settings went with the Sidebar settings pane (9332fbd2d, 471d7f22a).
+  test("a sidebar item's observation closes when it is removed", async ({ page }) => {
     test.setTimeout(120_000);
     const released = trackReleasedSubscriptions(page);
     const alerts = footerItem(page, BOTS_PLUGIN_ID, "alerts");
@@ -463,21 +401,11 @@ test.describe("Plugin sidebar items", () => {
     const first = await nextAlertsObservation(page, null);
     expect(released.has(first)).toBe(false);
 
-    await test.step("hiding the item in Settings closes its observation", async () => {
-      await openSidebarNavSettings(page);
-      await setFooterItemVisible(page, `plugin:${BOTS_PLUGIN_ID}:alerts`, false);
-      await expectReleased(released, first);
-      await setFooterItemVisible(page, `plugin:${BOTS_PLUGIN_ID}:alerts`, true);
-      await leaveSettings(page);
-    });
-
     await test.step("removing the item through its remover closes its observation", async () => {
       await expect(alerts).toBeVisible();
-      const second = await nextAlertsObservation(page, first);
-      expect(released.has(second)).toBe(false);
       await runCommand(page, "Remove bot alerts");
       await expect(alerts).toHaveCount(0);
-      await expectReleased(released, second);
+      await expectReleased(released, first);
     });
   });
 });

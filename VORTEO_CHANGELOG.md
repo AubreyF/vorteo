@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Maintenance
+
+- Plugin sidebar item tests place footer rows above the footer separator, since the footer icon line moved to the toolbar, and compare grouped row spacing with the separator gap instead of a fixed limit.
+- Retire the plugin sidebar steps that used removed features: the built-in New workspace header row and its shortcut hint, ordering against that row, and hiding or listing plugin rows in the Sidebar settings pane (9332fbd2d, 471d7f22a). Remove the now unused sidebar settings test helpers.
+
 ## 0.11.0-beta.3.vorteo.817 - 2026-10-24
 
 ### Maintenance
