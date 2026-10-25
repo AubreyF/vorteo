@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): CI only. The app and relay Cloudflare deploys are skipped in this fork, matching the website deploy. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): the daemon web UI build used by the container image gets the 8 GB export heap, and the upstream website deployment is skipped in this fork. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): test-only change. Three POSIX-only coordinator test suites now skip on Windows, like the other installation suites. Functionality is unchanged. README overview and onboarding are unchanged.
