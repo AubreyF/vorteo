@@ -10,7 +10,7 @@ import {
   pinWorkspaceFromSidebar,
 } from "../support/helpers/sidebar";
 import { seedWorkspace } from "../support/helpers/seed-client";
-import { expectWorkspaceHeader } from "../support/helpers/workspace-ui";
+import { expectWorkspaceHeader, openWorkspaceActionsMenu } from "../support/helpers/workspace-ui";
 import { getServerId } from "../support/helpers/server-id";
 import { getE2EDaemonPort } from "../support/helpers/daemon-port";
 import { projectEquivalenceViewKey } from "../support/helpers/project-view-key";
@@ -658,18 +658,18 @@ test("workspace title and sidebar menus share every workspace action", async ({
     const sidebarLabels = await sidebarItems.allTextContents();
     expect(sidebarLabels.length).toBeGreaterThanOrEqual(8);
     await page.keyboard.press("Escape");
-    await page.getByTestId("workspace-header-menu-trigger").click();
-    const titleLabels = await page
-      .getByTestId("workspace-header-menu")
-      .getByRole("menuitem")
-      .allTextContents();
+    // On desktop the workspace actions share the pane menu with pane splitting (195e1c044).
+    const titleMenu = await openWorkspaceActionsMenu(page);
+    const titleLabels = (await titleMenu.getByRole("menuitem").allTextContents()).filter(
+      (label) => !label.startsWith("Split "),
+    );
     expect(titleLabels).toEqual(sidebarLabels);
     await page.screenshot({
       path: testInfo.outputPath("desktop-workspace-menu.png"),
       animations: "disabled",
     });
     await page.getByTestId("workspace-header-pin").click();
-    await page.getByTestId("workspace-header-menu-trigger").click();
+    await openWorkspaceActionsMenu(page);
     await expect(page.getByTestId("workspace-header-pin")).toHaveText("Unpin");
     await page.keyboard.press("Escape");
     await row.hover();
@@ -690,14 +690,16 @@ test("workspace title and sidebar menus share every workspace action", async ({
 
 test.describe("wide touch workspace menu", () => {
   test.use({ hasTouch: true, viewport: { width: 1280, height: 900 } });
-  test("uses the title menu without revealing a sidebar row kebab", async ({ page }, testInfo) => {
+  test("uses the workspace menu without revealing a sidebar row kebab", async ({
+    page,
+  }, testInfo) => {
     const seeded = await seedWorkspace({ repoPrefix: "workspace-menu-tablet-" });
     try {
       await gotoAppShell(page);
       const row = await openWorkspaceFromSidebar(page, seeded.workspaceId);
       await row.hover();
       await expect(row.locator('[data-testid^="sidebar-workspace-kebab-"]')).toHaveCount(0);
-      await page.getByTestId("workspace-header-menu-trigger").tap();
+      await openWorkspaceActionsMenu(page, { tap: true });
       await expect(page.getByTestId("workspace-header-rename")).toBeVisible();
       await expect(page.getByTestId("workspace-header-archive")).toBeVisible();
       await page.screenshot({

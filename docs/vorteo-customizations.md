@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-24): test-only change. Browser tests find desktop workspace actions in the pane menu. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-24): test-only change. Agent skills tests target the installation's first host and read failed saves inline. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-24): test-only change. Open question tests expect refused answers as toasts. Functionality is unchanged. README overview and onboarding are unchanged.

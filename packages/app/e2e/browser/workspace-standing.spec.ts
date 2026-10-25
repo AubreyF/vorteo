@@ -5,6 +5,7 @@ import { expect, test, type Page } from "../support/fixtures";
 import { seedMockAgentWorkspace, openAgentRoute } from "../support/helpers/mock-agent";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import { getServerId } from "../support/helpers/server-id";
+import { openWorkspaceActionsMenu } from "../support/helpers/workspace-ui";
 import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
 
 /**
@@ -278,12 +279,7 @@ test.fixme("Standing follows schedules and protection, and failed changes can be
 test.describe("touch controls", () => {
   test.use({ hasTouch: true, viewport: { width: 1280, height: 800 } });
 
-  // Known failure pending an owner check, reported to Builds on 2026-10-24: since 2415534c8 touch
-  // rows have no overflow button and desktop web has no title menu, and an emulated long press
-  // does not open the row menu. Rewrite with a real touch long press if that works on a device.
-  test.fixme("Standing and Scheduled keep touch targets on a wide touchscreen", async ({
-    page,
-  }) => {
+  test("Standing and Scheduled keep touch targets on a wide touchscreen", async ({ page }) => {
     test.setTimeout(180_000);
     page.setDefaultTimeout(15_000);
     const agent = await seedMockAgentWorkspace({
@@ -315,16 +311,9 @@ test.describe("touch controls", () => {
       await section.tap();
       await expect(scheduled).toBeVisible();
       await page.screenshot({ path: test.info().outputPath("standing-touch.png") });
-      // Touch rows have no overflow button since 2415534c8; a long press opens the row's menu.
-      await page
-        .getByTestId(`sidebar-workspace-row-${getServerId()}:${agent.workspaceId}`)
-        .first()
-        .click({ delay: 800 });
-      await page
-        .getByTestId(`sidebar-workspace-menu-labels-${getServerId()}:${agent.workspaceId}`)
-        .filter({ visible: true })
-        .first()
-        .tap();
+      // Touch rows have no overflow button since 2415534c8; the workspace menu has its actions.
+      await openWorkspaceActionsMenu(page, { tap: true });
+      await page.getByTestId("workspace-header-labels").tap();
       const protection = page
         .getByTestId(`workspace-protected-${agent.workspaceId}`)
         .filter({ visible: true })

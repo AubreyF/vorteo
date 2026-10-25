@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.825 - 2026-10-24
+
+### Maintenance
+
+- Browser tests open workspace actions from the title menu on phones and from the primary pane menu on desktop, where 195e1c044 combined them with pane splitting. The workspace menu parity, wide touch menu and wide touch Standing tests pass again; the earlier wide touch known-failure mark is removed.
+
 ## 0.11.0-beta.3.vorteo.824 - 2026-10-24
 
 ### Maintenance

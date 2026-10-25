@@ -215,3 +215,25 @@ export async function seedWorkspaceActivity(page: Page, marker: string): Promise
   await input.press("Enter");
   await expect(page).toHaveURL(/\/workspace\//, { timeout: 30_000 });
 }
+
+/**
+ * Opens the workspace's own actions menu. Phones keep it in the title bar; on desktop the
+ * primary pane's menu combines it with pane splitting (195e1c044). Returns the menu content.
+ */
+export async function openWorkspaceActionsMenu(
+  page: Page,
+  options: { tap?: boolean } = {},
+): Promise<Locator> {
+  const title = page.getByTestId("workspace-header-menu-trigger").filter({ visible: true });
+  const pane = page.getByTestId("workspace-split-pane-menu").filter({ visible: true });
+  const trigger = title.or(pane).first();
+  await expect(trigger).toBeVisible({ timeout: 30_000 });
+  const onTitle = (await title.count()) > 0;
+  if (options.tap) await trigger.tap();
+  else await trigger.click();
+  const content = page.getByTestId(
+    onTitle ? "workspace-header-menu" : "workspace-split-pane-menu-content",
+  );
+  await expect(content.first()).toBeVisible();
+  return content.first();
+}
