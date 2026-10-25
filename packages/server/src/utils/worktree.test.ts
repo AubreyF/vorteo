@@ -59,7 +59,11 @@ function createLegacyWorktreeForTest(
 // A remote that accepts connections and never answers, like a VPN-only host while off the VPN.
 async function startSilentRemote(): Promise<{ url: string; close: () => Promise<void> }> {
   const connections = new Set<Socket>();
-  const server = createServer((socket) => connections.add(socket));
+  const server = createServer((socket) => {
+    // A timed-out fetch's helper is killed, which resets its connection on Windows.
+    socket.on("error", () => undefined);
+    connections.add(socket);
+  });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
   return {

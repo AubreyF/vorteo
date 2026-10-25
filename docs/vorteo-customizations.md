@@ -30,6 +30,10 @@ Maintenance review (2026-10-24): restoring a saved Explorer pane drops drafts wi
 
 Maintenance review (2026-10-24): source contribution batches now read and write release files with batched git commands. Results are unchanged; a repository-sized batch takes 8 seconds instead of 26. Two timing-dependent tests were repaired. Not yet installed. README overview and onboarding are unchanged.
 
+Maintenance review (2026-10-24): git timeout tests tolerate the connection reset caused by killing a fetch helper on Windows. Behavior is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): timed-out git commands now kill their whole process tree, so HTTP fetches and clones no longer leave helper processes behind. Not yet installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-23): automatic coordinator renewals can close a failed automatic update that never reached promotion, proven under the journal lock and bound to the same coordinator process. Owner-reviewed and other failures still need owner review. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-23): app installation client tests now expect the Docker restart and Host launcher query flags on restart routes. Behavior is unchanged. README overview and onboarding are unchanged.

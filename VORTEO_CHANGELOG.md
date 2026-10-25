@@ -4,6 +4,24 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.831 - 2026-10-25
+
+### Maintenance
+
+- Merge git process-tree kill: a timed-out git command is killed with its whole process tree, and silent-remote tests ignore the resulting connection resets
+
+## 0.11.0-beta.3.vorteo.819 - 2026-10-24
+
+### Tests
+
+- Silent-remote test servers ignore connection resets. Now that a timed-out fetch's helper is killed, Windows resets its connection, and the unhandled reset failed the server test run even though every test passed.
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Fixed
+
+- A git command that times out is killed with its whole process tree. Before, a timed-out fetch or clone over HTTP left its git-remote-http helper running until the remote gave up; on Windows it also kept the repository folder locked.
+
 ## 0.11.0-beta.3.vorteo.830 - 2026-10-25
 
 ### Maintenance
