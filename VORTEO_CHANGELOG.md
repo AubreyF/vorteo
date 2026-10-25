@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.861 - 2026-10-25
+
+### Maintenance
+
+- Remove five screenshots that app browser unit tests wrote and an earlier commit included by mistake, and restore the tracked phone connection-check screenshot to main's version. Git now ignores those generated screenshot names.
+
 ## 0.11.0-beta.3.vorteo.860 - 2026-10-25
 
 ### Maintenance

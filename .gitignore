@@ -127,3 +127,8 @@ paseo.local.json
 /.runtime/
 .vitest-attachments/
 __screenshots__/
+
+# Screenshots written by app browser unit tests
+packages/app/src/components/startup-host-*.png
+packages/app/src/execution-installation/startup-diagnostics-*.png
+packages/app/src/execution-installation/v-vector-comparison.png
