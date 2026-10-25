@@ -4,6 +4,29 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.833 - 2026-10-25
+
+### Maintenance
+
+- Merge worker output drain: the supervisor keeps a worker's last stdout and stderr in daemon.log when the worker exits before its output is read, and two install-gate tests no longer depend on load or home directory changes
+
+## 0.11.0-beta.3.vorteo.819 - 2026-10-24
+
+### Tests
+
+- The supervisor test for output that arrives after the worker exits runs only on POSIX, like the existing descendant stdio test. On Windows CI the child's late write never reached the supervisor, so the scenario cannot be staged there; the log stayed intact.
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Fixed
+
+- The supervisor no longer loses the end of daemon.log when it exits right after its worker. The worker's exit can be reported before its last output arrives; the supervisor then closed the log, and the late output wrote after the close, which discarded the exit lines still buffered with it. A crashing worker's stack trace could vanish this way. The supervisor now waits up to a second for the worker's output to close before closing the log, and ignores writes once closing begins. Restarts are unchanged.
+
+### Tests
+
+- The maximum-count activation test gets a timeout sized to its 96 locked journal transactions, about 7 seconds idle.
+- Dev selector custody tests freeze the stat of directories above their fixtures. The fixtures must live in the home directory, which other processes keep changing, and custody correctly fails when an ancestor changes mid-inspection.
+
 ## 0.11.0-beta.3.vorteo.832 - 2026-10-25
 
 ### Maintenance
