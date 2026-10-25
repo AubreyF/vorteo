@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.826 - 2026-10-25
+
+### Maintenance
+
+- Merge symlinked script runs: scripts run through the current release symlink compare real module paths instead of exiting silently
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Fixed
+
+- Scripts run through a symlinked path, such as `~/.local/share/vorteo-host/current/scripts/install-execution-host.mjs`, run again instead of exiting silently with status 0. Node loads the entry module by its real path, so the main-module check now compares real paths on both sides. `install-execution-host.mjs` uses the shared `isMainModule` helper, which the other release scripts already use.
+
 ## 0.11.0-beta.3.vorteo.825 - 2026-10-25
 
 ### Maintenance
