@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.832 - 2026-10-25
+
+### Maintenance
+
+- The desktop plugin links check expects the old `window.open` workaround to open no window. Since cd90c8f78 the application renderer denies new windows so none inherits its preload; plugins open links through the external opener bridge, which the check still covers.
+
 ## 0.11.0-beta.3.vorteo.831 - 2026-10-25
 
 ### Maintenance

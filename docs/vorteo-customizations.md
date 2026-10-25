@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): test-only change. The desktop plugin links check follows the renderer window-open denial from cd90c8f78. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): test-only change. Model picker tests now use profile selection and the schedule form picker; tests for the removed Paseo picker are retired, and two profile picker gaps are marked as known failures. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-24): test-only change. The worktree notice dismissal survives covering overlays, display preference tests use the More menu, and the label failure test expects a toast. Functionality is unchanged. README overview and onboarding are unchanged.

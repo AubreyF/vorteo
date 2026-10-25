@@ -70,15 +70,11 @@ export async function runPluginLinksRegression({
   await expect(
     page.getByRole("button", { name: "Old documentation workaround", exact: true }),
   ).toBeVisible({ timeout: 60_000 });
-  const oldPopup = page.waitForEvent("popup");
-  await page.getByRole("button", { name: "Old documentation workaround", exact: true }).click();
-  const popup = await oldPopup;
-  await popup.waitForLoadState();
-  await popup.screenshot({ path: path.join(artifactDir, "plugin-old-popup.png") });
-  await popup.close();
-
+  // Since cd90c8f78 the application renderer denies window.open, so the old workaround opens
+  // nothing: a new window must never inherit the application preload. Links use the bridge below.
   const popups = [];
   page.on("popup", (openedPopup) => popups.push(openedPopup));
+  await page.getByRole("button", { name: "Old documentation workaround", exact: true }).click();
   await page.getByRole("button", { name: "Open externally", exact: true }).click();
   await expect(page.getByText("Opened externally", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Documentation link", exact: true }).click();
@@ -100,7 +96,7 @@ export async function runPluginLinksRegression({
   await page.screenshot({ path: path.join(artifactDir, "plugin-remote-workspace-browser.png") });
   return {
     remoteWorkspaceId,
-    oldWorkaroundOpenedPopup: true,
+    oldWorkaroundOpenedPopup: false,
     newExternalPopups: popups.length,
     workspaceId,
     url,
