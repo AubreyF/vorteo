@@ -8,6 +8,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ### Maintenance
 
+- A test keeps the reviewed restart operations and the reviewed coordinator settings in step. Each operation's plan must come from the registered setting of the same name, at that setting's configuration path, with supervisor maintenance as the one named exception.
+
+## 0.11.0-beta.3.vorteo.839 - 2026-10-25
+
+### Maintenance
+
 - Merge draft and agent history test import fix: the two tests mock the host runtime instead of importing it during setup
 
 ## 0.11.0-beta.3.vorteo.840 - 2026-10-25

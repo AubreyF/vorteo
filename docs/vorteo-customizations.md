@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): test-only change. A drift test ties each reviewed restart operation to the registered coordinator setting that supplies its plan. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-24): removed six duplicate vorteo.758 release-note copies; no feature changed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-24): the pre-commit hook rebuilds stale protocol and client declarations before typecheck. Tooling only. README overview and onboarding are unchanged.
