@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): test-only change. The plan card test follows the fixed card heading; question card and sidebar project row geometry await owner review. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): test-only change. Queue tests follow the Queue card title and duplicate placement, one queue geometry test awaits owner review, and the open questions test seeds its usage. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): test-only change. Provider settings stacking tests use the schedule form model picker. Functionality is unchanged. README overview and onboarding are unchanged.

@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.842 - 2026-10-25
+
+### Maintenance
+
+- The plan card test expects the fixed 44px card heading from 0fd42877e with width-adaptive insets: 48px on desktop and 50px on phones. Its desktop scrolling check uses a shorter window, since the sidebar column now gives the card enough room for the whole plan; it also waits out re-renders after resizing.
+- Mark two geometry drifts for owner review, with measured values: question card action insets and gaps, and the sidebar project row's unbalanced padding.
+
 ## 0.11.0-beta.3.vorteo.841 - 2026-10-25
 
 ### Maintenance
