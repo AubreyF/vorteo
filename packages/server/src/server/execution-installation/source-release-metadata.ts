@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-export type InertGit = (...args: string[]) => Promise<string>;
+export type InertGit = ((...args: string[]) => Promise<string>) & {
+  /** Optional: reads several `commit:path` blobs in one git process. */
+  readBlobs?: (specs: readonly string[]) => Promise<string[]>;
+};
 const manifestSchema = z
   .object({ name: z.string(), version: z.string(), private: z.boolean().optional() })
   .passthrough();
@@ -30,6 +33,13 @@ function releaseVersion(versions: string[], increment: number) {
 }
 const json = (value: unknown) => JSON.stringify(value, null, 2) + "\n";
 
+/** Reads `commit:file` texts, in one git process when the caller supports it. */
+function readFiles(git: InertGit, commit: string, files: readonly string[]) {
+  return git.readBlobs
+    ? git.readBlobs(files.map((file) => `${commit}:${file}`))
+    : Promise.all(files.map((file) => git("show", `${commit}:${file}`)));
+}
+
 /** Pinned coordinator implementation of only the repository's generated version fields. */
 export async function releaseMetadata(git: InertGit, commit: string) {
   const root = manifestSchema.parse(JSON.parse(await git("show", `${commit}:package.json`)));
@@ -42,12 +52,14 @@ export async function releaseMetadata(git: InertGit, commit: string) {
       throw new Error("Workspace layout requires explicit integration");
   }
   const manifests = new Map([["package.json", root]]);
-  for (const workspace of workspaces)
-    manifests.set(
-      `${workspace}/package.json`,
-      manifestSchema.parse(JSON.parse(await git("show", `${commit}:${workspace}/package.json`))),
-    );
-  const lock = lockSchema.parse(JSON.parse(await git("show", `${commit}:package-lock.json`)));
+  const files = [
+    ...workspaces.map((workspace) => `${workspace}/package.json`),
+    "package-lock.json",
+  ];
+  const texts = await readFiles(git, commit, files);
+  for (const [index, workspace] of workspaces.entries())
+    manifests.set(`${workspace}/package.json`, manifestSchema.parse(JSON.parse(texts[index]!)));
+  const lock = lockSchema.parse(JSON.parse(texts.at(-1)!));
   const names = new Set([...manifests.values()].map((item) => item.name));
   if (lock.version !== root.version) throw new Error("Root lock version differs from manifest");
   for (const [file, pkg] of manifests) {

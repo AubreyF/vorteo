@@ -93,7 +93,10 @@ describe("paseo worktree manager", () => {
   });
 
   afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true });
+    // A timed-out fetch kills git but not its git-remote-http child, which exits only once the
+    // remote's sockets close. On Windows it holds the repository open until then, so rmdir can
+    // briefly fail with EBUSY.
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
 
   it("treats a worktree as paseo-owned even when its .git admin is missing", async () => {

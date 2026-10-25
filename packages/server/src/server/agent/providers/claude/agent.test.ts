@@ -3378,7 +3378,9 @@ describe("ClaudeAgentSession context window usage", () => {
     const result = await session.run("turn");
     await session.close();
 
-    expect(result.timeline).toEqual([
+    // The prompt's user_message echo arrives a timer tick after submission, so it appears only
+    // when the turn outlasts that tick. Assert the assistant output alone.
+    expect(result.timeline.filter((item) => item.type !== "user_message")).toEqual([
       {
         type: "assistant_message",
         text: "Here is the answer.",
