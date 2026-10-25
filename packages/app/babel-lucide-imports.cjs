@@ -62,7 +62,7 @@ function readIconExports() {
 function contextSpecifier(filename, context) {
   if (!filename) return context;
   const relative = path.relative(path.dirname(filename), context).split(path.sep).join("/");
-  return relative.startsWith(".") ? relative : `./${relative}`;
+  return relative.startsWith("./") || relative.startsWith("../") ? relative : `./${relative}`;
 }
 
 module.exports = function modularLucideImports({ types: t }) {

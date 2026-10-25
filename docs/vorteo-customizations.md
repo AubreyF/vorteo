@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): source update tooling admission pins all six scripts the Host installer runs or imports, and the Lucide import plugin always emits an explicitly relative path. Not yet installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): Host installs now apply the guarded build's script preloads and build metadata, both web exports run with an 8 GB worker heap, and the Lucide import plugin emits a root-independent path, so shared Metro caches stay valid across builds. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): the shared Lucide test fixture now exports every common icon imported by the deferred plugin-icon adapter. The four affected files collect and all fifteen tests pass with their original assertions and per-test mocks. Production behavior, README overview and onboarding are unchanged.

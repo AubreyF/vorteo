@@ -20,6 +20,7 @@ import { coordinatorPlanDigest } from "./coordinator-bootstrap.js";
 import {
   BootstrapAdmissionSetupSchema,
   createBootstrapReviewService,
+  SOURCE_UPDATE_TOOLING_FILES,
 } from "./coordinator-bootstrap-host.js";
 import * as serviceCollector from "./coordinator-bootstrap-service.js";
 import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
@@ -142,11 +143,7 @@ async function fixture() {
       "# disposable verifier",
       true,
     );
-    for (const toolingName of [
-      "prepare-installation-update.mjs",
-      "publish-instance-web.mjs",
-      "instance-web-artifact.mjs",
-    ])
+    for (const toolingName of SOURCE_UPDATE_TOOLING_FILES)
       save(
         path.join(directory, "scripts", toolingName),
         "throw new Error('never execute tooling fixture');",
