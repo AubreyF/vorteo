@@ -115,7 +115,7 @@ test("delayed startup probes once and reports an in-flight deferred entry before
   await fetch(`${origin}/startup-test-mode`, { method: "POST", body: "normal" });
   const { doc } = await openLoader("/startup-held-fixture");
   await expect
-    .poll(() => doc.getElementById("boot-diagnostics")?.textContent, { timeout: 18000 })
+    .poll(() => doc.getElementById("boot-diagnostics")?.textContent, { timeout: 13000 })
     .toContain("Passed — installation endpoint responded");
   doc.getElementById("boot-copy")?.click();
   const reportText = doc.querySelector<HTMLTextAreaElement>("#boot-report");
@@ -150,11 +150,11 @@ test("a completed startup cancels the delayed automatic probe", async () => {
   const finish: unknown = Reflect.get(doc.defaultView!, "__vorteoFinishBoot");
   if (typeof finish !== "function") throw new Error("Boot completion hook missing");
   finish();
-  await new Promise((resolve) => setTimeout(resolve, 16000));
+  await new Promise((resolve) => setTimeout(resolve, 11000));
   expect(
     await fetch(`${origin}/startup-fixture-stats`).then((response) => response.json()),
   ).toEqual({ startupHealthRequests: 0, heldScriptRequests: 0 });
-}, 20000);
+}, 15000);
 
 test.each([
   [390, 620],
@@ -167,7 +167,7 @@ test.each([
     Reflect.set(
       doc.defaultView!,
       "__startupNow",
-      Number(Reflect.get(doc.defaultView!, "__startupNow")) + 16000,
+      Number(Reflect.get(doc.defaultView!, "__startupNow")) + 11000,
     );
     doc.defaultView!.dispatchEvent(new Event("pageshow"));
     await expect.poll(() => doc.getElementById("boot-help")?.hidden).toBe(false);
@@ -224,6 +224,85 @@ test("script load failures remain actionable and clipboard denial exposes a sani
 const controlledClock =
   "window.__startupNow=Date.now(); Date.now=function(){return window.__startupNow;};";
 
+test.each([
+  [390, 620],
+  [1280, 900],
+])(
+  "ten-second reveal keeps the logo and content on one continuous transition at %s by %s",
+  async (width, height) => {
+    await page.viewport(width, height);
+    const { doc, origin } = await openLoader("/startup-held-fixture", controlledClock);
+    const win = doc.defaultView!;
+    await expect
+      .poll(() => fetch(`${origin}/startup-fixture-stats`).then((r) => r.json()))
+      .toEqual({ startupHealthRequests: 0, heldScriptRequests: 1 });
+    const emblem = doc.querySelector<HTMLElement>(".boot-emblem");
+    const help = doc.querySelector<HTMLElement>("#boot-help");
+    if (!emblem || !help) throw new Error("Startup transition elements missing");
+    const initial = emblem.getBoundingClientRect();
+    const started = Number(Reflect.get(win, "__startupNow"));
+    Reflect.set(win, "__startupNow", started + 9999);
+    win.dispatchEvent(new Event("pageshow"));
+    expect(help.hidden).toBe(true);
+    expect(await fetch(`${origin}/startup-fixture-stats`).then((r) => r.json())).toEqual({
+      startupHealthRequests: 0,
+      heldScriptRequests: 1,
+    });
+    Reflect.set(win, "__startupNow", started + 10000);
+    win.dispatchEvent(new Event("pageshow"));
+    expect(help.hidden).toBe(false);
+    const animations = doc
+      .getAnimations()
+      .filter(
+        (animation) =>
+          animation instanceof win.CSSAnimation &&
+          ["boot-emblem-reveal", "boot-reveal"].includes(animation.animationName),
+      );
+    expect(animations).toHaveLength(2);
+    await Promise.all(animations.map((animation) => animation.ready));
+    expect(animations[0].startTime).toBe(animations[1].startTime);
+    for (const animation of animations) animation.pause();
+    const geometry = [];
+    for (const elapsed of [0, 80, 160, 240, 320]) {
+      for (const animation of animations) animation.currentTime = elapsed;
+      const rect = emblem.getBoundingClientRect();
+      geometry.push({
+        elapsed,
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        bottom: rect.bottom,
+        helpY: help.getBoundingClientRect().y,
+        opacity: Number(win.getComputedStyle(help).opacity),
+      });
+      if ([0, 160, 320].includes(elapsed))
+        await page.screenshot({ path: `startup-transition-${width}-${elapsed}.png` });
+    }
+    expect(geometry[0].width).toBeCloseTo(initial.width, 1);
+    expect(geometry[0].x).toBeCloseTo(initial.x, 1);
+    expect(geometry[0].y).toBeCloseTo(initial.y, 1);
+    expect(geometry[4].width).toBeCloseTo(80, 1);
+    expect(geometry[4].opacity).toBe(1);
+    const finalGap = geometry[4].helpY - geometry[4].bottom;
+    for (const frame of geometry) expect(frame.helpY - frame.bottom).toBeCloseTo(finalGap, 1);
+    for (let index = 1; index < geometry.length; index++) {
+      expect(geometry[index].width).toBeLessThan(geometry[index - 1].width);
+      expect(geometry[index].y).toBeLessThan(geometry[index - 1].y);
+      expect(geometry[index].opacity).toBeGreaterThan(geometry[index - 1].opacity);
+      const shrinkProgress = (initial.width - geometry[index].width) / (initial.width - 80);
+      expect(Math.abs(shrinkProgress - geometry[index].opacity)).toBeLessThan(0.02);
+    }
+    expect(doc.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+    expect(
+      help.querySelector<HTMLButtonElement>("#boot-copy")?.getBoundingClientRect().height,
+    ).toBeGreaterThanOrEqual(44);
+    console.info("Startup reveal geometry", { width, height, geometry });
+    await expect
+      .poll(() => doc.getElementById("boot-diagnostics")?.textContent)
+      .toContain("Passed — installation endpoint responded");
+  },
+);
+
 test("offline startup defers automatic probes and deduplicates repeated online/resume events", async () => {
   const { doc, origin } = await openLoader(
     "/startup-fixture",
@@ -231,7 +310,7 @@ test("offline startup defers automatic probes and deduplicates repeated online/r
       "window.__startupOnline=false;Object.defineProperty(navigator,'onLine',{get:function(){return window.__startupOnline;}});",
   );
   const win = doc.defaultView!;
-  Reflect.set(win, "__startupNow", Number(Reflect.get(win, "__startupNow")) + 16000);
+  Reflect.set(win, "__startupNow", Number(Reflect.get(win, "__startupNow")) + 11000);
   win.dispatchEvent(new Event("pageshow"));
   expect(doc.getElementById("boot-diagnostics")?.textContent).toContain(
     "Deferred — browser reports offline",
@@ -258,13 +337,13 @@ test("a foreground clock gap starts overdue checks without retrying a slow but p
   const { doc, origin } = await openLoader("/startup-held-fixture", controlledClock);
   const win = doc.defaultView!;
   await fetch(`${origin}/startup-progress-held-script`, { method: "POST" });
-  Reflect.set(win, "__startupNow", Number(Reflect.get(win, "__startupNow")) + 14000);
+  Reflect.set(win, "__startupNow", Number(Reflect.get(win, "__startupNow")) + 9000);
   doc.dispatchEvent(new Event("visibilitychange"));
   expect(await fetch(`${origin}/startup-fixture-stats`).then((r) => r.json())).toEqual({
     startupHealthRequests: 0,
     heldScriptRequests: 1,
   });
-  Reflect.set(win, "__startupNow", Number(Reflect.get(win, "__startupNow")) + 2000);
+  Reflect.set(win, "__startupNow", Number(Reflect.get(win, "__startupNow")) + 1000);
   doc.dispatchEvent(new Event("visibilitychange"));
   await expect
     .poll(() => doc.getElementById("boot-diagnostics")?.textContent)
