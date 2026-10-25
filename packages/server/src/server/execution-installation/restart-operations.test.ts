@@ -67,34 +67,38 @@ function planOf(operation: (typeof RESTART_OPERATIONS)[number], config: Record<s
   return operation.plan(createInstallationRestartExecutor(config as unknown as InstallationConfig));
 }
 
-test("every reviewed restart operation's plan comes from the registered setting of the same name", () => {
-  for (const operation of RESTART_OPERATIONS) {
-    if (UNREGISTERED_OPERATIONS.includes(operation.capability)) {
-      expect(Object.hasOwn(REVIEWED_CONFIGURATION_SETTINGS, operation.capability)).toBe(false);
-      continue;
+// The restart executor and its plans use POSIX paths; it runs only on the macOS Host and Linux Dev.
+test.skipIf(process.platform === "win32")(
+  "every reviewed restart operation's plan comes from the registered setting of the same name",
+  () => {
+    for (const operation of RESTART_OPERATIONS) {
+      if (UNREGISTERED_OPERATIONS.includes(operation.capability)) {
+        expect(Object.hasOwn(REVIEWED_CONFIGURATION_SETTINGS, operation.capability)).toBe(false);
+        continue;
+      }
+      expect(
+        Object.hasOwn(REVIEWED_CONFIGURATION_SETTINGS, operation.capability),
+        operation.capability,
+      ).toBe(true);
+      const name = operation.capability as ReviewedConfigurationSetting;
+      const setting = REVIEWED_CONFIGURATION_SETTINGS[name];
+      const value = setting.value.parse(samples()[name]);
+      const configured = withSetting(setting.path, value);
+      if (name === "hostLauncherUpdate") {
+        // Its digest also reads the live launch file, so check the plan's input instead:
+        // the executor's launcher target is built from exactly this setting.
+        const target = hostLauncherTarget(configured as unknown as InstallationConfig);
+        const update = value as { candidate: string; sha256: string };
+        expect(target?.candidate).toEqual({ path: update.candidate, sha256: update.sha256 });
+        expect(hostLauncherTarget(baseConfig() as unknown as InstallationConfig)).toBeUndefined();
+        continue;
+      }
+      // The executor advertises a plan exactly when the setting is present at its registry path.
+      expect(planOf(operation, configured), name).toMatch(/^[a-f0-9]{64}$/);
+      expect(planOf(operation, baseConfig()), name).toBeUndefined();
     }
-    expect(
-      Object.hasOwn(REVIEWED_CONFIGURATION_SETTINGS, operation.capability),
-      operation.capability,
-    ).toBe(true);
-    const name = operation.capability as ReviewedConfigurationSetting;
-    const setting = REVIEWED_CONFIGURATION_SETTINGS[name];
-    const value = setting.value.parse(samples()[name]);
-    const configured = withSetting(setting.path, value);
-    if (name === "hostLauncherUpdate") {
-      // Its digest also reads the live launch file, so check the plan's input instead:
-      // the executor's launcher target is built from exactly this setting.
-      const target = hostLauncherTarget(configured as unknown as InstallationConfig);
-      const update = value as { candidate: string; sha256: string };
-      expect(target?.candidate).toEqual({ path: update.candidate, sha256: update.sha256 });
-      expect(hostLauncherTarget(baseConfig() as unknown as InstallationConfig)).toBeUndefined();
-      continue;
-    }
-    // The executor advertises a plan exactly when the setting is present at its registry path.
-    expect(planOf(operation, configured), name).toMatch(/^[a-f0-9]{64}$/);
-    expect(planOf(operation, baseConfig()), name).toBeUndefined();
-  }
-});
+  },
+);
 
 test("supervisor maintenance is the only restart operation without a registered setting", () => {
   const unregistered = RESTART_OPERATIONS.map((operation) => operation.capability).filter(
