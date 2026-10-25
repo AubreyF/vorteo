@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.817 - 2026-10-25
+
+### Documentation
+
+- Keep the agent guide within its 32 KiB budget: the Builds gate marker rule is now one line that links to a new development doc section with the marker's fields, the wait rule and the shell check.
+
 ## 0.11.0-beta.3.vorteo.816 - 2026-10-24
 
 ### Fixed
