@@ -52,6 +52,8 @@ import {
   type LocalGhPrFixture,
 } from "../support/helpers/github-fixtures";
 import { getServerId } from "../support/helpers/server-id";
+import { seedAgentProfiles } from "../support/helpers/agent-profiles";
+import { seedWorkspace } from "../support/helpers/seed-client";
 import { selectSidebarStatusGrouping } from "../support/helpers/sidebar";
 import { getE2EDaemonPort } from "../support/helpers/daemon-port";
 import { chooseAddProjectMethod, expectAddProjectPage } from "../support/helpers/add-project-flow";
@@ -1126,6 +1128,32 @@ test.describe("New workspace flow", () => {
     } finally {
       await mainCheckout.cleanup();
       await ghRepo.cleanup();
+    }
+  });
+});
+
+test.describe("New workspace without profiles", () => {
+  // The host has no profiles, so the picker offers no account or profile to select.
+  test.use({ defaultMockProfile: false });
+
+  // Product regression, reported to Builds on 2026-10-25: New workspace checks for a selected
+  // profile before its empty-workspace branch, so an agentless workspace cannot be created on a
+  // host without profiles. Remove the fixme once empty workspaces skip the profile check.
+  test.fixme("creates an empty workspace on a host with no profiles", async ({ page }) => {
+    const seed = await seedAgentProfiles([], true);
+    const workspace = await seedWorkspace({ repoPrefix: "empty-without-profiles-" });
+    try {
+      await gotoAppShell(page);
+      await waitForSidebarHydration(page);
+      await openNewWorkspaceComposer(page, {
+        projectKey: workspace.projectKey,
+        projectDisplayName: workspace.projectDisplayName,
+      });
+      await submitNewWorkspaceEmpty(page);
+      await expect(page).toHaveURL(/\/workspace\/[^/]+$/, { timeout: 30_000 });
+    } finally {
+      await workspace.cleanup();
+      await seed.restore();
     }
   });
 });

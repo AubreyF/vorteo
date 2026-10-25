@@ -3,8 +3,6 @@ import { expect, test as base, type Page } from "../fixtures";
 import { gotoAppShell, openSettings } from "./app";
 import { goBackInSettings, openCompactSettings, openHostSection } from "./settings";
 import { getServerId } from "./server-id";
-import { expectAppRoute } from "./route-assertions";
-import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
 import { connectNewWorkspaceDaemonClient } from "./new-workspace";
 
 type SettingsClient = Awaited<ReturnType<typeof connectNewWorkspaceDaemonClient>>;
@@ -109,7 +107,8 @@ export async function returnAndReopenSettings(page: Page) {
 }
 export async function returnToPluginsPage(page: Page) {
   await page.getByRole("button", { name: "Back to plugins", exact: true }).click();
-  await expectAppRoute(page, buildSettingsHostSectionRoute(getServerId(), "plugins"));
+  // Plugins is a section of the single settings page, which keeps its own address.
+  await expect(page).toHaveURL(/\/settings\/plugins$/);
   await expect(
     page.getByRole("button", { name: "Actions for settings-example", exact: true }),
   ).toBeVisible();

@@ -4,6 +4,26 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.835 - 2026-10-25
+
+### Maintenance
+
+- The worktree-notice dismissal no longer waits for every notice to disappear, so a second project's notice no longer stalls a test.
+- Plugin settings tests expect the single settings page's plugins address.
+- Plugin tests read the open workspace's title from the header on phones or the selected sidebar row on desktop, where 195e1c044 removed the title header.
+
+## 0.11.0-beta.3.vorteo.835 - 2026-10-25
+
+### Maintenance
+
+- The worktree-notice dismissal no longer waits for every notice to disappear, so a second project's notice no longer stalls a test.
+- Plugin settings tests expect the single settings page's plugins address.
+- Plugin tests read the open workspace's title from the header on phones or the selected sidebar row on desktop, where 195e1c044 removed the title header.
+- Mark three product regressions as known failures:
+  - Plugin header buttons on phones (195e1c044); the phone checks split into their own tests.
+  - Empty workspaces on a host without profiles; a new test covers this.
+  - The per-host project rename (537b619e2).
+
 ## 0.11.0-beta.3.vorteo.834 - 2026-10-25
 
 ### Maintenance

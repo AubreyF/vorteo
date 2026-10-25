@@ -391,9 +391,9 @@ test.describe("Sidebar project grouping", () => {
     ]);
   });
 
-  // Owner review, reported to Builds on 2026-10-25: since the single settings page (537b619e2)
-  // Projects lists only the installation's first host, so a second host's project settings are
-  // not reachable there. Remove the fixme once Builds decides where per-host projects live.
+  // Product regression, reported to Builds on 2026-10-25: since the single settings page
+  // (537b619e2) Projects lists only the installation's first host, so a second host's project
+  // settings are unreachable. Remove the fixme once other hosts' projects are listed and labelled.
   test.fixme("renames only the selected host's grouped project", async ({
     page,
     crossHostProject,

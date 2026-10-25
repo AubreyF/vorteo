@@ -196,6 +196,26 @@ export async function expectMenuButtonVisible(page: Page): Promise<void> {
   await expect(page.getByTestId("menu-button")).toBeVisible();
 }
 
+/**
+ * The open workspace's title. Phones show it in the screen header; desktop has no title header
+ * since 195e1c044, so the selected sidebar row carries it.
+ */
+export function workspaceTitleLocator(page: Page): Locator {
+  return page
+    .getByTestId("workspace-header-title")
+    .filter({ visible: true })
+    .or(
+      page
+        .locator('[data-testid^="sidebar-workspace-row-"][aria-selected="true"]')
+        .filter({ visible: true }),
+    )
+    .first();
+}
+
+export async function expectWorkspaceTitle(page: Page, title: string): Promise<void> {
+  await expect(workspaceTitleLocator(page)).toContainText(title, { timeout: 30_000 });
+}
+
 export async function expectWorkspaceHeaderAbsent(page: Page): Promise<void> {
   await expect(page.getByTestId("workspace-header-title")).toHaveCount(0);
 }

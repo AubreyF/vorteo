@@ -9,6 +9,7 @@ import { openCommandCenter } from "./command-center";
 import { connectNewWorkspaceDaemonClient } from "./new-workspace";
 import { seedWorkspace } from "./seed-client";
 import { pluginRequirements } from "./plugin-fixture";
+import { expectWorkspaceTitle } from "./workspace-ui";
 
 const PLUGIN_ID = "button-showcase";
 const WIDE = { width: 1440, height: 900 };
@@ -289,9 +290,7 @@ export async function withButtonShowcase(
           const recovered = (await observation.textContent())!;
           expect([first, second]).not.toContain(recovered);
           await showcase.setTitle("Healthy app after button failure");
-          await expect(page.getByTestId("workspace-header-title")).toHaveText(
-            "Healthy app after button failure",
-          );
+          await expectWorkspaceTitle(page, "Healthy app after button failure");
           await press(page, "Close deployment details");
           await expect.poll(() => released.has(recovered)).toBe(true);
           await showcase.setTitle("Button showcase");
@@ -507,9 +506,7 @@ export async function withButtonShowcase(
           );
           await expect(page.getByText("All systems operational", { exact: true })).toHaveCount(0);
           await showcase.setTitle("Healthy app after plugin unload");
-          await expect(page.getByTestId("workspace-header-title")).toHaveText(
-            "Healthy app after plugin unload",
-          );
+          await expectWorkspaceTitle(page, "Healthy app after plugin unload");
         }),
     });
   } finally {

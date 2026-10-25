@@ -1,5 +1,9 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): test-only change. Worktree notice dismissal, plugin settings addresses and workspace title checks follow the current interface; three product regressions are marked as known failures. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Worktree notice dismissal, plugin settings addresses and workspace title checks follow the current interface. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): test-only change. Settings and project grouping tests follow the single settings page, the Environment step and the profile requirement on secondary hosts; one per-host project test awaits owner review. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): test-only change. Profile picker tests follow the switch sheet, collapsible compact sections and the defaults editor, and retire checks for removed reasoning and mode controls. Functionality is unchanged. README overview and onboarding are unchanged.
