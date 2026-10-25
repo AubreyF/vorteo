@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.819 - 2026-10-24
+
+### Tests
+
+- The supervisor test for output that arrives after the worker exits runs only on POSIX, like the existing descendant stdio test. On Windows CI the child's late write never reached the supervisor, so the scenario cannot be staged there; the log stayed intact.
+
 ## 0.11.0-beta.3.vorteo.818 - 2026-10-24
 
 ### Fixed
