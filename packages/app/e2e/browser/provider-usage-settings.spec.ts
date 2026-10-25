@@ -48,9 +48,10 @@ test.describe("provider usage settings", () => {
       },
     ]);
 
+    // The sidebar's Quota card (b7e249fef) loads usage with the app shell, so Settings shows
+    // that report rather than requesting its own first.
     await gotoAppShell(page);
     await openSettings(page);
-    expect(usageFixture.requestCount()).toBe(0);
     await openSettingsHostSection(page, serverId, "usage");
     await usageFixture.waitForRequestCount(1);
 
@@ -107,10 +108,13 @@ test.describe("provider usage settings", () => {
     await usageFixture.waitForRequestCount(1);
     await expect(page.getByText("23%")).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole("button", { name: "Refresh", exact: true }).click();
-    await usageFixture.waitForRequestCount(2);
-
-    expect(usageFixture.requestCount()).toBe(2);
+    // The single settings page also shows a Skills Refresh button; use the usage card's.
+    const before = usageFixture.requestCount();
+    await page
+      .getByTestId("provider-usage-card")
+      .getByRole("button", { name: "Refresh", exact: true })
+      .click();
+    await usageFixture.waitForRequestCount(before + 1);
     await expect(page.getByText("64%")).toBeVisible();
   });
 

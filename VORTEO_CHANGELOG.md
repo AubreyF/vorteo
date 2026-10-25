@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.836 - 2026-10-25
+
+### Maintenance
+
+- Usage tests read the context window sheet and the usage card. Since b7e249fef the sidebar Quota card also names accounts and loads usage with the app shell.
+- Provider removal uses the Delete button on a custom provider's row and its credentials message; 471d7f22a removed the provider actions menu.
+- Retire the Standard mode check in the Claude CLI warning test, citing 471d7f22a.
+- The Model B sidebar test finds New workspace in the More menu (ab60c1e39).
+
 ## 0.11.0-beta.3.vorteo.835 - 2026-10-25
 
 ### Maintenance

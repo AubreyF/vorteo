@@ -75,11 +75,13 @@ test.describe("Model B sidebar shape", () => {
         timeout: 30_000,
       });
 
-      // The global new-workspace button is the universal entry — present for both
-      // kinds regardless of their per-row affordance.
-      await expect(page.getByTestId("sidebar-global-new-workspace")).toBeVisible({
-        timeout: 30_000,
-      });
+      // The global New workspace entry is the universal one, present for both kinds regardless
+      // of their per-row affordance. It lives in the sidebar's More menu since ab60c1e39.
+      await page.locator('[data-testid="sidebar-footer-overflow"]:visible').first().click();
+      await expect(
+        page.locator('[data-testid="sidebar-global-new-workspace"]:visible').first(),
+      ).toBeVisible({ timeout: 30_000 });
+      await page.keyboard.press("Escape");
     } finally {
       await gitProject.cleanup();
       await nonGitProject.cleanup();

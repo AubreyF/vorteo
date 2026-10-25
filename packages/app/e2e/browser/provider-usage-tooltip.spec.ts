@@ -2,7 +2,7 @@ import { expect, test, type Page } from "../support/fixtures";
 import { expectComposerVisible } from "../support/helpers/composer";
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
 import { installProviderUsageFixture } from "../support/helpers/provider-usage";
-import { closeContextWindowSheet } from "../support/helpers/context-window";
+import { closeContextWindowSheet, contextWindowSheet } from "../support/helpers/context-window";
 
 const MOBILE_VIEWPORT = { width: 390, height: 844 };
 
@@ -56,12 +56,14 @@ test.describe("provider usage tooltip", () => {
       await page.getByTestId("context-window-meter").click();
       await usageFixture.waitForRequestCount(2);
 
-      await expect(page.getByText("Mock provider", { exact: true })).toBeVisible({
+      // The sidebar's Quota card (b7e249fef) also names the account, so read the meter's sheet.
+      const sheet = contextWindowSheet(page);
+      await expect(sheet.getByText("Mock provider", { exact: true })).toBeVisible({
         timeout: 10_000,
       });
-      await expect(page.getByText("Test plan")).toBeVisible();
-      await expect(page.getByText("Session", { exact: true })).toBeVisible();
-      await expect(page.getByText("42%")).toBeVisible();
+      await expect(sheet.getByText("Test plan")).toBeVisible();
+      await expect(sheet.getByText("Session", { exact: true })).toBeVisible();
+      await expect(sheet.getByText("42%")).toBeVisible();
     } finally {
       await session.cleanup();
     }
@@ -111,17 +113,19 @@ test.describe("provider usage tooltip", () => {
     try {
       const meter = page.getByTestId("context-window-meter");
 
+      // The sidebar's Quota card (b7e249fef) also shows usage, so read the meter's sheet.
+      const sheet = contextWindowSheet(page);
       await meter.click();
       await usageFixture.waitForRequestCount(2);
-      await expect(page.getByText("41%")).toBeVisible({ timeout: 10_000 });
+      await expect(sheet.getByText("41%")).toBeVisible({ timeout: 10_000 });
 
       await closeContextWindowSheet(page);
-      await expect(page.getByText("Mock provider", { exact: true })).toHaveCount(0);
+      await expect(sheet).toHaveCount(0);
 
       await meter.click();
       await usageFixture.waitForRequestCount(3);
       expect(usageFixture.requestCount()).toBe(3);
-      await expect(page.getByText("64%")).toBeVisible();
+      await expect(sheet.getByText("64%")).toBeVisible();
     } finally {
       await session.cleanup();
     }

@@ -46,7 +46,8 @@ async function clickRemoveProviderAndAcceptWarning(page: Page): Promise<Dialog> 
   page.once("dialog", (dialog) => {
     warning = dialog;
     expect(dialog.message()).toContain(`Remove ${CUSTOM_PROVIDER.name}?`);
-    expect(dialog.message()).toContain("This deletes the provider entry from config.json.");
+    // The confirmation explains what happens to the connection's credentials.
+    expect(dialog.message()).toContain("Delete this connection?");
     void dialog.accept();
   });
   await page.getByTestId(`provider-remove-${CUSTOM_PROVIDER.id}`).click();
@@ -71,13 +72,13 @@ test.describe("provider removal", () => {
       await openSettingsHost(page, getServerId());
       await openSettingsHostSection(page, getServerId(), "providers");
 
-      await expect(page.getByTestId("provider-actions-claude")).toHaveCount(0);
+      // Built-in providers offer no Delete; custom ones show it on their row since 471d7f22a.
+      await expect(page.getByTestId("provider-remove-claude")).toHaveCount(0);
       await openAddProviderArea(page);
       await installAcpCatalogProvider(page, CUSTOM_PROVIDER.name);
       await expectProviderInstalledInSettings(page, CUSTOM_PROVIDER.name);
       await expectProviderSource(client, "custom");
 
-      await page.getByTestId(`provider-actions-${CUSTOM_PROVIDER.id}`).click();
       await expect(page.getByTestId(`provider-remove-${CUSTOM_PROVIDER.id}`)).toBeVisible();
       await clickRemoveProviderAndAcceptWarning(page);
 
