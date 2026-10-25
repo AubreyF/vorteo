@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.846 - 2026-10-25
+
+### Maintenance
+
+- Merge renewal runtime custody boundaries: coordinator renewals hash the runtime at admission, freeze, unload, start and release instead of before every step
+
+## 0.11.0-beta.3.vorteo.843 - 2026-10-25
+
+### Changed
+
+- Coordinator renewal custody checks hash the coordinator's whole runtime five times instead of about thirty: at admission and immediately before freeze, unload, start and release. Each check compares against the hash admission accepted and fails closed. Every other step keeps its setup, pinned-file, journal and lock checks, and the renewal is re-derived once, at the claim, instead of six times. The separate candidate release checks are unchanged. Expected saving is 200 to 300 seconds per renewal. Watchdog and maintenance runners are unchanged.
+
 ## 0.11.0-beta.3.vorteo.845 - 2026-10-25
 
 ### Maintenance
@@ -29,6 +41,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Resolve web icon imports and their original provider context without eagerly loading the catalogue; guard the package export layout and preserve native imports.
 - Cover provider defaults, icon aliases and optional download state alongside startup, font restoration and diagram consent regressions.
 
+## 0.11.0-beta.3.vorteo.839 - 2026-10-25
+
+### Maintenance
+
+- A test keeps the reviewed restart operations and the reviewed coordinator settings in step. Each operation's plan must come from the registered setting of the same name, at that setting's configuration path, with supervisor maintenance as the one named exception.
+
 ## 0.11.0-beta.3.vorteo.842 - 2026-10-25
 
 ### Maintenance
@@ -53,12 +71,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Cleaning up old Host releases no longer makes a successful Host install report failure. The first cleanup after release retention shipped deleted a backlog of about 40 old releases inside the install, past its 10-minute readiness deadline, so a verified install was marked failed. Cleanup now starts after the install reports its result, records its outcome in `retention.json` in the job's folder, and never runs twice at once.
 - Old releases are deleted directly. The slower path that first clears immutable file flags, about half a minute per release, runs only for a release that refuses plain deletion.
-
-## 0.11.0-beta.3.vorteo.839 - 2026-10-25
-
-### Maintenance
-
-- A test keeps the reviewed restart operations and the reviewed coordinator settings in step. Each operation's plan must come from the registered setting of the same name, at that setting's configuration path, with supervisor maintenance as the one named exception.
 
 ## 0.11.0-beta.3.vorteo.839 - 2026-10-25
 
