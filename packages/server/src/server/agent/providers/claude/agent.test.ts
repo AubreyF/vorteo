@@ -2347,6 +2347,143 @@ describe("ClaudeAgentSession context window usage", () => {
     ]);
   });
 
+  test("lists only skills Claude labels as built in", async () => {
+    const skill = (name: string, source: string) => ({ name, source, tokens: 1 });
+    const queryFactory = vi.fn(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+      void prompt;
+      return {
+        next: async () => ({ done: true, value: undefined }),
+        interrupt: async () => undefined,
+        return: async () => undefined,
+        close: () => undefined,
+        setPermissionMode: async () => undefined,
+        setModel: async () => undefined,
+        getContextUsage: async () => ({
+          skills: {
+            totalSkills: 7,
+            includedSkills: 7,
+            tokens: 7,
+            skillFrontmatter: [
+              skill("claude-api", "built-in"),
+              skill("simplify", "built-in"),
+              skill("simplify", "userSettings"),
+              skill("morning", "syncedSkills"),
+              skill("lint", "plugin"),
+              skill("dataviz", "built-in"),
+              skill("charts:dataviz", "plugin"),
+            ],
+          },
+        }),
+        supportedModels: async () => [],
+        supportedCommands: async () => [],
+        rewindFiles: async () => ({ canRewind: true }),
+        [Symbol.asyncIterator]() {
+          return this;
+        },
+      };
+    });
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({ provider: "claude", cwd: process.cwd() });
+
+    const builtins = await session.listBuiltinSkills?.();
+    await session.close();
+
+    // A user, account or plugin skill must not borrow a bundled skill's name.
+    expect(builtins).toEqual(["claude-api"]);
+  });
+
+  test("keeps no built-in skills when Claude reports a partial skill list", async () => {
+    const queryFactory = vi.fn(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+      void prompt;
+      return {
+        next: async () => ({ done: true, value: undefined }),
+        interrupt: async () => undefined,
+        return: async () => undefined,
+        close: () => undefined,
+        setPermissionMode: async () => undefined,
+        setModel: async () => undefined,
+        getContextUsage: async () => ({
+          skills: {
+            totalSkills: 2,
+            includedSkills: 1,
+            tokens: 1,
+            skillFrontmatter: [{ name: "claude-api", source: "built-in", tokens: 1 }],
+          },
+        }),
+        supportedModels: async () => [],
+        supportedCommands: async () => [],
+        rewindFiles: async () => ({ canRewind: true }),
+        [Symbol.asyncIterator]() {
+          return this;
+        },
+      };
+    });
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({ provider: "claude", cwd: process.cwd() });
+
+    const builtins = await session.listBuiltinSkills?.();
+    await session.close();
+
+    // The skill left out of the report could share a built-in name.
+    expect(builtins).toEqual([]);
+  });
+
+  test("keeps no built-in skills when Claude's skill report fails or times out", async () => {
+    let usage: () => Promise<unknown> = async () => {
+      throw new Error("context usage unavailable");
+    };
+    const queryFactory = vi.fn(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+      void prompt;
+      return {
+        next: async () => ({ done: true, value: undefined }),
+        interrupt: async () => undefined,
+        return: async () => undefined,
+        close: () => undefined,
+        setPermissionMode: async () => undefined,
+        setModel: async () => undefined,
+        getContextUsage: () => usage(),
+        supportedModels: async () => [],
+        supportedCommands: async () => [],
+        rewindFiles: async () => ({ canRewind: true }),
+        [Symbol.asyncIterator]() {
+          return this;
+        },
+      };
+    });
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({ provider: "claude", cwd: process.cwd() });
+
+    await expect(session.listBuiltinSkills?.()).resolves.toEqual([]);
+
+    vi.useFakeTimers();
+    try {
+      let requested = false;
+      usage = () => {
+        requested = true;
+        return new Promise(() => {});
+      };
+      const pending = session.listBuiltinSkills?.();
+      await vi.waitFor(() => expect(requested).toBe(true));
+      await vi.advanceTimersByTimeAsync(10_000);
+      await expect(pending).resolves.toEqual([]);
+    } finally {
+      vi.useRealTimers();
+      await session.close();
+    }
+  });
+
   test("deletes the persisted session jsonl on close when persistSession=false", async () => {
     const tmpConfigDir = await fs.mkdtemp(path.join(os.tmpdir(), "paseo-claude-persist-"));
     const previousConfigDir = process.env.CLAUDE_CONFIG_DIR;

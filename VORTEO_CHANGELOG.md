@@ -4,6 +4,36 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.855 - 2026-10-25
+
+### Maintenance
+
+- Merge restricted Claude launch fix: restricted selections leave unpackaged provider defaults out instead of refusing the launch, and restricted Claude sessions keep Claude's built-in skills
+
+## 0.11.0-beta.3.vorteo.854 - 2026-10-25
+
+### Fixed
+
+- A skill the inventory cannot fully read, for example one with a symlinked file or too many files, can no longer borrow a bundled skill's name on resume. Its frontmatter name is read directly, and if that also fails the session keeps no bundled skills. The skill library notes that resume compares package contents only in the standard skill folders.
+
+## 0.11.0-beta.3.vorteo.853 - 2026-10-25
+
+### Fixed
+
+- A restricted Claude session that resumes now also checks the account's own Claude configuration folder, including installed, marketplace and synced plugins, before keeping a bundled skill's name. Same-named copies of shared skills in that folder do not refuse the resume. A plugin skill or a skill with a different folder name that claims the name after launch turns it off. If a skill folder cannot be read, the session keeps no bundled skills and still launches.
+
+## 0.11.0-beta.3.vorteo.852 - 2026-10-25
+
+### Fixed
+
+- Restricted Claude sessions keep Claude's bundled skills, such as claude-api, dataviz, simplify, loop and keybindings-help, instead of losing them. Only skills Claude itself labels as built in are kept, by name, and a name is turned off when a plugin, account or personal skill also uses it. Checked against Claude 2.1.285 on the Host: a restricted session kept every bundled skill except code-review, whose name an installed plugin shares. If Claude's skill report is partial, slow or fails, the session launches without bundled skills rather than failing. Older daemons ignore the new snapshot field and leave these skills out.
+
+## 0.11.0-beta.3.vorteo.851 - 2026-10-25
+
+### Fixed
+
+- Claude tasks no longer fail to launch when a personal skill is missing from the shared library or a skill is excluded. Those launches restrict skills, and Claude's own built-in commands and bundled skills have no files to verify, so every one was refused. Restricted sessions now leave those unverifiable defaults out instead.
+
 ## 0.11.0-beta.3.vorteo.854 - 2026-10-25
 
 ### Maintenance
