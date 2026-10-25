@@ -11,6 +11,7 @@ import { test } from "node:test";
 import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import { runInNewContext } from "node:vm";
 import { installationWebEntry } from "./installation-web-entry.mjs";
+import { preloadWebEntry } from "./preload-web-entry.mjs";
 import { fallbackIcons, isReviewedFallback } from "./web-icon-migration.mjs";
 import {
   assertIntegratedSource,
@@ -25,6 +26,43 @@ import {
 } from "./instance-web-artifact.mjs";
 const run = promisify(execFile);
 const publisher = path.resolve("scripts/publish-instance-web.mjs");
+
+test("entry script preload starts in the head and preserves its security attributes and execution order", () => {
+  const script =
+    '<script src="/_expo/static/js/web/index-0123456789abcdef.js" defer crossorigin="anonymous" integrity="sha256-test" referrerpolicy="no-referrer" nonce="test-nonce"></script>';
+  const html = `<html><head><title>Test</title></head><body><script>window.loaderReady=true;</script>${script}</body></html>`;
+  const transformed = preloadWebEntry(html);
+  assert.ok(transformed.indexOf('rel="preload"') < transformed.indexOf("</head>"));
+  assert.ok(transformed.includes(script));
+  for (const attribute of [
+    'crossorigin="anonymous"',
+    'integrity="sha256-test"',
+    'referrerpolicy="no-referrer"',
+    'nonce="test-nonce"',
+  ])
+    assert.equal(transformed.split(attribute).length - 1, 2);
+  assert.equal(preloadWebEntry(transformed), transformed);
+});
+
+test("entry script preload leaves external, credential-bearing and non-entry scripts alone", () => {
+  const html =
+    '<html><head></head><body><script src="https://user:secret@example.test/entry.js"></script><script src="/installation-entry-test.js"></script><script src="/_expo/static/js/web/index.js?token=private"></script></body></html>';
+  assert.equal(preloadWebEntry(html), html);
+});
+
+test("entry preload reuses anonymous CORS semantics and embeds only validated build provenance", () => {
+  const html =
+    '<html><head></head><body><script src="/_expo/static/js/web/index-test.js" crossorigin defer></script></body></html>';
+  const metadata = { version: "0.11.0-beta.3.vorteo.820", sourceCommit: "a".repeat(40) };
+  const result = preloadWebEntry(html, metadata);
+  assert.match(result, /crossorigin="anonymous"/);
+  assert.match(result, /content="0.11.0-beta.3.vorteo.820 \(aaaaaaaaaaaa\)"/);
+  assert.equal(preloadWebEntry(result, metadata), result);
+  assert.throws(
+    () => preloadWebEntry(html, { ...metadata, sourceCommit: "<private>" }),
+    /metadata/,
+  );
+});
 
 test("installation entry preserves deep links without reading client credentials or storage", () => {
   const entry = installationWebEntry("https://owner.example.test:44444");

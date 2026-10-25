@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.837 - 2026-10-25
+
+### Maintenance
+
+- Merge the published startup diagnostics and recovery interface into the combined Host batch
+
+## 0.11.0-beta.3.vorteo.820 - 2026-10-25
+
+### Fixed
+
+- Startup diagnostics run automatically after 15 seconds, independently of the interface download and document load events. Bounded, deduplicated checks resume after offline or background delays, cancel after startup, and distinguish endpoint health from daemon authentication and session readiness.
+- The default V spinner transitions into a compact, scrollable diagnostic panel with reduced-motion support. Pending script downloads stay indeterminate because browsers do not expose live script byte progress; completed timings, observed script events, safe build provenance and existing public restart-request counts retain their limits and freshness.
+- Production exports preload the existing entry script without changing its execution order, integrity or cross-origin policy. Optional font CSS no longer blocks the inline diagnostic bootstrap.
+
 ## 0.11.0-beta.3.vorteo.836 - 2026-10-25
 
 ### Maintenance
@@ -1330,6 +1344,49 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
 
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Added
+
+- Drag the bottom edge of an expanded card to make it taller or shorter. This works for the thread's right-hand cards and the left sidebar's Open questions and Quota cards. Heights are remembered on the device; a double press on the edge returns the card to automatic sizing. Right-hand cards you resized keep their height first, and the other cards share what remains.
+
+### Changed
+
+- # Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Changed
+
+- Show Vorteo System as an ordinary sidebar project instead of a separate section. It shows the Vorteo mark until you pick another icon, drags with your other projects, and offers new workspaces. Remove project stays visible but disabled with the reason, and its settings explain the project and lock only its name.
+- Let `system.json` name the installation's own checkout as `source.checkout`. It becomes the System project's root on every start, so new workspaces are worktrees of the code the installation was built from. Set up Vorteo source refuses to clone while a checkout is configured.
+
+### Added
+
+- Let `system.json` `absorb` existing projects and workspaces into the System project by ID. Every workspace moves, archived ones included, keeping its ID, folder and history, and each listed project left empty is archived. Later starts find nothing left to move. Installers do not write these settings yet.
+  > > > > > > > > > Temporary merge branch 2
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Changed
+
+- Show Vorteo System as an ordinary sidebar project instead of a separate section. It shows the Vorteo mark until you pick another icon, drags with your other projects, and offers new workspaces. Remove project stays visible but disabled with the reason, and its settings explain the project and lock only its name.
+- Let `system.json` name the installation's own checkout as `source.checkout`. It becomes the System project's root on every start, so new workspaces are worktrees of the code the installation was built from. Set up Vorteo source refuses to clone while a checkout is configured.
+
+### Added
+
+- Let `system.json` `absorb` existing projects and workspaces into the System project by ID. Every workspace moves, archived ones included, keeping its ID, folder and history, and each listed project left empty is archived. Later starts find nothing left to move. Installers do not write these settings yet.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Added
+
+- Drag the bottom edge of an expanded card to make it taller or shorter. This works for the thread's right-hand cards and the left sidebar's Open questions and Quota cards. Heights are remembered on the device; a double press on the edge returns the card to automatic sizing. Right-hand cards you resized keep their height first, and the other cards share what remains.
+
+### Changed
+
+- Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
+
 ## 0.11.0-beta.3.vorteo.764 - 2026-10-22
 
 ### Changed
@@ -1381,11 +1438,32 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Correct the installation-maintenance skill and agent guidance: Host-originated restarts and source updates are approved automatically for both Host and Dev when the owner's policy allows it, while Dev-originated requests, mixed batches and listed request types stay manual. The skill now explains how to follow an automatic decision and what a coordinator recovery refusal means.
 
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Changed
+
+- Show Vorteo System as an ordinary sidebar project instead of a separate section. It shows the Vorteo mark until you pick another icon, drags with your other projects, and offers new workspaces. Remove project stays visible but disabled with the reason, and its settings explain the project and lock only its name.
+- Let `system.json` name the installation's own checkout as `source.checkout`. It becomes the System project's root on every start, so new workspaces are worktrees of the code the installation was built from. Set up Vorteo source refuses to clone while a checkout is configured.
+
+### Added
+
+- Let `system.json` `absorb` existing projects and workspaces into the System project by ID. Every workspace moves, archived ones included, keeping its ID, folder and history, and each listed project left empty is archived. Later starts find nothing left to move. Installers do not write these settings yet.
+
 ## 0.11.0-beta.3.vorteo.759 - 2026-10-22
 
 ### Fixed
 
 - On mobile, the sidebar's Open questions and Quota cards keep the 8px card gap from the list above and from the sync notice, restart banner or footer below, instead of touching the banner.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Added
+
+- Drag the bottom edge of an expanded card to make it taller or shorter. This works for the thread's right-hand cards and the left sidebar's Open questions and Quota cards. Heights are remembered on the device; a double press on the edge returns the card to automatic sizing. Right-hand cards you resized keep their height first, and the other cards share what remains.
+
+### Changed
+
+- Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
 
 ## 0.11.0-beta.3.vorteo.757 - 2026-10-22
 
