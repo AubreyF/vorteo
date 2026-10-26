@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.865 - 2026-10-26
+
+### Fixed
+
+- The Nix package builds again on Linux. The daemon trace followed Playwright's unused Electron launcher into the npm Electron package's installer, so the package shipped its prebuilt zip addons, and auto-patchelf could not find musl for the x64 musl addon. The trace now leaves out the npm Electron package, which drops about 200 installer files from the daemon closure.
+
 ## 0.11.0-beta.3.vorteo.864 - 2026-10-26
 
 ### Fixed
