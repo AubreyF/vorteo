@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.856 - 2026-10-25
+
+### Fixed
+
+- The resume check for Claude's bundled skills no longer drops them all because of a symlink to a file or a dangling symlink inside a skill or plugin folder, and it skips node_modules and .git folders inside plugins. A commands folder nested deeper than the check reads now counts as unknown and keeps no bundled skills, instead of being silently ignored.
+
 ## 0.11.0-beta.3.vorteo.855 - 2026-10-25
 
 ### Fixed

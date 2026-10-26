@@ -406,6 +406,43 @@ it("turns off built-in names claimed by commands in the user's home folder", asy
   expect(await verifySkillSnapshot(config)).toEqual(["example", "simplify"]);
 });
 
+it("keeps no built-ins when only a commands folder cannot be read", async () => {
+  const { home, config } = await bundledSetup();
+  const commands = path.join(home, ".claude/commands");
+  await mkdir(commands, { recursive: true });
+  await chmod(commands, 0o000);
+  try {
+    expect(await verifySkillSnapshot(config)).toEqual(["example"]);
+  } finally {
+    await chmod(commands, 0o755);
+  }
+});
+
+it("keeps no built-ins when commands are nested deeper than the check reads", async () => {
+  const { home, config } = await bundledSetup();
+  const deep = path.join(home, ".claude/commands/a/b/c/d");
+  await mkdir(deep, { recursive: true });
+  await writeFile(path.join(deep, "simplify.md"), "Simplify");
+  expect(await verifySkillSnapshot(config)).toEqual(["example"]);
+});
+
+it("ignores dependency folders and file symlinks inside plugin roots", async () => {
+  const { config, account } = await bundledSetup();
+  const plugin = path.join(account, "plugins/cache/market/tools/1.0.0");
+  const dependency = path.join(plugin, "node_modules/helper/commands");
+  await mkdir(dependency, { recursive: true });
+  await writeFile(path.join(dependency, "simplify.md"), "Not a Claude command");
+  await mkdir(path.join(plugin, "bin"), { recursive: true });
+  await writeFile(path.join(plugin, "bin/tool.js"), "");
+  await symlink(path.join(plugin, "bin/tool.js"), path.join(plugin, "tool"));
+  await symlink(path.join(plugin, "removed"), path.join(plugin, "dangling"));
+  expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual([
+    "example",
+    "claude-api",
+    "simplify",
+  ]);
+});
+
 it("keeps no built-ins when an account skill folder cannot be read", async () => {
   const { config, account } = await bundledSetup();
   await mkdir(account, { recursive: true });
