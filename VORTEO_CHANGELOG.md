@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.864 - 2026-10-26
+
+### Fixed
+
+- A session host restart no longer wedges the installation coordinator. The finished restart recorded the stopped host as the host answered, and since the indicator that answer carries per-provider session counts, which the strict job record does not allow; the coordinator kept the invalid record in memory after the journal refused it, so every later journal write failed and every restart request was refused. The restart now records only the fields the job names (process, release, sessions), and the ledger writes a session host record to the journal before remembering it, so a record the journal rejects fails only its own operation and later requests go through.
+
+### Validation
+
+- A restart whose host answers with provider counts produces a record that passes the job schema and the lifecycle journal; a ledger test feeds an outcome with an extra field through dispatch and checks the operation fails on its own, the journal still parses, and the next request succeeds. The isolated end-to-end restart scenario drives launchd directly rather than the coordinator, so it could not have caught this; the coordinator path is covered by the unit tests above.
+
 ## 0.11.0-beta.3.vorteo.863 - 2026-10-26
 
 ### Maintenance
