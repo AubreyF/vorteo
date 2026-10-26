@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.875 - 2026-10-26
+
+### Maintenance
+
+- Make the browser tests that failed in main's CI run 40250589484 reliable, without loosening their checks:
+  - A shared helper resizes the viewport and waits for the page to paint before assertions start. Crossing the phone/desktop breakpoint blocks the page for seconds while Unistyles rebuilds its stylesheet. The demo workspace, profile picker, provider, permission and queue tests use it.
+  - The launcher test measures the new agent tab's latency inside the page, still against its 3000ms budget (7173342bc).
+  - The queue progress test releases a held request only once one is held. The settings tab test brings the tabs back into view before measuring. The journal test scrolls the new entry into view in every container. The motion test reopens the chooser until it sees a staggered frame, up to three times.
+  - The recovery fixture reuses the app bundle's transform settings, cutting its cold compile from 64 to 9 seconds locally. Its cleanup tolerates a setup that never started.
+  - Longer budgets come with measured durations: shared provider preferences, the demo disclosure and responsive sidebar tests, and the phone plugin panels wait.
+- Mark two product regressions:
+  - The chat outline's phone checks: crossing the phone breakpoint freezes the page for 8 to 12 seconds.
+  - Applying a Code font change in Settings blocks the page for 16 to 22 seconds. The font-loading half of that test still runs.
+
 ## 0.11.0-beta.3.vorteo.874 - 2026-10-26
 
 ### Maintenance

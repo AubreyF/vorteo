@@ -1,5 +1,5 @@
 import { test, expect } from "../support/fixtures";
-import type { Locator } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import {
   gotoWorkspace,
   assertNewChatTileVisible,
@@ -379,16 +379,62 @@ test.describe("Tab transitions (no flash)", () => {
   test("New agent tab click shows composer without flash", async ({ page }) => {
     await gotoWorkspace(page, workspace.workspaceId);
 
-    const elapsed = await measureTileTransition(
-      page,
-      () => clickNewChat(page),
-      composerLocator(page),
-      10_000,
-    );
+    const elapsed = await measureNewAgentDraftLatency(page);
 
-    // Draft creation is fully in-memory — should be fast
-    // We use a generous budget here because CI can be slow, but the key assertion
-    // is that no blank/flash frame appears (tested above).
+    // Draft creation is fully in-memory, so this budget (from 7173342bc) covers the app's own
+    // work: the page clock runs from pressing the menu item to the first frame that paints the
+    // new composer, excluding page load, the menu opening and Playwright polling. No blank or
+    // flash frame is asserted by the replacement test above.
     expect(elapsed).toBeLessThan(3_000);
   });
 });
+
+/** Page time from pressing New agent in the tab menu to the first frame showing its composer. */
+async function measureNewAgentDraftLatency(page: Page): Promise<number> {
+  const trigger = page.getByTestId("workspace-new-tab-button").filter({ visible: true }).first();
+  await expect(trigger).toBeVisible({ timeout: 10_000 });
+  await trigger.click();
+  const item = page.getByTestId("workspace-new-tab-menu-agent").filter({ visible: true }).first();
+  await expect(item).toBeVisible({ timeout: 10_000 });
+  await page.evaluate(() => {
+    const visibleComposers = () =>
+      Array.from(document.querySelectorAll<HTMLElement>('[aria-label="Message agent..."]')).filter(
+        (element) => element.getClientRects().length > 0,
+      );
+    const before = new Set(visibleComposers());
+    const state = { start: 0, end: 0 };
+    Object.assign(window, { __newAgentDraftLatency: state });
+    document.addEventListener(
+      "pointerdown",
+      () => {
+        state.start = performance.now();
+        const check = () => {
+          if (visibleComposers().some((element) => !before.has(element))) {
+            state.end = performance.now();
+            return;
+          }
+          requestAnimationFrame(check);
+        };
+        requestAnimationFrame(check);
+      },
+      { capture: true, once: true },
+    );
+  });
+  await item.click();
+  await expect(composerLocator(page)).toBeVisible({ timeout: 10_000 });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { __newAgentDraftLatency: { end: number } }).__newAgentDraftLatency
+            .end,
+      ),
+    )
+    .toBeGreaterThan(0);
+  return page.evaluate(() => {
+    const { start, end } = (
+      window as unknown as { __newAgentDraftLatency: { start: number; end: number } }
+    ).__newAgentDraftLatency;
+    return end - start;
+  });
+}

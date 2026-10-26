@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-26): test-only change. Browser tests that failed on CI wait for the page to settle after layout switches, and two layout performance regressions are marked. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-26): merge-only change. The CI flake branch takes main fae646ab7. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-26): test-only change. The Vorteo update browser test marks a settings section tracking issue seen on Linux CI. Functionality is unchanged. README overview and onboarding are unchanged.
