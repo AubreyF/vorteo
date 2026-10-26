@@ -16,7 +16,9 @@ const claudeBinary = join(dirname(nodeRequire.resolve(`${packageName}/package.js
 for (const width of [1280, 402]) {
   test(`signed-out Claude and container instructions at ${width}px`, async ({ page }) => {
     const home = await mkdtemp(join(tmpdir(), "claude-browser-signout-"));
-    const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "claude-signout" });
+    const client = await connectDaemonClient<DaemonClient>({
+      clientIdPrefix: "claude-signout",
+    });
     try {
       await client.patchDaemonConfig({
         providers: {
@@ -43,37 +45,24 @@ for (const width of [1280, 402]) {
           const { entries } = await client.getProvidersSnapshot();
           return entries.find((entry) => entry.provider === "claude");
         })
-        .toMatchObject({ status: "error", error: expect.stringContaining("not signed in") });
+        // 7c8e78ac7 replaced "not signed in" with a pointer to Providers settings.
+        .toMatchObject({
+          status: "error",
+          error: expect.stringContaining("Claude is not connected"),
+        });
       await page.setViewportSize({ width, height: 1000 });
       await gotoAppShell(page);
-      await page.evaluate(() => {
-        const key = "@paseo:create-agent-preferences";
-        const preferences = JSON.parse(localStorage.getItem(key) ?? "{}");
-        localStorage.setItem(key, JSON.stringify({ ...preferences, vortonMode: true }));
-        const nonce = localStorage.getItem("@paseo:e2e-seed-nonce");
-        if (!nonce) throw new Error("Missing test seed nonce");
-        localStorage.setItem("@paseo:e2e-disable-default-seed-once", nonce);
-      });
+      // 471d7f22a removed Paseo/Standard mode, so every Claude provider sheet shows the
+      // container sign-in instructions beside its model list.
       await page.goto(`/settings/hosts/${getServerId()}/providers`);
       await page.getByRole("button", { name: "Claude provider details", exact: true }).click();
       const instructions = page.getByTestId("claude-sign-in-instructions");
       await expect(instructions).toBeVisible();
-      await expect(page.getByText(/Claude Code is not signed in/).last()).toBeVisible();
+      await expect(page.getByText(/Claude is not connected/).last()).toBeVisible();
       await expect(instructions).toContainText("docker compose exec --user paseo paseo bash");
       await expect(instructions).toContainText("claude auth login");
       await expect(instructions).toContainText("claude auth status");
-      await page.evaluate(() => {
-        const key = "@paseo:create-agent-preferences";
-        const preferences = JSON.parse(localStorage.getItem(key) ?? "{}");
-        localStorage.setItem(key, JSON.stringify({ ...preferences, vortonMode: false }));
-        const nonce = localStorage.getItem("@paseo:e2e-seed-nonce");
-        if (!nonce) throw new Error("Missing test seed nonce");
-        localStorage.setItem("@paseo:e2e-disable-default-seed-once", nonce);
-      });
-      await page.reload();
-      await page.getByRole("button", { name: "Claude provider details", exact: true }).click();
       await expect(page.getByRole("button", { name: "Add model", exact: true })).toBeVisible();
-      await expect(instructions).toHaveCount(0);
     } finally {
       await client.close();
       await rm(home, { recursive: true, force: true });

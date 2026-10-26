@@ -8,6 +8,7 @@ import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import { daemonWsRoutePattern, getE2EDaemonPort } from "../support/helpers/daemon-port";
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
 import { openMobileAgentSidebar } from "../support/helpers/sidebar";
+import { installProviderUsageFixture } from "../support/helpers/provider-usage";
 
 test.use({ e2eInjectPaseoTools: true });
 
@@ -112,9 +113,11 @@ for (const [label, width] of [
       await page.screenshot({ path: info.outputPath(`open-questions-${label}.png`) });
 
       await page.getByTestId(`open-question-use-recommended-${region}`).click();
-      await expect(first.getByRole("alert")).toHaveText(
-        "The agent withdrew this question; it no longer needs an answer.",
-      );
+      // A refused answer shows as a toast since 68faa7a52, and the question stays for a retry.
+      await expect(
+        page.getByText("The agent withdrew this question; it no longer needs an answer.").first(),
+      ).toBeVisible();
+      await expect(first).toBeVisible();
       await expect(page.getByTestId("open-questions-count")).toHaveText("2");
       await page.getByTestId(`open-question-use-recommended-${region}`).click();
       await expect(first).not.toBeAttached();
@@ -173,6 +176,21 @@ for (const [label, width, height] of [
     test.setTimeout(120_000);
     await page.setViewportSize({ width, height });
     await page.emulateMedia({ reducedMotion: "reduce" });
+    // The Quota card lists only accounts that report usage, so give it one report.
+    await installProviderUsageFixture(page, [
+      {
+        fetchedAt: new Date().toISOString(),
+        providers: [
+          {
+            providerId: "codex",
+            displayName: "Codex",
+            status: "available",
+            planLabel: "Pro",
+            windows: [{ id: "weekly", label: "Weekly", usedPct: 20 }],
+          },
+        ],
+      },
+    ]);
     const first = await seedMockAgentWorkspace({
       repoPrefix: "global-questions-a-",
       title: "Beta launch",

@@ -1,34 +1,9 @@
-// Locks two behaviours that used to break together on web/desktop:
-// 1) with the explorer pane focused, a newly appearing agent must auto-open into the
-//    MAIN pane in the background — the explorer pane is a background surface and must
-//    never swallow entity tabs or lose the user's focus, and
-// 2) splitting a tab out of a pane leaves a New tab behind, and the app must stay
-//    interactive in the [agent | New | explorer] state.
+// Splitting a tab out of a pane leaves a New tab behind, and the workspace must stay usable:
+// Explorer never replaces the last ordinary pane, including after a reload.
 import { expect, type Locator, type Page } from "@playwright/test";
 import { test } from "../support/fixtures";
 import { gotoWorkspace } from "../support/helpers/launcher";
 import { seedCorruptedWorkspaceLayout } from "../support/helpers/workspace-layout";
-import {
-  openChangesTreePanel,
-  waitForWorkspaceTabsVisible,
-} from "../support/helpers/workspace-tabs";
-
-function visible(page: Page, testId: string): Locator {
-  return page.getByTestId(testId).filter({ visible: true });
-}
-
-function agentTabChip(page: Page, agentId: string): Locator {
-  return visible(page, `workspace-tab-agent_${agentId}`);
-}
-
-function draftTabChip(page: Page): Locator {
-  return page.locator('[data-testid^="workspace-tab-draft_"]').filter({ visible: true });
-}
-
-/** Scope the shared tab row to the Explorer dock. */
-function explorerTabRow(page: Page): Locator {
-  return visible(page, "workspace-explorer-sidebar").getByTestId("workspace-tabs-row");
-}
 
 function mainTabRow(page: Page): Locator {
   return page
@@ -37,20 +12,8 @@ function mainTabRow(page: Page): Locator {
     .filter({ visible: true });
 }
 
-async function selectExplorerChanges(page: Page): Promise<void> {
-  await openChangesTreePanel(page);
-  await expect(visible(page, "changes-tree-panel").first()).toBeVisible();
-}
-
-async function closeSeededDraftInMainPane(page: Page): Promise<void> {
-  const chip = draftTabChip(page).first();
-  await chip.hover();
-  await page
-    .locator('[data-testid^="workspace-draft-close-"]')
-    .filter({ visible: true })
-    .first()
-    .click();
-  await expect(draftTabChip(page)).toHaveCount(0, { timeout: 15_000 });
+function draftTabChip(page: Page): Locator {
+  return page.locator('[data-testid^="workspace-tab-draft_"]').filter({ visible: true });
 }
 
 function newTabPaneChild(page: Page): Locator {
@@ -66,15 +29,6 @@ async function emptyPaneBox(page: Page) {
   const box = await paneChild.boundingBox();
   expect(box).not.toBeNull();
   if (!box) throw new Error("New tab pane has no bounding box");
-  return box;
-}
-
-async function paneBoxContainingChip(page: Page, chip: Locator) {
-  const paneChild = page.getByTestId("split-group-child").filter({ has: chip }).first();
-  await expect(paneChild).toBeVisible({ timeout: 15_000 });
-  const box = await paneChild.boundingBox();
-  expect(box).not.toBeNull();
-  if (!box) throw new Error("Pane has no bounding box");
   return box;
 }
 
@@ -96,139 +50,9 @@ async function dragChipTo(
   await page.mouse.up();
 }
 
-function collectConsoleErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") errors.push(message.text());
-  });
-  page.on("pageerror", (error) => errors.push(`pageerror: ${String(error)}`));
-  return errors;
-}
-
-test.describe("explorer pane tab placement", () => {
-  test("agents open in the main pane and New-tab splits keep the app usable", async ({
-    page,
-    withWorkspace,
-    e2eWorkerClient,
-  }, testInfo) => {
-    const consoleErrors = collectConsoleErrors(page);
-
-    const workspace = await withWorkspace({ prefix: "explorer-pane-placement-" });
-    let agentId = "";
-
-    await test.step("choose Agent from the empty workspace launcher", async () => {
-      await gotoWorkspace(page, workspace.workspaceId);
-      await waitForWorkspaceTabsVisible(page);
-      await openAgentDraftFromLauncher(page);
-      await expect(draftTabChip(page).first()).toBeVisible({ timeout: 30_000 });
-    });
-
-    await test.step("select Changes in Explorer", async () => {
-      await selectExplorerChanges(page);
-    });
-
-    await test.step("an agent appearing now opens in the main pane, not the explorer pane", async () => {
-      const agent = await e2eWorkerClient.createAgent({
-        provider: "mock",
-        cwd: workspace.repoPath,
-        workspaceId: workspace.workspaceId,
-        title: "Explorer Placement Agent",
-        modeId: "load-test",
-        model: "ten-second-stream",
-        // Keep the agent streaming through the drag so pane contents are live,
-        // matching the reporter's "spinners were still going" environment.
-        initialPrompt: "stream please",
-      });
-      agentId = agent.id;
-      await expect(agentTabChip(page, agentId).first()).toBeVisible({ timeout: 30_000 });
-
-      await expect(
-        mainTabRow(page).first().getByTestId(`workspace-tab-agent_${agentId}`),
-      ).toBeVisible();
-      await expect(
-        explorerTabRow(page).first().getByTestId(`workspace-tab-agent_${agentId}`),
-      ).toHaveCount(0);
-      // The background open must not change the selected Explorer view.
-      await expect(visible(page, "changes-tree-panel").first()).toBeVisible();
-    });
-
-    await test.step("close the draft; the agent is the main pane's only tab", async () => {
-      await closeSeededDraftInMainPane(page);
-      await expect(mainTabRow(page).first().locator('[data-testid^="workspace-tab-"]')).toHaveCount(
-        1,
-      );
-      await testInfo.attach("before-drag", {
-        body: await page.screenshot(),
-        contentType: "image/png",
-      });
-    });
-
-    await test.step("split the agent out of the main pane, leaving it empty", async () => {
-      const chip = agentTabChip(page, agentId).first();
-      const mainBox = await paneBoxContainingChip(page, chip);
-      // Land inside the left 15% edge band of the main pane content.
-      await dragChipTo(page, chip, {
-        x: mainBox.x + mainBox.width * 0.06,
-        y: mainBox.y + mainBox.height * 0.6,
-      });
-      await testInfo.attach("after-split", {
-        body: await page.screenshot(),
-        contentType: "image/png",
-      });
-      // The split must have taken: agent pane + New main. Explorer keeps its own rail.
-      await expect(mainTabRow(page)).toHaveCount(2, { timeout: 10_000 });
-      await expect(explorerTabRow(page)).toHaveCount(1);
-      await expect(page.getByTestId("workspace-new-tab-panel")).toBeVisible();
-    });
-
-    await test.step("app must stay interactive after the split", async () => {
-      // JS main thread alive?
-      const pong = await page.evaluate("1 + 1");
-      expect(pong).toBe(2);
-
-      // Pointer interaction alive? Selecting the agent chip must still work.
-      const chip = agentTabChip(page, agentId).first();
-      await chip.click({ position: { x: 12, y: 13 }, timeout: 5_000 });
-      await expect(chip).toHaveAttribute("aria-selected", "true", { timeout: 5_000 });
-
-      // Clicking inside the New tab pane (focuses it) must not lock anything. Aim
-      // above the vertically centred launcher, which would open a tab instead.
-      const emptyPane = newTabPaneChild(page);
-      await emptyPane.click({ position: { x: 40, y: 120 }, timeout: 5_000 });
-
-      // A second drag must work: center-drop the agent tab back into the New pane.
-      const target = await emptyPaneBox(page);
-      await dragChipTo(page, chip, {
-        x: target.x + target.width / 2,
-        y: target.y + target.height / 2,
-      });
-      await testInfo.attach("after-center-drop", {
-        body: await page.screenshot(),
-        contentType: "image/png",
-      });
-
-      // The agent chip must have replaced New in that pane and stay clickable.
-      await expect(page.getByTestId("workspace-new-tab-panel")).toHaveCount(0, {
-        timeout: 10_000,
-      });
-      await agentTabChip(page, agentId)
-        .first()
-        .click({ position: { x: 12, y: 13 } });
-
-      // The explorer toggle must still respond.
-      await visible(page, "workspace-explorer-toggle").first().click({ timeout: 5_000 });
-      await testInfo.attach("after-interactions", {
-        body: await page.screenshot(),
-        contentType: "image/png",
-      });
-    });
-
-    await testInfo.attach("console-errors", {
-      body: JSON.stringify(consoleErrors, null, 2),
-      contentType: "application/json",
-    });
-  });
-});
+// Retired 2026-10-24: Files and Changes became supporting cards beside the conversation
+// (60f4899a6, 2e2921f79, 73be0edc5), so the Explorer no longer opens as a tab dock whose tab row
+// receives agents. explorer-sidebar.spec.ts covered the same tab dock and was retired with it.
 
 async function closeOnlyDraft(page: Page): Promise<void> {
   await draftTabChip(page).hover();
@@ -236,8 +60,9 @@ async function closeOnlyDraft(page: Page): Promise<void> {
 }
 
 async function moveOnlyDraftIntoRightSplit(page: Page): Promise<void> {
-  await mainTabRow(page).getByRole("button", { name: "More actions", exact: true }).click();
-  await page.getByRole("menuitem", { name: /^Split pane right/ }).click();
+  // The primary pane's menu holds Split right beside the workspace actions (195e1c044).
+  await page.getByTestId("workspace-split-pane-menu").filter({ visible: true }).first().click();
+  await page.getByTestId("workspace-split-pane-right").click();
   const target = await emptyPaneBox(page);
   await dragChipTo(page, draftTabChip(page), {
     x: target.x + target.width / 2,
@@ -297,6 +122,8 @@ test("visible Explorer does not replace the last ordinary workspace pane", async
   await expectNewLauncher(page);
 });
 
+// A saved layout with a hidden Explorer and 2,250 empty drafts froze the page on reload until
+// 9711e1710 dropped empty Explorer drafts during restore.
 test("reloading a saved hidden generated Explorer recovers a usable workspace", async ({
   page,
   withWorkspace,

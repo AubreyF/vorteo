@@ -26,7 +26,7 @@ import type {
 } from "@getpaseo/protocol/messages";
 import type { ExecutionEnvironmentKind } from "@getpaseo/protocol/execution-installation";
 import {
-  projectPolicyKey,
+  isProjectPolicyKey,
   InstallationSettingsFieldSchema,
   InstallationSettingsSchema,
   InstallationSettingsSnapshotSchema,
@@ -401,7 +401,7 @@ export class InstallationSettingsService {
     for (const [root, policy] of Object.entries(settings.projectPolicies ?? {})) {
       const excluded = new Set(policy.excludedEnvironments);
       const excludesEverywhere = [...kinds].every((kind) => excluded.has(kind));
-      if (!root.startsWith("/") || projectPolicyKey(root) !== root || excludesEverywhere)
+      if (!isProjectPolicyKey(root) || excludesEverywhere)
         throw new InstallationSettingsInvalidUpdate("project-policy");
       if (policy.providerIds?.some((id) => !catalog.definitionIds.includes(id)))
         throw new InstallationSettingsInvalidUpdate("provider");

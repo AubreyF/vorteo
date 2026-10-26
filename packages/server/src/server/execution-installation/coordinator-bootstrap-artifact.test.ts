@@ -58,9 +58,32 @@ function treeScans(directory: string): number {
 }
 
 const roots: string[] = [];
+const restoreStats: Array<() => void> = [];
 afterEach(async () => {
+  for (const restore of restoreStats.splice(0)) restore();
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
+
+/**
+ * The module contract pins every ancestor directory's identity, mtime included. Other processes
+ * keep creating entries in shared ancestors such as the temp and home folders, which fails an
+ * inspection midway however often it is retried. Freeze the stat of directories strictly above
+ * the fixture root, which these tests do not examine; everything inside the fixture stays real.
+ */
+async function freezeStatAbove(root: string): Promise<void> {
+  const { lstatSync: actual } = await vi.importActual<typeof import("node:fs")>("node:fs");
+  const frozen = new Map<string, ReturnType<typeof actual>>();
+  const stat = ((file: nativeFs.PathLike, options?: nativeFs.StatSyncOptions) => {
+    const value = String(file);
+    if (!root.startsWith(value.endsWith(path.sep) ? value : value + path.sep))
+      return actual(file, options);
+    const key = `${options?.bigint === true}:${value}`;
+    if (!frozen.has(key)) frozen.set(key, actual(file, options));
+    return frozen.get(key);
+  }) as typeof actual;
+  vi.mocked(nativeFs.lstatSync).mockImplementation(stat);
+  restoreStats.push(() => vi.mocked(nativeFs.lstatSync).mockImplementation(actual));
+}
 
 async function fixture() {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "bootstrap-artifact-")));
@@ -376,6 +399,7 @@ test("copy source verification counts every internal hard link without loosening
 
 async function moduleContractFixture() {
   const f = await fixture();
+  await freezeStatAbove(f.root);
   const referenceRoot = path.join(f.root, "reference");
   const candidateRoot = path.join(f.root, "candidate");
   const names = [
@@ -430,21 +454,13 @@ async function moduleContractFixture() {
   return { ...f, input, manifest, writeManifest, controller };
 }
 
-// The contract pins every ancestor directory's identity, as a stable Host install expects. In
-// parallel test runs another suite can create a sibling in a shared ancestor mid-inspection.
-const SHARED_ANCESTOR_RETRY = { retry: 2 };
-
-test(
-  "initial Host module contract verifies code, metadata and internal workspace links",
-  SHARED_ANCESTOR_RETRY,
-  async () => {
-    const f = await moduleContractFixture();
-    const proof = await inspectInitialHostModuleContract(f.input);
-    expect(() => proof.assertCurrent()).not.toThrow();
-    f.controller.abort();
-    expect(() => proof.assertCurrent()).toThrow();
-  },
-);
+test("initial Host module contract verifies code, metadata and internal workspace links", async () => {
+  const f = await moduleContractFixture();
+  const proof = await inspectInitialHostModuleContract(f.input);
+  expect(() => proof.assertCurrent()).not.toThrow();
+  f.controller.abort();
+  expect(() => proof.assertCurrent()).toThrow();
+});
 
 test.each([
   "candidate code",
@@ -452,27 +468,23 @@ test.each([
   "package metadata",
   "workspace link",
   "contract document",
-])(
-  "initial Host module contract retains %s after collection",
-  SHARED_ANCESTOR_RETRY,
-  async (changed) => {
-    const f = await moduleContractFixture();
-    const proof = await inspectInitialHostModuleContract(f.input);
-    if (changed === "candidate code")
-      await writeFile(path.join(f.input.candidateRoot, initialHostModuleEntries[0]), "changed");
-    if (changed === "reference code")
-      await writeFile(path.join(f.input.referenceRoot, initialHostModuleEntries[0]), "changed");
-    if (changed === "package metadata")
-      await writeFile(path.join(f.input.candidateRoot, "packages/server/package.json"), "changed");
-    if (changed === "workspace link") {
-      const file = path.join(f.input.candidateRoot, "node_modules/example");
-      await rm(file);
-      await symlink("../packages/server", file);
-    }
-    if (changed === "contract document") await f.writeManifest(f.input.candidateRoot);
-    expect(() => proof.assertCurrent()).toThrow();
-  },
-);
+])("initial Host module contract retains %s after collection", async (changed) => {
+  const f = await moduleContractFixture();
+  const proof = await inspectInitialHostModuleContract(f.input);
+  if (changed === "candidate code")
+    await writeFile(path.join(f.input.candidateRoot, initialHostModuleEntries[0]), "changed");
+  if (changed === "reference code")
+    await writeFile(path.join(f.input.referenceRoot, initialHostModuleEntries[0]), "changed");
+  if (changed === "package metadata")
+    await writeFile(path.join(f.input.candidateRoot, "packages/server/package.json"), "changed");
+  if (changed === "workspace link") {
+    const file = path.join(f.input.candidateRoot, "node_modules/example");
+    await rm(file);
+    await symlink("../packages/server", file);
+  }
+  if (changed === "contract document") await f.writeManifest(f.input.candidateRoot);
+  expect(() => proof.assertCurrent()).toThrow();
+});
 
 test.each(["duplicate", "escaping", "missing entry", "wrong architecture", "unknown warning"])(
   "initial Host module contract refuses repinned %s declarations",
@@ -524,6 +536,33 @@ test.each(["nearer package", "optional dependency", "package scope metadata"])(
     );
   },
 );
+
+test("initial Host module contract tolerates sibling writes above the release tree", async () => {
+  const f = await moduleContractFixture();
+  const proof = await inspectInitialHostModuleContract(f.input);
+  // The release's parent stands in for the home folder, whose dotfiles agents rewrite.
+  const sibling = path.join(path.dirname(f.input.candidateRoot), ".agent-state.json");
+  await writeFile(sibling, "first", { mode: 0o600 });
+  await writeFile(`${sibling}.next`, "second", { mode: 0o600 });
+  await rename(`${sibling}.next`, sibling);
+  expect(() => proof.assertCurrent()).not.toThrow();
+  // A lookup appearing above the release tree is still refused, directly.
+  await mkdir(path.join(path.dirname(f.input.candidateRoot), "node_modules"), { mode: 0o700 });
+  expect(() => proof.assertCurrent()).toThrow("lookup became present");
+});
+
+test("initial Host module contract refuses an ancestor whose permissions change", async () => {
+  const f = await moduleContractFixture();
+  const proof = await inspectInitialHostModuleContract(f.input);
+  const parent = path.dirname(f.input.candidateRoot);
+  const mode = nativeFs.statSync(parent).mode & 0o777;
+  await chmod(parent, mode ^ 0o010);
+  try {
+    expect(() => proof.assertCurrent()).toThrow();
+  } finally {
+    await chmod(parent, mode);
+  }
+});
 
 test("initial Host module contract retains absence through the final assertion", async () => {
   const f = await moduleContractFixture();

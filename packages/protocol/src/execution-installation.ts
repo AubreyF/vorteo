@@ -14,6 +14,57 @@ export const FactoryRuntimeAdoptionConfigurationSchema = z.strictObject({
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
+const ContainerIdSchema = z.string().regex(/^[a-f0-9]{64}$/);
+
+/** Factory's read-only lock acceptance script, pinned by path and digest. */
+export const FactoryVerifyConfigurationSchema = z.strictObject({
+  script: z.string().startsWith("/"),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  lockInode: z.number().int().positive(),
+  ownerMode: z.enum(["paused", "running"]),
+});
+export type FactoryVerifyConfiguration = z.infer<typeof FactoryVerifyConfigurationSchema>;
+
+/**
+ * Operator-prepared plan for a tracked Docker Desktop restart under Dev. Every
+ * container is pinned by full ID and must come back under that same ID.
+ */
+export const EngineRestartConfigurationSchema = z.strictObject({
+  docker: z.string().startsWith("/"),
+  /** Docker socket path, without a `unix://` prefix. */
+  socket: z.string().startsWith("/"),
+  containers: z.strictObject({
+    dev: ContainerIdSchema,
+    gatewayTailscale: ContainerIdSchema,
+    gatewayCaddy: ContainerIdSchema,
+  }),
+  /** Factory's read-only lock acceptance check, run before and after the restart. */
+  factoryVerify: FactoryVerifyConfigurationSchema.optional(),
+  /** Bound on the engine restart and readiness checks. */
+  deadlineSeconds: z.number().int().min(60).max(1800).optional(),
+});
+export type EngineRestartConfiguration = z.infer<typeof EngineRestartConfigurationSchema>;
+
+/** Factory's check around Dev source updates: before the first effect and after the new worker. */
+export const FactoryGateConfigurationSchema = z.strictObject({
+  docker: z.string().startsWith("/"),
+  /** Docker socket path, without a `unix://` prefix. */
+  socket: z.string().startsWith("/"),
+  container: ContainerIdSchema,
+  verify: FactoryVerifyConfigurationSchema,
+});
+export type FactoryGateConfiguration = z.infer<typeof FactoryGateConfigurationSchema>;
+
+/**
+ * Operator-prepared Host launchd plist: the live one plus exactly the managed release
+ * link and root, so worker-only restarts load the selected release.
+ */
+export const HostLauncherUpdateConfigurationSchema = z.strictObject({
+  candidate: z.string().startsWith("/"),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type HostLauncherUpdateConfiguration = z.infer<typeof HostLauncherUpdateConfigurationSchema>;
+
 export const InstallationEnvironmentSchema = z.strictObject({
   kind: ExecutionEnvironmentKindSchema,
   serverId: z.string().min(1),
@@ -140,6 +191,18 @@ export const RestartRequestSchema = z.strictObject({
     .optional(),
   // COMPAT(supervisorMaintenance): optional exact-plan binding; old approvals cannot authorize it.
   supervisorPlanSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  // COMPAT(engineRestart): optional exact-plan binding for a Docker engine restart under Dev.
+  // Projected out for clients that do not negotiate it; their approvals cannot authorize it.
+  engineRestartPlanSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  // COMPAT(hostLauncherUpdate): optional exact-plan binding for the one-time Host launcher update.
+  // Projected out for clients that do not negotiate it; their approvals cannot authorize it.
+  hostLauncherPlanSha256: z
     .string()
     .regex(/^[a-f0-9]{64}$/)
     .optional(),
@@ -458,6 +521,14 @@ export const RestartJobSchema = RestartRequestSchema.extend({
 export type RestartJob = z.infer<typeof RestartJobSchema>;
 
 export const RestartDecisionSchema = z.strictObject({
+  hostLauncherPlanSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  engineRestartPlanSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   factoryRuntimePlanSha256: z
     .string()
     .regex(/^[a-f0-9]{64}$/)

@@ -67,10 +67,14 @@ test("Files and Changes share the floating conversation card group", async ({ pa
   });
   try {
     await openAgentRoute(page, agent);
-    await expect(page.locator("[data-pdisplay]").first()).toHaveCSS(
-      "font-family",
-      /Barlow Condensed/,
-    );
+    // Desktop workspaces have no display-font title since 195e1c044; check the theme's display font.
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          getComputedStyle(document.documentElement).getPropertyValue("--paseo-display-font"),
+        ),
+      )
+      .toMatch(/Barlow Condensed/);
     const group = page.getByTestId("workspace-supporting-cards");
     await expect(group).toBeVisible();
     await expect(group.getByTestId("agent-task-progress-card")).toBeVisible();

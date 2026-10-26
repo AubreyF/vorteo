@@ -3,6 +3,12 @@ import {
   parseWorkerLaunchLookupQuery,
   WorkerLaunchLookupError,
 } from "./maintenance/worker-launch-lookup.js";
+import {
+  legacyOperationReplies,
+  operationFor,
+  reviewedPlanCapabilities,
+  type ReviewedRestartOperation,
+} from "./restart-operations.js";
 import { DaemonAutomation } from "./daemon-automation.js";
 import { createRecoveryAccessStatusReader } from "./maintenance/recovery-access.js";
 import { MaintenanceServiceCancellationSchema } from "@getpaseo/protocol/maintenance-service-status";
@@ -100,6 +106,7 @@ import { InstructionRequestError, InstructionRequests } from "./settings/instruc
 import { inspectContainerSource } from "./container-updates.js";
 import { RestartTargetSchema } from "@getpaseo/protocol/execution-installation";
 import { InstallationSourceUpdates } from "./source-updates.js";
+import { FactoryGate, factoryRestartClass } from "./factory-gate.js";
 import { delegatedHandler, readOwnerDelegation, type OwnerDelegation } from "./owner-delegation.js";
 
 /**
@@ -137,23 +144,6 @@ function matchesToken(token: string | null, hash: string): boolean {
   if (!token) return false;
   const actual = createHash("sha256").update(token).digest();
   return timingSafeEqual(actual, Buffer.from(hash, "hex"));
-}
-
-// COMPAT(factoryRuntimeAdoption): v285, remove after legacy installation clients are retired.
-function factoryAdoptionReply(job: RestartJob, enabled: boolean | undefined): RestartJob {
-  if (!job.factoryRuntimePlanSha256 || enabled) return job;
-  const {
-    factoryRuntimePlanSha256: _plan,
-    factoryRuntimeRecoveryRequired: _recovery,
-    factoryRuntimeRecoveryOf: _recoveryOf,
-    factoryRuntimeRecoveredBy: _recoveredBy,
-    ...compatible
-  } = job;
-  return {
-    ...compatible,
-    reason: "Factory startup adoption. Reload Vorteo to review the exact operation.",
-    detail: "Reload to review Factory adoption. Cancellation remains available.",
-  };
 }
 
 function pendingUpdateDetail(job: RestartJob, pendingDetail: string) {
@@ -214,6 +204,8 @@ function restartReply(
   hostAutomaticRestarts = false,
   factoryRuntimeAdoption?: boolean,
   requireOwnerApproval?: boolean,
+  engineRestart?: boolean,
+  hostLauncherUpdate?: boolean,
 ) {
   // Captures are retained in the protected journal, not sent to legacy strict clients.
   // COMPAT(workerLaunchReply): added in v674; remove after 2027-04-17 once requester floor >= v674.
@@ -236,7 +228,8 @@ function restartReply(
     ...publicJob
   } = job;
   job = ownerApprovalReply(publicJob, requireOwnerApproval);
-  job = factoryAdoptionReply(job, factoryRuntimeAdoption);
+  // COMPAT projections for reviewed plans; each entry in restart-operations.ts says when.
+  job = legacyOperationReplies(job, { factoryRuntimeAdoption, engineRestart, hostLauncherUpdate });
   if (!hostAutomaticRestarts) {
     const { automaticApproval: _approval, ...compatible } = job;
     job = compatible;
@@ -322,6 +315,19 @@ export interface InstallationStartupFence {
   released(): boolean;
 }
 
+/** Version reported by the daemon now answering for this environment. */
+async function loadedDaemonVersion(
+  config: InstallationConfig,
+  kind: "host" | "container",
+): Promise<string | null> {
+  const client = await connectInstallationDaemon(config, kind);
+  try {
+    return (await client.getDaemonStatus({ timeout: 15_000 })).version ?? null;
+  } finally {
+    await client.close();
+  }
+}
+
 export function createInstallationServer(
   config: InstallationConfig,
   executor: RestartExecutor,
@@ -365,8 +371,29 @@ export function createInstallationServer(
         "Dev source updates require independently verified transition-phase readiness",
       );
   }
+  // Factory's read-only checks around every Dev worker replacement, once configured.
+  const factoryGate = config.container.factoryGate
+    ? new FactoryGate(config.container.factoryGate)
+    : null;
   const restartExecutor: RestartExecutor = {
     ...executor,
+    ...(factoryGate
+      ? {
+          async guardDevRestart(job, dispatch) {
+            await factoryGate.before(job.id);
+            let detail: string | null;
+            try {
+              detail = await dispatch();
+            } catch (error) {
+              await factoryGate.discard(job.id);
+              throw error;
+            }
+            // Not idle yet: keep the baseline for the next attempt.
+            if (detail === null) return null;
+            return `${detail} ${await factoryGate.after(job.id, factoryRestartClass(job))}`;
+          },
+        }
+      : {}),
     supportsUpdate: (target) => updates[target] !== null,
     sourceBase: (target) => forTarget(target).source().baseCommit,
     sourceWeb: (target) => forTarget(target).source().webCommit,
@@ -416,6 +443,10 @@ export function createInstallationServer(
           return detail;
         },
         () => standingRuntime.verifySelection(job, executor),
+        // Readiness is already proven; an unreadable version only means unknown.
+        job.target === "host"
+          ? () => loadedDaemonVersion(config, "host").catch(() => null)
+          : undefined,
       ),
   };
   const daemonAutomation = new DaemonAutomation(
@@ -814,14 +845,13 @@ export function createInstallationServer(
       config.hostAgentTokenHash,
     );
     const devReady = standingRuntime.registrationReadiness().available;
-    const supervisorPlan =
-      host && devReady && !config.container.persistentRegistration
-        ? executor.supervisorPlan?.()
+    // Host plans need only a Host caller; Dev plans also need a ready, unregistered Dev.
+    const advertisedPlan = (operation: ReviewedRestartOperation) =>
+      host &&
+      (operation.target === "host" || (devReady && !config.container.persistentRegistration))
+        ? operation.plan(executor)
         : undefined;
-    const factoryRuntimePlan =
-      host && devReady && !config.container.persistentRegistration
-        ? executor.factoryRuntimePlan?.()
-        : undefined;
+    const supervisorPlan = advertisedPlan(operationFor("supervisorPlanSha256"));
     const permissions = daemonAutomation.servicePermissions();
     const automaticSupported = supportsAutomaticMaintenance(executor);
     // COMPAT(hostAutomaticRestarts): per-target permissions added v543; retain
@@ -898,11 +928,8 @@ export function createInstallationServer(
               ),
               ...(supervisorPlan ? { sha256: supervisorPlan } : {}),
             },
-            factoryRuntimeAdoption: {
-              available: Boolean(factoryRuntimePlan && executor.adoptFactoryRuntime),
-              ownerApprovalRequired: true,
-              ...(factoryRuntimePlan ? { sha256: factoryRuntimePlan } : {}),
-            },
+            // Reviewed plans advertise owner approval, as before; supervisor maintenance is above.
+            ...reviewedPlanCapabilities(advertisedPlan, executor),
           }),
         next,
       );
@@ -1038,6 +1065,8 @@ export function createInstallationServer(
             req.query.hostAutomaticRestarts === "1",
             req.query.factoryRuntimeAdoption === "1",
             req.query.requireOwnerApproval === "1",
+            req.query.engineRestart === "1",
+            req.query.hostLauncherUpdate === "1",
           ),
         });
         void drainRestarts();
@@ -1056,6 +1085,8 @@ export function createInstallationServer(
               req.query.hostAutomaticRestarts === "1",
               true,
               req.query.requireOwnerApproval === "1",
+              req.query.engineRestart === "1",
+              req.query.hostLauncherUpdate === "1",
             ),
           );
     },
@@ -1080,6 +1111,8 @@ export function createInstallationServer(
         req.query.hostAutomaticRestarts === "1",
         undefined,
         req.query.requireOwnerApproval === "1",
+        req.query.engineRestart === "1",
+        req.query.hostLauncherUpdate === "1",
       ),
     });
   });
@@ -1501,6 +1534,8 @@ export function createInstallationServer(
           req.query.hostAutomaticRestarts === "1",
           true,
           req.query.requireOwnerApproval === "1",
+          req.query.engineRestart === "1",
+          req.query.hostLauncherUpdate === "1",
         ),
       );
   });
@@ -1542,6 +1577,8 @@ export function createInstallationServer(
         req.query.hostAutomaticRestarts === "1",
         true,
         req.query.requireOwnerApproval === "1",
+        req.query.engineRestart === "1",
+        req.query.hostLauncherUpdate === "1",
       ),
     );
   });
@@ -1932,6 +1969,8 @@ export function createInstallationServer(
               req.query.hostAutomaticRestarts === "1",
               req.query.factoryRuntimeAdoption === "1",
               req.query.requireOwnerApproval === "1",
+              req.query.engineRestart === "1",
+              req.query.hostLauncherUpdate === "1",
             ),
             job,
             delegation,
@@ -1982,6 +2021,8 @@ export function createInstallationServer(
       decision.updateSha256,
       decision.supervisorPlanSha256,
       decision.factoryRuntimePlanSha256,
+      decision.engineRestartPlanSha256,
+      decision.hostLauncherPlanSha256,
     );
     res.json(
       withDelegation(
@@ -1996,6 +2037,8 @@ export function createInstallationServer(
           req.query.hostAutomaticRestarts === "1",
           req.query.factoryRuntimeAdoption === "1",
           req.query.requireOwnerApproval === "1",
+          req.query.engineRestart === "1",
+          req.query.hostLauncherUpdate === "1",
         ),
         job,
         requestedDelegation(config.stateDir, req.query.delegatedRequests === "1"),

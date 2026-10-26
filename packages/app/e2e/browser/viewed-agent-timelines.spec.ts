@@ -121,14 +121,19 @@ async function selectAgent(page: Page, title: string) {
   await page.getByRole("button", { name: title, exact: true }).click();
 }
 
+// Since 471d7f22a every client shows transport failures as the connection toast, so a fork
+// that fails while offline keeps the one "Reconnecting host" toast instead of replacing it.
 async function expectForkFailureWithoutOverlappingStatus(page: Page) {
   const expectContinuousToast = await observeToastReplacement(page);
   await page.getByRole("button", { name: "Fork chat from here" }).last().click();
   await page.getByRole("menuitem", { name: "Fork in a new tab", exact: true }).click();
-  await expect(
-    page.getByRole("alert").filter({ hasText: "Transport not connected" }),
-  ).toBeVisible();
-  await expectReconnectingToastGone(page, { timeout: 100 });
+  await expect(page.getByRole("menuitem", { name: "Fork in a new tab", exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByRole("alert").filter({ hasText: "Transport not connected" })).toHaveCount(
+    0,
+  );
+  await expect(page.getByRole("alert")).toHaveCount(1);
   await expectReconnectingToastVisible(page);
   await expectContinuousToast();
 }
@@ -136,7 +141,7 @@ async function expectForkFailureWithoutOverlappingStatus(page: Page) {
 async function observeToastReplacement(page: Page) {
   const observation = await page
     .getByRole("alert")
-    .filter({ hasText: "Reconnecting to host" })
+    .filter({ hasText: "Reconnecting host" })
     .evaluateHandle((toast) => {
       const frames: Array<{ connected: boolean; opacity: number; transform: string }> = [];
       let frame = 0;

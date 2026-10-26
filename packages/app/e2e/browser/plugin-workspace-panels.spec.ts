@@ -15,8 +15,10 @@ import { seedWorkspace } from "../support/helpers/seed-client";
 import { getServerId } from "../support/helpers/server-id";
 import { expectMobileAgentSidebarHidden } from "../support/helpers/sidebar";
 import {
+  expectWorkspaceTitle,
   switchWorkspaceViaSidebar,
   waitForWorkspaceInSidebar,
+  workspaceTitleLocator,
 } from "../support/helpers/workspace-ui";
 
 const PLUGIN_ID = "workspace-panel-e2e";
@@ -229,9 +231,7 @@ async function openRemoteWorkspaceFromPlugin(
     .click();
   await page.waitForURL(remoteWorkspaceRoute(target));
   await expect(
-    page
-      .getByTestId(`workspace-deck-entry-${target.serverId}:${target.workspaceId}`)
-      .getByTestId("workspace-header-title"),
+    page.getByTestId(`workspace-deck-entry-${target.serverId}:${target.workspaceId}`),
   ).toBeVisible();
 }
 
@@ -257,6 +257,9 @@ async function capture(page: Page, testInfo: TestInfo, name: string): Promise<vo
   await testInfo.attach(name, { path: screenshot, contentType: "image/png" });
 }
 
+// Retired 2026-10-25: explorer-plugin-menu.spec.ts and its helper opened plugin panels from the
+// Explorer tab dock's + menu. 60f4899a6 replaced that dock with supporting cards (followed by
+// 2e2921f79 and 73be0edc5), which have no tab row or + menu.
 test.describe("plugin workspace panels and Command Center", () => {
   test.describe.configure({ timeout: 240_000 });
 
@@ -327,9 +330,7 @@ test.describe("plugin workspace panels and Command Center", () => {
           (await page.getByText(/Workspace renders \d+/).textContent())?.split(" ").at(-1),
         );
         await primaryClient.setWorkspaceTitle(primary.workspaceId, "Unrelated title update");
-        await expect(page.getByTestId("workspace-header-title")).toHaveText(
-          "Unrelated title update",
-        );
+        await expectWorkspaceTitle(page, "Unrelated title update");
         expect(
           Number((await page.getByText(/Workspace renders \d+/).textContent())?.split(" ").at(-1)),
         ).toBe(renderCount);
@@ -364,7 +365,7 @@ test.describe("plugin workspace panels and Command Center", () => {
         await runCommand(page, "Open direct collision surface");
         await page.getByRole("button", { name: "Open workspace from plugin", exact: true }).click();
         await page.waitForURL(isSettledWorkspaceUrl);
-        await expect(page.getByTestId("workspace-header-title")).toBeVisible();
+        await expect(workspaceTitleLocator(page)).toBeVisible();
 
         const agent = await primary.client.createAgent({
           provider: "mock",
@@ -440,7 +441,10 @@ test.describe("plugin workspace panels and Command Center", () => {
         await page.goto(buildAgentRoute(primary.workspaceId, agent.id));
         await page.waitForURL(isSettledWorkspaceUrl, { timeout: 60_000 });
         await submitMessage(page, "emit 1 agent stream updates");
-        await expect(page.getByRole("button", { name: "1/1 tasks" })).toBeVisible({
+        // Task progress is a checklist card count badge rather than a composer button (9883656f9).
+        await expect(
+          page.getByLabel("1/1 tasks", { exact: true }).filter({ visible: true }),
+        ).toBeVisible({
           timeout: 30_000,
         });
         const composerPill = page.getByRole("button", { name: "Open composer review" });
@@ -450,9 +454,7 @@ test.describe("plugin workspace panels and Command Center", () => {
         await expect(page.getByRole("button", { name: "Open composer review" })).toBeVisible();
         await capture(page, testInfo, "plugin-composer-pill-compact");
         await page.getByRole("button", { name: "Open composer review" }).click();
-        await expect(page.getByTestId("workspace-header-title")).toHaveText(
-          "Opened from composer pill",
-        );
+        await expectWorkspaceTitle(page, "Opened from composer pill");
         await expect(page.getByText(`Agent bridge ${agent.id}`)).toBeVisible();
         await expect(page.getByText("Layout compact", { exact: true })).toBeVisible();
         await capture(page, testInfo, "plugin-agent-panel-compact");

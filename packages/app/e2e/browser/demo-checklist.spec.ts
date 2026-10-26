@@ -29,12 +29,13 @@ for (const width of [1800, 390]) {
     ).toBeChecked();
     if (width === 1800)
       await expect(workspace.getByRole("progressbar")).toHaveAttribute("aria-label", /3\/4 tasks/);
+    // 2cf5e0cbb made desktop card rows 32px tall to match the sidebar.
     await expect
       .poll(
         async () =>
           (await page.getByTestId("checklist-row-demo-task-1-4").boundingBox())?.height ?? 0,
       )
-      .toBeGreaterThanOrEqual(39.9);
+      .toBeGreaterThanOrEqual(width === 1800 ? 31.9 : 39.9);
     await page.screenshot({ path: info.outputPath("demo-checklist.png"), fullPage: true });
     if (width === 390) await page.getByTestId("menu-button").click();
     await page.getByTestId("demo-reset").click();
@@ -81,10 +82,11 @@ test.describe("compact theme surfaces", () => {
       await save.click();
       await expect(page.getByTestId("checklist-editor")).toBeHidden();
       await expect(page.getByText("Review compact theme", { exact: true })).toBeVisible();
-      await page.getByTestId("workspace-explorer-toggle").click();
-      const files = page.getByTestId("compact-supporting-card-files");
+      // Phones show Files inline in the conversation since 56b01ba3a.
+      const files = page.getByTestId("supporting-card-files").filter({ visible: true });
+      await files.scrollIntoViewIfNeeded();
       await expect(files).toBeVisible();
-      const disclosure = page.getByTestId("explorer-tab-files");
+      const disclosure = files.getByTestId("supporting-card-files-toggle");
       if ((await disclosure.getAttribute("aria-expanded")) !== "true") await disclosure.click();
       await files.getByText("README.md", { exact: true }).click();
       await expect(page.getByTestId("explorer-close")).toBeHidden();

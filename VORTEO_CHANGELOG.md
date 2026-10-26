@@ -4,6 +4,1270 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.870 - 2026-10-22
+
+### Maintenance
+
+- Merge the installed Host main into Dev's installed source so the Dev update descends from what Dev runs
+
+## 0.11.0-beta.3.vorteo.869 - 2026-10-26
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.868 - 2026-10-26
+
+### Maintenance
+
+- Merge the CLI provider test update: the Codex model check no longer requires a codex-named model, matching upstream and the current Codex catalog
+
+## 0.11.0-beta.3.vorteo.867 - 2026-10-26
+
+### Maintenance
+
+- Merge command-name check review fixes: too-deep command folders count as unknown, dependency folders are skipped outside command trees, file and dangling symlinks no longer drop all built-ins, and chmod tests skip on Windows
+
+## 0.11.0-beta.3.vorteo.858 - 2026-10-26
+
+### Fixed
+
+- A custom command saved under a commands subfolder named node_modules or .git is no longer skipped by the resume check for Claude's bundled skills, so it can't take a bundled skill's name. Those folders are still skipped elsewhere in plugin folders.
+
+## 0.11.0-beta.3.vorteo.857 - 2026-10-26
+
+### Maintenance
+
+- Skip the three skill policy tests that make a path unreadable with chmod on Windows, where chmod cannot remove read access. They failed main's Windows CI because the fail-closed path never ran there; behaviour is unchanged.
+
+## 0.11.0-beta.3.vorteo.856 - 2026-10-25
+
+### Fixed
+
+- The resume check for Claude's bundled skills no longer drops them all because of a symlink to a file or a dangling symlink inside a skill or plugin folder, and it skips node_modules and .git folders inside plugins. A commands folder nested deeper than the check reads now counts as unknown and keeps no bundled skills, instead of being silently ignored.
+
+## 0.11.0-beta.3.vorteo.866 - 2026-10-26
+
+### Maintenance
+
+- Merge desktop build heap and Nix fixes: the desktop package build gets the 8 GB export heap, upstream's Nix hash bot skips this fork, and the Nix daemon trace leaves out Electron's installer
+
+## 0.11.0-beta.3.vorteo.865 - 2026-10-26
+
+### Fixed
+
+- The Nix package builds again on Linux. The daemon trace followed Playwright's unused Electron launcher into the npm Electron package's installer, so the package shipped its prebuilt zip addons, and auto-patchelf could not find musl for the x64 musl addon. The trace now leaves out the npm Electron package, which drops about 200 installer files from the daemon closure.
+
+## 0.11.0-beta.3.vorteo.864 - 2026-10-26
+
+### Fixed
+
+- Desktop builds run the Electron web export with an 8 GB worker heap. The Desktop Packages workflow ran out of memory at the default limit of about 4 GB on every main commit since at least 67375bccd. Desktop release builds use the same script.
+
+### Maintenance
+
+- Nix Update Hash runs only in the upstream repository. It needs upstream's bot app to commit hash updates to main, which this fork does not have and where only Builds writes main.
+
+## 0.11.0-beta.3.vorteo.863 - 2026-10-26
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.862 - 2026-10-26
+
+### Maintenance
+
+- Merge browser test repair after the redesigns: about 70 failing Playwright cases repaired or retired with named commits, and product regressions marked fixme
+
+## 0.11.0-beta.3.vorteo.861 - 2026-10-25
+
+### Maintenance
+
+- Remove five screenshots that app browser unit tests wrote and an earlier commit included by mistake, and restore the tracked phone connection-check screenshot to main's version. Git now ignores those generated screenshot names.
+
+## 0.11.0-beta.3.vorteo.860 - 2026-10-25
+
+### Maintenance
+
+- Make three appearance browser tests reliable on CI without loosening their checks:
+  - The compact font layout test measures the label and input after the settings page stops scrolling to Appearance.
+  - The 1133px interface zoom drag is measured and made again if late-loading settings panes move the slider first.
+  - The palette button test gets a 300-second budget; it takes about 90 seconds locally and reached 180 seconds on CI.
+
+## 0.11.0-beta.3.vorteo.859 - 2026-10-25
+
+### Maintenance
+
+- Merge main at b08980d36 into the browser test repair branch, taking main's manifests.
+
+## 0.11.0-beta.3.vorteo.858 - 2026-10-25
+
+### Maintenance
+
+- Repair the composer and agent stream browser tests:
+  - The first prompt test runs with reduced motion, since the prompt's rise is deliberate (ab83bcdea).
+  - The jump button is found by its test ID, since host-connected chats label it "Jump to latest" (5ccf27a5b).
+  - The compact Plus menu check follows the 8px menu inset (6ee6bfd23).
+  - The blank-line composer probe starts from the key press, since Shift+Enter fires no input event (1167acf35).
+  - Queued prompts are confirmed through the host's history (29d3f5111).
+  - The stopped-thread queue test pauses the queue itself, since Stop no longer pauses it (614c0e44f).
+  - Connection failures appear as "Reconnecting host" toasts (471d7f22a), and the workspace restart test seeds a profile.
+- Retire the overlapping queued-send recovery test: the host owns the queue since 29d3f5111, and a2a7c4937 blocks a second immediate send.
+- Mark two known regressions: retrying a failed first agent in a new workspace fails with a request key conflict, and hosts without profile launch cannot create anything since 471d7f22a.
+- Repair the remaining card tests:
+  - Full-width collapsed headers keep their count chip fill (bd1db0362), compact goal badges round to hours (0153f4c69), and the context window card joins the card checks (7723a55f6).
+  - Task conflicts report through a toast (68faa7a52), and queue checks look in the conversation (b5ee41fb8).
+  - The terminal theme test reads the font from xterm's options, since the WebGL renderer has no text rows.
+  - The phone scripts test confirms the script's output, and checks the exit badge only under zsh, which is the only shell that reports exit codes.
+- Two layout differences go to owner review.
+- Shared helpers: scrolling to the newest history retries until the view settles, and the pagination test no longer opts out of the worktree notice handler.
+
+## 0.11.0-beta.3.vorteo.857 - 2026-10-25
+
+### Maintenance
+
+- The browser test notice handler gives up after two seconds when the worktree setup notice disappears before its dismiss click, instead of holding the test until it times out.
+- The local plugin journey test gets a 120-second budget; its five Settings phases take about 37 seconds locally and overran 60 seconds on CI.
+
+## 0.11.0-beta.3.vorteo.856 - 2026-10-25
+
+### Maintenance
+
+- Merge main at 67375bccd into the browser test repair branch, taking main's manifests.
+- Re-enable two browser tests whose product fixes are now on main. Legacy favourites saved beside the old mode setting migrate again (a6a91bc4a). Reloading a saved layout with thousands of empty Explorer drafts no longer freezes the page (9711e1710).
+
+## 0.11.0-beta.3.vorteo.855 - 2026-10-25
+
+### Maintenance
+
+- Repair the layout and appearance browser tests:
+  - Demo cards follow the "2 / 4" count (6717047e5), 44px headings (0fd42877e), the softer sidebar divider (6ee6bfd23), the demo subagents (ce0345cfc), edge-to-edge toolbar buttons (87db69fbd) and Settings staying in the toolbar (7a4c33777).
+  - Desktop task rows are 32px tall (2cf5e0cbb), and the display font check reads its CSS variable, since desktop has no title header (195e1c044).
+  - Branded loader tests block development bundles too, so the app cannot boot before the logo check. Settings and theme picker tests wait for scrolling and sliders to settle.
+- Mark known regressions: phone navigation starts below 500px instead of 720px (94087127e), and subagent rows nest buttons inside a button. Three geometry differences go to owner review.
+- Repair other browser tests:
+  - The chat outline split test uses a width where a split pane is narrower than the rail's minimum.
+  - Startup diagnostics show the connection advice from 24e167c54.
+  - The sidebar toolbar target check rounds 43.99999px boxes.
+  - Workspace task flowers report percentages (fc8b28074).
+  - Task dependency errors arrive as toasts (68faa7a52).
+  - The queue sits in the conversation (b5ee41fb8).
+  - Closed sidebar cards stack as full-width headers (bd1db0362).
+
+## 0.11.0-beta.3.vorteo.854 - 2026-10-25
+
+### Maintenance
+
+- Repair the settings, provider and sidebar browser tests:
+  - Claude sign-in tests follow `claude setup-token` and the "Claude is not connected" wording (7c8e78ac7). The fake login CLI gains a setup-token mode.
+  - Metadata settings use the "Metadata generation" section (537b619e2).
+  - Provider outlines sit on the control itself (0153f4c69).
+  - Startup status replaces the old connecting headings (471d7f22a).
+  - The crash check uses the Vorteo wording (e0f82d126), which the old check could never see.
+  - Root error recovery reports Metro's error body when its fixture fails to compile.
+- Retire the Standard-mode halves of the Claude authentication and provider management tests, citing 471d7f22a.
+- Mark the legacy favourites migration as a known regression. Since 471d7f22a the strict preferences schema rejects the old `vortonMode` field, so upgraded installs lose their favourites and the migration is marked done.
+
+## 0.11.0-beta.3.vorteo.853 - 2026-10-25
+
+### Maintenance
+
+- Repair the files, Explorer and plugin browser tests:
+  - Count only visible tree matches, since a hidden Files card can stay mounted (60f4899a6).
+  - Expect toasts for failed actions (68faa7a52).
+  - Follow the Dark Star default colors (60f4899a6) and the host line in tab tooltips (d9b7a2d60).
+  - Expect the single-script play button (fa9a1859d) and the checklist count badge label (9883656f9).
+  - Read workspace titles from the sidebar row (195e1c044).
+  - Re-home the Explorer upgrade tests onto the supporting cards and the icon rail (ab60c1e39).
+- Retire explorer-plugin-menu.spec.ts and its helper, citing 60f4899a6: supporting cards replaced the Explorer tab dock and its + menu.
+- Mark the canvas diff thumb drag as a known regression: at 1400px the supporting cards' resize handle covers the overlay scrollbar's grab area.
+
+## 0.11.0-beta.3.vorteo.852 - 2026-10-25
+
+### Maintenance
+
+- CI Playwright runs drop the temporary `--reporter=line --retries=0` diagnostics. They keep artifact uploads for cancelled shards and the five-minute Metro warm-up limit.
+- Queue tests no longer expect 44px status targets in a narrow mouse-driven window. Since 2cf5e0cbb, rows take 44px targets on touch devices, and touch is detected independently of width.
+- The queue orbit test drops its phone-width tooltip press, a known regression where a press no longer opens explanations, and keeps its other checks.
+
+## 0.11.0-beta.3.vorteo.851 - 2026-10-25
+
+### Maintenance
+
+- Merge main through 71925c85e: interrupted startup scripts recover, and connection errors are classified. This branch keeps its own version line; main only changed version numbers in the manifests.
+
+## 0.11.0-beta.3.vorteo.850 - 2026-10-25
+
+### Maintenance
+
+- Retired, citing 471d7f22a, which moved model, mode and permissions into profiles:
+  - new-workspace-codex-mode-preferences.spec.ts, which tested remembering a composer mode in drafts.
+  - bottom-sheet-reopen.spec.ts, which tested the composer's model sheets. The provider settings stack on the schedule picker covers phone sheet reopening.
+  - The draft-tab case of the composer density test.
+  - The model and mode assertions of the slash clear test.
+- Tests reach the app-wide New workspace entry through the sidebar's More menu (ab60c1e39).
+
+## 0.11.0-beta.3.vorteo.849 - 2026-10-25
+
+### Maintenance
+
+- Retire composer-diff-stat.spec.ts, citing 471d7f22a: the composer diff pill showed only in the Standard mode it removed.
+- The diff counter test checks the toolbar counter with the supporting cards open.
+  - Its height alignment with the scripts button awaits owner review: 26px against 44px.
+  - Its phone placement is a known regression: phones show no counter since 195e1c044.
+- The Cmd+E test expects the Changes card, which keeps its saved collapse state.
+- The New tab no-flash test waits for the tab count to settle before sampling.
+
+## 0.11.0-beta.3.vorteo.848 - 2026-10-25
+
+### Maintenance
+
+- Merge main through 24e167c54, which shows connection diagnostics during startup. This branch keeps its own version line; main only changed version numbers in the manifests.
+- Tests for the Changes shortcut, Cmd+E, the new tab Explorer shortcut and composer Explorer navigation look for the supporting cards. Files and Changes became supporting cards in 60f4899a6, 2e2921f79 and 73be0edc5.
+
+## 0.11.0-beta.3.vorteo.847 - 2026-10-25
+
+### Maintenance
+
+- Mark two New workspace regressions as known failures: choosing another host clears the selected project (99eca19a7 behaviour), and plain /new with stale offline hosts no longer preselects a project.
+- The pasted pull request helper uses the platform paste shortcut, so the tests also paste on macOS.
+
+## 0.11.0-beta.3.vorteo.846 - 2026-10-25
+
+### Maintenance
+
+- Each browser test starts from the default sidebar: project grouping, no filters and nothing collapsed. That state now syncs through the host, so one test's choices carried into the next.
+- The workspace header helper finds the open workspace's sidebar row from the route, since status-grouped rows expose no selected state, and skips the project name that status rows do not show.
+- The cross-workspace subagent test expects the parent's workspace to show its running child, since delegated agents stay under their originating task (471d7f22a).
+
+## 0.11.0-beta.3.vorteo.845 - 2026-10-25
+
+### Maintenance
+
+- Sidebar helpers wait for a visible project row and accept the display preferences sheet on touch layouts, since the shell keeps a hidden copy of the other layout's sidebar.
+- Sidebar reorder tests:
+  - Open the phone sidebar through the shared helper.
+  - Expect a refused move as a toast (68faa7a52).
+- The pin shortcut tests restore project grouping and expand a Pinned section left collapsed. Sidebar grouping and section collapse now sync through the host, so they carried between tests.
+- Mark the touch title width test for owner review: diff stats now take 52px of title space on touch rows.
+- The question pagination test now records its 2px input-to-actions gap as a regression against 9b6263e7c; its insets still await owner review.
+
+## 0.11.0-beta.3.vorteo.844 - 2026-10-25
+
+### Maintenance
+
+- Subagent tests follow 2cf5e0cbb and 0d18398e7. Rows show only status, title and actions, with profile, model and status in the row's tooltip; groups are titled Subagents and System sub-agents; the card's cleanup action shows progress in its tooltip. Duplicate row copies are narrowed to the visible one.
+- The title suggestions test opens rename from the row's context menu when touch rows have no overflow button (2415534c8).
+- Mark two product regressions as known failures:
+  - Subagents opened from a right-pane parent now open in the main pane.
+  - Card explanations no longer open on keyboard focus or on a press at phone width; hover still works.
+
+## 0.11.0-beta.3.vorteo.843 - 2026-10-25
+
+### Maintenance
+
+- Retire workspace-draft-thinking-preferences.spec.ts, citing 471d7f22a. Per-model thinking and per-provider mode memory belonged to the draft composer's controls; profiles now carry model, thinking and mode, and remembered profiles are covered by the New workspace model memory test.
+- The upstream settings test accepts the About address, which the single settings page keeps while showing General.
+- Remove a duplicated changelog entry for 0.11.0-beta.3.vorteo.835, which made the Help changelog test find two releases with one version.
+
+## 0.11.0-beta.3.vorteo.842 - 2026-10-25
+
+### Maintenance
+
+- The plan card test expects the fixed 44px card heading from 0fd42877e with width-adaptive insets: 48px on desktop and 50px on phones. Its desktop scrolling check uses a shorter window, since the sidebar column now gives the card enough room for the whole plan; it also waits out re-renders after resizing.
+- Mark two geometry drifts for owner review, with measured values: question card action insets and gaps, and the sidebar project row's unbalanced padding.
+
+## 0.11.0-beta.3.vorteo.841 - 2026-10-25
+
+### Maintenance
+
+- Queue tests:
+  - Expect the card title Queue (0d18398e7).
+  - Read the visible copy of the card.
+  - Retire the Vorton-off reload, citing 471d7f22a.
+- Mark the queue heading height test for owner review: the card grows from 90.5px to 128px while a held status shows, and the phone drag handle exposes no pressed state.
+- The open questions sidebar test seeds a usage report, so the Quota card no longer depends on the machine's accounts.
+
+## 0.11.0-beta.3.vorteo.840 - 2026-10-25
+
+### Maintenance
+
+- Provider settings stacking tests open provider settings from a new schedule's model picker, since the composer's model selector went with the Paseo mode in 471d7f22a. Closing provider settings in the schedule form returns focus to the picker's Back button rather than the settings button; the test checks that focus stays in the selector and the gap is reported.
+
+## 0.11.0-beta.3.vorteo.839 - 2026-10-25
+
+### Maintenance
+
+- Codex speed tests check the profile editor's Speed feature on desktop and phones; the composer speed control went with the Paseo mode in 471d7f22a.
+- Profile editor helpers follow the phone sheet, whose header carries the editor's test ID while its form and buttons sit in its scroll and footer parts. Select options are found in the phone sheet as well as the desktop popover.
+
+## 0.11.0-beta.3.vorteo.838 - 2026-10-25
+
+### Maintenance
+
+- Retire the Standard mode queue test and the Standard half of the title suggestions test, citing 471d7f22a.
+- Skill library tests open Skills as a pane of the single settings page.
+- Locators narrowed to one element:
+  - The outer subagents card, since group bodies reuse its test ID.
+  - The visible journal card, which also appears among the history cards.
+  - The plugin source Docs link, since metadata generation has its own.
+
+## 0.11.0-beta.3.vorteo.837 - 2026-10-25
+
+### Maintenance
+
+- Workspace actions open from the pane menu on desktop or the title menu's sheet on phones in import session tests; the shared helper recognises the sheet's content.
+- Mark the desktop import session test as a known failure: since 471d7f22a New workspace shows Import session only on compact layouts.
+
+## 0.11.0-beta.3.vorteo.836 - 2026-10-25
+
+### Maintenance
+
+- Usage tests read the context window sheet and the usage card. Since b7e249fef the sidebar Quota card also names accounts and loads usage with the app shell.
+- Provider removal uses the Delete button on a custom provider's row and its credentials message; 471d7f22a removed the provider actions menu.
+- Retire the Standard mode check in the Claude CLI warning test, citing 471d7f22a.
+- The Model B sidebar test finds New workspace in the More menu (ab60c1e39).
+
+## 0.11.0-beta.3.vorteo.835 - 2026-10-25
+
+### Maintenance
+
+- The worktree-notice dismissal no longer waits for every notice to disappear, so a second project's notice no longer stalls a test.
+- Plugin settings tests expect the single settings page's plugins address.
+- Plugin tests read the open workspace's title from the header on phones or the selected sidebar row on desktop, where 195e1c044 removed the title header.
+- Mark three product regressions as known failures:
+  - Plugin header buttons on phones (195e1c044); the phone checks split into their own tests.
+  - Empty workspaces on a host without profiles; a new test covers this.
+  - The per-host project rename (537b619e2).
+
+## 0.11.0-beta.3.vorteo.834 - 2026-10-25
+
+### Maintenance
+
+- Settings tests follow the single settings page:
+  - Each host's section appears under several panes, a hidden earlier settings screen can stay mounted, and a host's connection error shows twice, so tests use the visible or first match.
+  - Host details are checked under Environments.
+- Sidebar project grouping tests:
+  - Choose a host in New workspace's Environment step.
+  - Create an empty workspace with the composer's Create button.
+  - Seed the mock profile on the secondary test host, since New workspace creates only with a profile.
+- Mark the per-host project rename test for owner review: Settings lists only the first host's projects since 537b619e2.
+
+## 0.11.0-beta.3.vorteo.833 - 2026-10-25
+
+### Maintenance
+
+- Profile recreation tests go through the switch sheet's new task choice to the handoff modal. 70639f19a added in-place switching first.
+- Retired with their UI, citing the removing commit:
+  - The profile picker's per-account reasoning choice and unavailable-reasoning message (d6cbd181c).
+  - The compact picker's accounts page and back button (58a0cbbc9); collapsible sections replace them.
+  - The composer's mode button (471d7f22a).
+- The shared scope label is checked in the defaults editor, and preferred reasoning is reached through its collapsed row.
+- The remembered-account draft test uses a selectable mock model, since the picker offers only profiles whose model is selectable.
+
+## 0.11.0-beta.3.vorteo.832 - 2026-10-25
+
+### Maintenance
+
+- The desktop plugin links check expects the old `window.open` workaround to open no window. Since cd90c8f78 the application renderer denies new windows so none inherits its preload; plugins open links through the external opener bridge, which the check still covers.
+
+## 0.11.0-beta.3.vorteo.831 - 2026-10-25
+
+### Maintenance
+
+- Re-home the composer model picker tests. The draft and running-agent composers lost their model picker with the Paseo mode in 471d7f22a; profiles now carry the model.
+  - Profile picker tests choose and confirm a profile on a running agent.
+  - Cross-provider model search and virtualization run on the schedule form's model picker.
+  - Model memory, recovery and the modeless preference repair choose profiles on New workspace.
+  - Plugin provider icons are checked on the Account card.
+- Retired, citing 471d7f22a: provider-usage-model-selector.spec.ts, which asserted the removed Paseo picker; pinned profile rows inside the model picker; the composer naming the model; and the model row's create-profile action, which has no profile-picker equivalent.
+- Mark two possible product regressions as known failures: an empty host cannot reach profile settings from the picker, and profiles cannot be chosen while the host catalog reports their provider unavailable.
+- The fake Claude CLI answers `auth status` as a first-party login, including when a setup token adds `--settings`, matching the authentication check from 7c8e78ac7.
+
+## 0.11.0-beta.3.vorteo.830 - 2026-10-24
+
+### Maintenance
+
+- The test setup's worktree-setup notice dismissal dispatches its click directly, so an open overlay such as the command center no longer blocks it and times the test out.
+- Sidebar display-preference tests open View preferences from the More menu, where the sidebar toolbar redesign (ab60c1e39) moved it.
+- The label creation failure test expects the toast that replaced inline errors in 68faa7a52.
+
+## 0.11.0-beta.3.vorteo.829 - 2026-10-24
+
+### Maintenance
+
+- Retire the Explorer tab dock tests: explorer-sidebar.spec.ts and the Explorer pane tab placement test. Files and Changes became supporting cards beside the conversation in 60f4899a6, 2e2921f79 and 73be0edc5. The split pane tests now use the primary pane menu's Split right item.
+- Mark the saved Explorer layout recovery test as a known failure: reloading a workspace whose saved layout has a hidden Explorer and 2,250 saved drafts now freezes the page. The product fix follows separately.
+
+## 0.11.0-beta.3.vorteo.828 - 2026-10-24
+
+### Maintenance
+
+- Context window tests wait on the single loading pulse that replaced separate usage loading lines in 662ea77a7, and hover the composer's meter rather than the details donut with the same name.
+- Workspace setup tests open Show setup from the shared workspace actions menu and start a workspace's only script from its single play button (fa9a1859d), opening the Explorer first where that button lives on desktop.
+- Launcher tests accept the single settings page's Terminal profiles address.
+
+## 0.11.0-beta.3.vorteo.827 - 2026-10-24
+
+### Maintenance
+
+- Appearance theme tests look for the theme save error among the page's alerts, since Settings also shows plugin trust notices, and give the palette walk three minutes.
+- Mark two theme picker geometry tests for owner review: sidebar theme bubble centres measure up to 8.7px apart instead of within 1px, and the touch swatch measures 44.3px wide instead of 48px, with no recorded design change since 1d041fbea.
+
+## 0.11.0-beta.3.vorteo.826 - 2026-10-24
+
+### Maintenance
+
+- Sidebar tests close the phone sidebar from its toolbar's collapse toggle, open a row's actions from its context menu when no overflow button shows, toggle the desktop sidebar between its collapse button and the icon rail's Expand button (ab60c1e39), and check the Files card and sidebar instead of the New workspace row, which moved to the More menu.
+- Mark the sidebar scroll test as a known failure: since the icon rail (ab60c1e39) collapsing and expanding the sidebar resets its project list scroll. The product fix follows separately.
+
+## 0.11.0-beta.3.vorteo.825 - 2026-10-24
+
+### Maintenance
+
+- Browser tests open workspace actions from the title menu on phones and from the primary pane menu on desktop, where 195e1c044 combined them with pane splitting. The workspace menu parity, wide touch menu and wide touch Standing tests pass again; the earlier wide touch known-failure mark is removed.
+
+## 0.11.0-beta.3.vorteo.824 - 2026-10-24
+
+### Maintenance
+
+- Agent skills tests save their sandbox daemon as the first host, because Agent behavior settings manage the installation's first host since 471d7f22a, and expect a failed save to show the daemon's own error in the sheet, as 68faa7a52 made it.
+
+## 0.11.0-beta.3.vorteo.823 - 2026-10-24
+
+### Maintenance
+
+- Open question tests expect a refused answer as a toast, which 68faa7a52 made the way failed actions are reported, and check that the question stays for a retry.
+
+## 0.11.0-beta.3.vorteo.822 - 2026-10-24
+
+### Maintenance
+
+- Mark five command center agent control tests as known failures: since 471d7f22a the command center offers no Mode commands for an agent. The product fix follows separately.
+- Retire the test for the composer's own thinking selector, which 471d7f22a replaced with the profile picker; the command center keeps its Thinking commands.
+
+## 0.11.0-beta.3.vorteo.821 - 2026-10-24
+
+### Maintenance
+
+- Mark two more workspace standing tests as known failures: the Standing section's disclosure arrow sits 14px off the workspace status dot column with no recorded design change (geometry drift, owner review), and wide touchscreens may have no way into workspace actions since 2415534c8, pending an owner check on a device.
+
+## 0.11.0-beta.3.vorteo.820 - 2026-10-24
+
+### Maintenance
+
+- Workspace standing tests close a menu with as many Escape presses as its open tooltip needs, use the labels submenu's copy of each toggle, read the icon-only Scheduled badge from its accessible name, align custom label chips with status icons by centre, and open workspace actions from the title menu on phones, where rows have no overflow button since 2415534c8.
+- Mark two workspace standing tests as known failures: the phone Git Archive test needs the Explorer's Changes view, which phones cannot open since 56b01ba3a, and archiving a protected, scheduled workspace reports only the protection blocker since 84f489a59. Product fixes follow separately.
+
+### Known limitations
+
+- The first workspace standing test still fails on a disclosure arrow alignment check, and the wide touchscreen test cannot yet open the workspace menu by long press.
+
+## 0.11.0-beta.3.vorteo.819 - 2026-10-24
+
+### Maintenance
+
+- The desktop appearance font size check watches the same Theme label it measured first, since the single settings page has other "Theme" text.
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Maintenance
+
+- Plugin sidebar item tests place footer rows above the footer separator, since the footer icon line moved to the toolbar, and compare grouped row spacing with the separator gap instead of a fixed limit.
+- Retire the plugin sidebar steps that used removed features: the built-in New workspace header row and its shortcut hint, ordering against that row, and hiding or listing plugin rows in the Sidebar settings pane (9332fbd2d, 471d7f22a). Remove the now unused sidebar settings test helpers.
+
+## 0.11.0-beta.3.vorteo.817 - 2026-10-24
+
+### Maintenance
+
+- Usage screen tests open Usage by its address, since the sidebar Usage row and icon are gone, and check report windows, provider window durations and source logos on the screen itself.
+- Retire the tests for the sidebar Usage summary, its pins and the sidebar footer rows: usage-sidebar-item.spec.ts, sidebar-nav-settings.spec.ts, and the pin, pin glyph and sidebar-host tests in usage-screen.spec.ts. 9332fbd2d hid the sidebar Usage item and 471d7f22a removed its switch, icon and the Sidebar settings pane.
+
+## 0.11.0-beta.3.vorteo.816 - 2026-10-24
+
+### Maintenance
+
+- The desktop shortcut unassign test allows two minutes, since its Settings and Help round trips ran past one minute on a shared Linux runner.
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Maintenance
+
+- Merge main f15d7a549 into the browser test repair branch. Only release notes conflicted; every entry from both sides is kept.
+
+## 0.11.0-beta.3.vorteo.814 - 2026-10-24
+
+### Maintenance
+
+- The demo compact theme tests open README.md from the inline Files card that phones show since 56b01ba3a, instead of the removed phone Explorer toggle.
+- Mark three phone Changes tests as known failures: since 56b01ba3a phones have no way to open the Explorer's Changes view. The product fix follows separately.
+
+## 0.11.0-beta.3.vorteo.813 - 2026-10-23
+
+### Maintenance
+
+- The desktop Settings memory check rotates through every section the Settings sidebar lists on the single settings page, instead of 24 separate pages that 537b619e2 merged.
+
+## 0.11.0-beta.3.vorteo.812 - 2026-10-23
+
+### Maintenance
+
+- Browser tests open Projects through the Workspaces & projects section and accept its current addresses, on desktop and phone widths.
+- Chat outline tests use a 2400-pixel viewport, because the workspace card column now narrows the conversation below the rail's minimum at 1440, and look for task cards in the workspace card column.
+
+## 0.11.0-beta.3.vorteo.811 - 2026-10-23
+
+### Maintenance
+
+- Desktop renderer tests open Help from the sidebar More menu, open the Explorer before using Open in editor, and find App updates in General's About pane.
+- The workspace title check reads the phone header, or on desktop, which has no workspace header since 60f4899a6, the selected sidebar row under its project.
+- Mark two desktop update tests as known failures: since 72919fc59 the App updates row squeezes its title when Check and Update both show. The product fix follows separately.
+- CI gives Metro's first bundle up to five minutes to warm up, since a shared runner hit the two-minute limit.
+
+## 0.11.0-beta.3.vorteo.810 - 2026-10-23
+
+### Maintenance
+
+- Browser tests choose a model by applying a mock profile that pins it, because the composer no longer has a model control.
+- Browser test setup dismisses the "Set up worktree scripts" notice whenever it appears, since it covers the composer's bottom-right actions; specs about the notice opt out.
+- The queueing test helper follows the composer's current default action.
+- Mark four message submission tests that choose steer or interrupt in Settings as known failures: since 471d7f22a the composer ignores the Default send setting. The product fix follows separately.
+
+## 0.11.0-beta.3.vorteo.809 - 2026-10-23
+
+### Maintenance
+
+- Browser tests open Changes through the Explorer's Changes card instead of the removed Explorer sidebar, reach a host's settings by choosing its Environments tab without reloading the page, and open the phone sidebar from the header's menu button.
+
+### Known limitations
+
+- Three compact Changes tests still use the phone Explorer toggle that the mobile toolbar simplification removed, and two desktop Changes tests still fail.
+
+## 0.11.0-beta.3.vorteo.808 - 2026-10-23
+
+### Maintenance
+
+- Browser tests give every test daemon one shared mock profile, because New workspace no longer starts a chat without a profile. Profile settings and picker tests opt out to keep their empty starting state.
+- Browser tests choose the New workspace host in the Environment step instead of the removed host picker. Tests that switch hosts start a reachable second daemon, since unreachable hosts are shown disabled.
+- Browser tests open Help from the sidebar More menu, check the toolbar icon line instead of the removed footer icons, and date the changelog retry fixture ahead of real releases.
+- Retire three sidebar settings tests for reordering and hiding sidebar items and footer rows. That customization was removed in 9332fbd2d, and the pane stopped rendering in 471d7f22a.
+- Mark the New workspace Ctrl+P project picker test as a known failure: the shortcut no longer opens the picker. The product fix follows separately.
+
+### Known limitations
+
+- The sidebar footer usage test, three profile picker tests, the legacy favourites migration test and the host version test still fail. The New workspace preselect and host project preservation suites each have one failing case left.
+
+## 0.11.0-beta.3.vorteo.807 - 2026-10-23
+
+### Maintenance
+
+- Temporary diagnostic: browser test shards in CI run without retries and print each failure as it happens, so a shard that hits its time limit still reports why its tests failed. A later commit restores retries and the list output.
+- Browser test shards upload their results when they hit the time limit, not only when they fail.
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.861 - 2026-10-26
+
+### Maintenance
+
+- Merge Claude command-name checks on resume: commands named like built-in skills turn those built-ins off, as skills already did
+
+## 0.11.0-beta.3.vorteo.860 - 2026-10-26
+
+### Maintenance
+
+- Merge container web build heap and fork deploy guards: the server pack's web export gets the 8 GB export heap, and upstream Cloudflare deploys skip this fork
+
+## 0.11.0-beta.3.vorteo.859 - 2026-10-25
+
+### Maintenance
+
+- The app and relay deploy workflows run only in the upstream repository, like the website deploy. They need upstream's Cloudflare token and would fail here whenever their paths changed.
+
+## 0.11.0-beta.3.vorteo.858 - 2026-10-25
+
+### Fixed
+
+- The container image build's web export now runs with the same 8 GB worker heap as Host installs. The server package's web UI build ran out of memory at about 4 GB in the container smoke builds on several main commits.
+
+### Maintenance
+
+- The Deploy Website workflow runs only in the upstream repository. This fork has no Cloudflare token, so the job failed on every main push.
+
+## 0.11.0-beta.3.vorteo.858 - 2026-10-26
+
+### Maintenance
+
+- Merge registry-only reviewed settings: a reviewed coordinator setting no longer needs a legacy plan field
+
+## 0.11.0-beta.3.vorteo.852 - 2026-10-25
+
+### Maintenance
+
+- Reviewed coordinator settings no longer need a legacy plan field. A setting added after the registry, such as the coordinator telemetry opt-in, changes only through `configurationChanges`. Existing settings keep their legacy fields unchanged, and tests cover a registry-only setting.
+
+## 0.11.0-beta.3.vorteo.857 - 2026-10-25
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.856 - 2026-10-25
+
+### Maintenance
+
+- Merge Windows CI exclusions: POSIX-only runtime custody and Host launcher suites, and the restart settings drift test, skip on Windows
+
+## 0.11.0-beta.3.vorteo.852 - 2026-10-25
+
+### Maintenance
+
+- Windows CI skips the coordinator runtime custody and Host launcher update suites, and the restart settings drift test. They exercise Host-only code with POSIX ownership, user IDs and `/`-rooted paths, and failed nine tests on the Windows server job.
+
+## 0.11.0-beta.3.vorteo.855 - 2026-10-25
+
+### Maintenance
+
+- Merge restricted Claude launch fix: restricted selections leave unpackaged provider defaults out instead of refusing the launch, and restricted Claude sessions keep Claude's built-in skills
+
+## 0.11.0-beta.3.vorteo.854 - 2026-10-25
+
+### Maintenance
+
+- Merge test fixture orphan audit: long-running test fixtures exit when their test worker goes away
+
+## 0.11.0-beta.3.vorteo.851 - 2026-10-25
+
+### Maintenance
+
+- Four more coordinator test fixtures that loop forever now exit when their link to the test process closes, so a test worker that dies mid-test no longer leaves them running. A fifth, which must run as an orphan, now exits on its own after two minutes. A sixth already had its own time limit and is unchanged.
+
+## 0.11.0-beta.3.vorteo.853 - 2026-10-25
+
+### Maintenance
+
+- Merge preclaim test fixture cleanup: detached fixture processes exit when the test worker's IPC channel closes
+
+## 0.11.0-beta.3.vorteo.851 - 2026-10-25
+
+### Maintenance
+
+- The preclaim native-proof test's disposable executor and coordinator exit when their link to the test process closes. A test worker that died mid-test left one such pair running for about 12 hours.
+
+## 0.11.0-beta.3.vorteo.852 - 2026-10-25
+
+### Maintenance
+
+- Merge installer tooling pins: the coordinator pins all six install tooling files, and icon context paths stay explicitly relative
+
+## 0.11.0-beta.3.vorteo.849 - 2026-10-25
+
+### Fixed
+
+- Selecting Host update tooling from a release now requires every script the installer imports: the preparer, publisher and artifact helper, plus the preload, web export and dependency cache modules. A release that lacks any of them is refused at review.
+- The Lucide import plugin prefixes `./` to any relative path that does not start with `./` or `../`, so a path into a dot-named folder is never emitted as a bare specifier.
+
+## 0.11.0-beta.3.vorteo.851 - 2026-10-25
+
+### Fixed
+
+- Show expanded startup diagnostics and begin automatic checks after ten seconds using one shared delay.
+- Move and shrink the original V mark while the diagnostic content fades and slides into place on the same timeline. Reduced motion settles immediately, with no new downloaded assets or dependencies.
+
+## 0.11.0-beta.3.vorteo.855 - 2026-10-25
+
+### Fixed
+
+- A custom command named like one of Claude's bundled skills can no longer take its place in a restricted session. Claude lists commands as skills and its allowlist matches them by name, so a resumed session now reads project, home, account and plugin command folders and turns off any bundled name a command uses. This is conservative: a plugin that is present but not loaded for an account can still turn a name off, which on the Host currently drops code-review for account sessions.
+
+### Maintenance
+
+- Skill policy tests use an empty home folder and stop the project folder walk at the test folder, so the developer's own skills, plugins and commands no longer affect them. New tests cover the synced skill layout, unreadable folders inside plugin roots, command claims, and the Claude session passing its own config folder to the resume check.
+
+## 0.11.0-beta.3.vorteo.854 - 2026-10-25
+
+### Fixed
+
+- A skill the inventory cannot fully read, for example one with a symlinked file or too many files, can no longer borrow a bundled skill's name on resume. Its frontmatter name is read directly, and if that also fails the session keeps no bundled skills. The skill library notes that resume compares package contents only in the standard skill folders.
+
+## 0.11.0-beta.3.vorteo.853 - 2026-10-25
+
+### Fixed
+
+- A restricted Claude session that resumes now also checks the account's own Claude configuration folder, including installed, marketplace and synced plugins, before keeping a bundled skill's name. Same-named copies of shared skills in that folder do not refuse the resume. A plugin skill or a skill with a different folder name that claims the name after launch turns it off. If a skill folder cannot be read, the session keeps no bundled skills and still launches.
+
+## 0.11.0-beta.3.vorteo.852 - 2026-10-25
+
+### Fixed
+
+- Restricted Claude sessions keep Claude's bundled skills, such as claude-api, dataviz, simplify, loop and keybindings-help, instead of losing them. Only skills Claude itself labels as built in are kept, by name, and a name is turned off when a plugin, account or personal skill also uses it. Checked against Claude 2.1.285 on the Host: a restricted session kept every bundled skill except code-review, whose name an installed plugin shares. If Claude's skill report is partial, slow or fails, the session launches without bundled skills rather than failing. Older daemons ignore the new snapshot field and leave these skills out.
+
+## 0.11.0-beta.3.vorteo.851 - 2026-10-25
+
+### Fixed
+
+- Claude tasks no longer fail to launch when a personal skill is missing from the shared library or a skill is excluded. Those launches restrict skills, and Claude's own built-in commands and bundled skills have no files to verify, so every one was refused. Restricted sessions now leave those unverifiable defaults out instead.
+
+## 0.11.0-beta.3.vorteo.850 - 2026-10-25
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.849 - 2026-10-25
+
+### Maintenance
+
+- Merge install web export fixes: Host install exports get script preloads and the build tag, an 8 GB worker heap, and a portable lucide context import
+
+## 0.11.0-beta.3.vorteo.848 - 2026-10-25
+
+### Fixed
+
+- Host installs publish the interface with the same script preloads and build metadata as guarded web builds. Before, every Host install republished it without the per-script preloads added for weak networks.
+- The web export in Host installs and guarded web builds runs with an 8 GB worker heap. One Host install failed when a Metro transform worker ran out of memory at the default limit of about 4 GB.
+- Web builds no longer fail when Metro reuses transform output from another build of the same commit. The Lucide import plugin wrote an absolute path to the icon context module into cached output, which pointed later builds at another build's folder. It now writes a path relative to the importing file.
+
+## 0.11.0-beta.3.vorteo.847 - 2026-10-25
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.846 - 2026-10-25
+
+### Maintenance
+
+- Merge renewal runtime custody boundaries: coordinator renewals hash the runtime at admission, freeze, unload, start and release instead of before every step
+
+## 0.11.0-beta.3.vorteo.843 - 2026-10-25
+
+### Changed
+
+- Coordinator renewal custody checks hash the coordinator's whole runtime five times instead of about thirty: at admission and immediately before freeze, unload, start and release. Each check compares against the hash admission accepted and fails closed. Every other step keeps its setup, pinned-file, journal and lock checks, and the renewal is re-derived once, at the claim, instead of six times. The separate candidate release checks are unchanged. Expected saving is 200 to 300 seconds per renewal. Watchdog and maintenance runners are unchanged.
+
+## 0.11.0-beta.3.vorteo.845 - 2026-10-25
+
+### Maintenance
+
+- Merge restart settings drift test: every reviewed restart operation's plan comes from a registered setting with the same name, supervisor maintenance excepted
+
+## 0.11.0-beta.3.vorteo.844 - 2026-10-25
+
+### Maintenance
+
+- Complete the shared Lucide fixture for common icons imported by the deferred plugin-icon adapter, restoring collection of four browser and project-screen test files without changing assertions or production behavior.
+
+## 0.11.0-beta.3.vorteo.843 - 2026-10-25
+
+### Added
+
+- Add an explicit browser Data saver preference before optional font loading and in General settings; preserve saved fonts, diagram source, messages and attachment behavior.
+- Keep common plugin icons immediate and defer the remaining catalogue, with visible loading, failure and bounded retry controls.
+
+### Changed
+
+- Replace the startup bitmap with the existing V silhouette in inline SVG, retaining the minimal spinner and delayed diagnostics transition.
+- Resolve web icon imports and their original provider context without eagerly loading the catalogue; guard the package export layout and preserve native imports.
+- Cover provider defaults, icon aliases and optional download state alongside startup, font restoration and diagram consent regressions.
+
+## 0.11.0-beta.3.vorteo.839 - 2026-10-25
+
+### Maintenance
+
+- A test keeps the reviewed restart operations and the reviewed coordinator settings in step. Each operation's plan must come from the registered setting of the same name, at that setting's configuration path, with supervisor maintenance as the one named exception.
+
+## 0.11.0-beta.3.vorteo.842 - 2026-10-25
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.841 - 2026-10-25
+
+### Maintenance
+
+- Merge background Host release retention: old releases are removed after readiness is verified, plain deletion first, with the outcome recorded in the job folder
+
+## 0.11.0-beta.3.vorteo.840 - 2026-10-25
+
+### Fixed
+
+- Host release cleanup always keeps the releases that hold the coordinator's update tooling. Reviewed tooling selection points the Host updater at an old release's scripts folder, and the first backlog cleanup removed that release, so every later Host install failed at its first step until the folder was restored from git.
+
+## 0.11.0-beta.3.vorteo.839 - 2026-10-25
+
+### Fixed
+
+- Cleaning up old Host releases no longer makes a successful Host install report failure. The first cleanup after release retention shipped deleted a backlog of about 40 old releases inside the install, past its 10-minute readiness deadline, so a verified install was marked failed. Cleanup now starts after the install reports its result, records its outcome in `retention.json` in the job's folder, and never runs twice at once.
+- Old releases are deleted directly. The slower path that first clears immutable file flags, about half a minute per release, runs only for a release that refuses plain deletion.
+
+## 0.11.0-beta.3.vorteo.839 - 2026-10-25
+
+### Maintenance
+
+- Merge draft and agent history test import fix: the two tests mock the host runtime instead of importing it during setup
+
+## 0.11.0-beta.3.vorteo.840 - 2026-10-25
+
+### Maintenance
+
+- Merge draft and agent history test import fix: the two tests mock the host runtime instead of importing it during setup
+
+## 0.11.0-beta.3.vorteo.821 - 2026-10-25
+
+### Tests
+
+- The live draft and agent history tests mock the host runtime instead of loading it. Its module graph, the daemon runtime and protocol validators, took about 10 seconds to transform, so the draft test's setup missed its 10 second limit even on a lightly loaded Mac. Neither test uses a host client. The draft test now takes about 4 seconds and the history test under half a second, both with plain static imports.
+
+## 0.11.0-beta.3.vorteo.839 - 2026-10-25
+
+### Maintenance
+
+- Merge favourites migration fix: legacy model favourites saved beside the old mode setting migrate, stored preferences are never deleted, and a host is marked migrated only after its favourites are imported
+
+## 0.11.0-beta.3.vorteo.820 - 2026-10-25
+
+### Fixed
+
+- The one-time import of device-local model favourites into host profiles no longer deletes saved new-task preferences. Since 0.11.0-beta.3.vorteo.135 (471d7f22a), preferences saved before Paseo mode was removed still carried `vortonMode`; the import rejected them, removed the whole entry and marked the host done without importing anything. It now reads that shape and keeps the entry. A value it still cannot read is copied to a backup key and the host is retried on a later start, and a host is marked done only after its favourites are imported. Favourites already lost this way have no copy on the device; hosts imported before that change still hold them as `legacy_favorite:` profiles.
+
+## 0.11.0-beta.3.vorteo.838 - 2026-10-25
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.837 - 2026-10-25
+
+### Maintenance
+
+- Merge the published startup diagnostics and recovery interface into the combined Host batch
+
+## 0.11.0-beta.3.vorteo.820 - 2026-10-25
+
+### Fixed
+
+- Startup diagnostics run automatically after 15 seconds, independently of the interface download and document load events. Bounded, deduplicated checks resume after offline or background delays, cancel after startup, and distinguish endpoint health from daemon authentication and session readiness.
+- The default V spinner transitions into a compact, scrollable diagnostic panel with reduced-motion support. Pending script downloads stay indeterminate because browsers do not expose live script byte progress; completed timings, observed script events, safe build provenance and existing public restart-request counts retain their limits and freshness.
+- Production exports preload the existing entry script without changing its execution order, integrity or cross-origin policy. Optional font CSS no longer blocks the inline diagnostic bootstrap.
+
+## 0.11.0-beta.3.vorteo.836 - 2026-10-25
+
+### Maintenance
+
+- Remove six extra byte-identical copies of four vorteo.758 release notes that branch merges carried onto main on 2026-10-22. One copy of each note remains.
+
+## 0.11.0-beta.3.vorteo.835 - 2026-10-25
+
+### Maintenance
+
+- Merge Host startup contract ancestor rule: folders above the release root are checked for replacement and permission changes but not timestamps, so ordinary writes in the home folder no longer refuse a bootstrap inspection; a node_modules lookup is still refused directly
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-25
+
+### Fixed
+
+- The Host module contract check no longer refuses a coordinator update because an unrelated file changed in a folder above the release, such as the home folder, where agents rewrite dotfiles. Folders above the release are pinned by device, inode, owner, group and mode, the same as other service custody. Inside the release they keep their full identity. A module lookup appearing anywhere is still refused directly.
+
+## 0.11.0-beta.3.vorteo.834 - 2026-10-25
+
+### Maintenance
+
+- Merge atomic session host markers: the upgrade and restart markers are written to a temporary file and renamed, so a visible marker always has its full content, and the module contract tests no longer depend on changes above their fixtures
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-25
+
+### Fixed
+
+- The session host writes its upgrade and restart markers through a temporary file and a rename, so anything that sees a marker also sees its whole content. A reader could previously find the upgrade marker empty while it was still being written.
+
+### Tests
+
+- Initial Host module contract tests freeze the stat of directories above their fixture. The contract pins every ancestor's identity, and other processes keep creating entries in the shared temp and home folders, which failed these tests on every retry.
+
+## 0.11.0-beta.3.vorteo.833 - 2026-10-25
+
+### Maintenance
+
+- Merge worker output drain: the supervisor keeps a worker's last stdout and stderr in daemon.log when the worker exits before its output is read, and two install-gate tests no longer depend on load or home directory changes
+
+## 0.11.0-beta.3.vorteo.819 - 2026-10-24
+
+### Tests
+
+- The supervisor test for output that arrives after the worker exits runs only on POSIX, like the existing descendant stdio test. On Windows CI the child's late write never reached the supervisor, so the scenario cannot be staged there; the log stayed intact.
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Fixed
+
+- The supervisor no longer loses the end of daemon.log when it exits right after its worker. The worker's exit can be reported before its last output arrives; the supervisor then closed the log, and the late output wrote after the close, which discarded the exit lines still buffered with it. A crashing worker's stack trace could vanish this way. The supervisor now waits up to a second for the worker's output to close before closing the log, and ignores writes once closing begins. Restarts are unchanged.
+
+### Tests
+
+- The maximum-count activation test gets a timeout sized to its 96 locked journal transactions, about 7 seconds idle.
+- Dev selector custody tests freeze the stat of directories above their fixtures. The fixtures must live in the home directory, which other processes keep changing, and custody correctly fails when an ancestor changes mid-inspection.
+
+## 0.11.0-beta.3.vorteo.832 - 2026-10-25
+
+### Maintenance
+
+- Merge precompiled built-in plugins: releases compile built-in plugins at build time and the daemon uses them when their digests verify, instead of running esbuild at every start
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Changed
+
+- Built-in plugins are compiled when the release is built, so the daemon no longer runs esbuild for them at every start. Each release stores a prebuilt bundle beside every built-in plugin. The daemon uses it only when the bundle's digest and the plugin's source and daemon version still match, and otherwise compiles from source as before. On an idle Mac the plugin phase of a boot drops from about 1 second to about 0.3 seconds; under heavy load, compiling had stretched daemon starts to tens of seconds.
+
+## 0.11.0-beta.3.vorteo.831 - 2026-10-25
+
+### Maintenance
+
+- Merge git process-tree kill: a timed-out git command is killed with its whole process tree, and silent-remote tests ignore the resulting connection resets
+
+## 0.11.0-beta.3.vorteo.819 - 2026-10-24
+
+### Tests
+
+- Silent-remote test servers ignore connection resets. Now that a timed-out fetch's helper is killed, Windows resets its connection, and the unhandled reset failed the server test run even though every test passed.
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Fixed
+
+- A git command that times out is killed with its whole process tree. Before, a timed-out fetch or clone over HTTP left its git-remote-http helper running until the remote gave up; on Windows it also kept the repository folder locked.
+
+## 0.11.0-beta.3.vorteo.830 - 2026-10-25
+
+### Maintenance
+
+- Merge batched source contribution git calls: combining a repository-sized batch runs about 430 git processes instead of 1,700, and two timing tests are repaired
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Fixed
+
+- Combining source contributions runs a handful of batched git commands instead of several per file. A repository-sized batch spawned about 1,700 git processes and took 26 seconds even on an idle Mac, and over a minute under load; it now spawns about 430 and takes 8 seconds. Release metadata reads every manifest in one git process when the caller supports it.
+
+### Tests
+
+- The Claude zero-token result test no longer fails when the turn outlasts one timer tick. The extra timeline item was the echo of the submitted prompt, not a duplicated assistant reply.
+- Worktree manager tests retry temporary directory cleanup. On Windows, the git HTTP helper left by a timed-out fetch briefly keeps the repository open.
+
+## 0.11.0-beta.3.vorteo.829 - 2026-10-25
+
+### Maintenance
+
+- Merge legacy layout freeze fix: restoring an old layout drops empty Explorer drafts instead of mounting thousands of composers, and touch and zoom listeners are shared
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Fixed
+
+- Reloading a workspace whose saved Explorer pane collected thousands of empty drafts no longer freezes the page. Every Explorer tab now renders as a supporting card, so each draft mounted a full composer. Restore drops Explorer drafts that hold no saved text, attachments, setup or tab state, and keeps the ones that do. Drafts in ordinary panes are untouched, and when saved drafts cannot be read every Explorer draft is kept. Touch detection and interface zoom now share one window listener each instead of adding one per mounted component.
+
+## 0.11.0-beta.3.vorteo.828 - 2026-10-25
+
+### Maintenance
+
+- Merge macOS-only immutable flag clearing: release removal no longer runs chflags on Linux and Windows
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-25
+
+### Fixed
+
+- Removing a release tree no longer needs macOS file-flag tooling on other systems. Clearing immutable flags ran `/usr/bin/chflags` everywhere, so on Linux and Windows every removal failed and Host release retention's test removed nothing. Only macOS can set those flags, so clearing them elsewhere now does nothing. The macOS Host was unaffected.
+
+## 0.11.0-beta.3.vorteo.827 - 2026-10-25
+
+### Maintenance
+
+- Merge Windows exclusions: the POSIX-only Docker restart and Factory check suites are skipped on Windows
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-25
+
+### Maintenance
+
+- Windows server CI skips the Docker restart and Factory check suites. Both verify owner-controlled scripts by POSIX ownership, mode and inode, and run only on the macOS Host.
+
+## 0.11.0-beta.3.vorteo.826 - 2026-10-25
+
+### Maintenance
+
+- Merge symlinked script runs: scripts run through the current release symlink compare real module paths instead of exiting silently
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Fixed
+
+- Scripts run through a symlinked path, such as `~/.local/share/vorteo-host/current/scripts/install-execution-host.mjs`, run again instead of exiting silently with status 0. Node loads the entry module by its real path, so the main-module check now compares real paths on both sides. `install-execution-host.mjs` uses the shared `isMainModule` helper, which the other release scripts already use.
+
+## 0.11.0-beta.3.vorteo.825 - 2026-10-25
+
+### Maintenance
+
+- Merge shared restart operations table: supervisor maintenance, Factory adoption, the Docker restart and the Host launcher update share one rule table with unchanged refusal messages and wire fields
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Maintenance
+
+- The four reviewed restart operations (supervisor maintenance, Factory adoption, the Docker restart and the Host launcher update) now share one table in the coordinator instead of repeating about a dozen rules each in the restart queue, server, app and CLI. Requests, decisions, dispatch, contribution refusals, automatic approval and the older-client view are checked once per table entry. A new operation is never approved automatically unless its entry says so. Behaviour, wire fields and refusal messages are unchanged.
+- Fix a stale server test expectation: the Host CLI has sent the Docker restart and Host launcher review flags with restart and contribution requests since those operations were added.
+
+## 0.11.0-beta.3.vorteo.824 - 2026-10-25
+
+### Maintenance
+
+- Merge shared configuration change shape: reviewed coordinator plans change registered settings through one configurationChanges field checked against a protocol settings registry
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Changed
+
+- Reviewed coordinator updates change coordinator settings through one plan field, `configurationChanges`, checked against a shared registry of reviewable settings. Each new setting needs one registry entry, its review text and a test, instead of about fifteen edits across the protocol, server, client, app and owner script. The five places that must refuse configuration changes now share one check.
+- Clients negotiate review by setting name. A client that cannot describe a listed setting sees only cancellation and cannot approve it. The older per-setting plan fields keep working, verify identically, and stay accepted until their compatibility dates.
+
+## 0.11.0-beta.3.vorteo.823 - 2026-10-25
+
+### Maintenance
+
+- Merge four timing fixes: large validators and draft modules load outside test timeouts, built-in plugins start concurrently so daemons boot about twice as fast, and small artifact digests hash on the scan thread
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Changed
+
+- The daemon starts its built-in plugins concurrently instead of one after another. It accepts connections only once they have all started, so each daemon start or restart waited for every plugin's compile and launch in turn; a test daemon now boots in about 7 seconds instead of 16.
+- Artifact verification hashes small artifacts on its scan worker instead of starting a separate reader thread, halving the threads started per verification. Large release trees still use parallel readers.
+
+### Maintenance
+
+- Fix four tests that timed out in full runs. Two loaded large modules inside their timeout: the protocol snapshot test imported the 9.6 MB generated validator, and the composer draft test imported its hook in a setup hook. Both now import at module load. The native helper replacement and compiled held restart tests sped up from the two changes above.
+
+## 0.11.0-beta.3.vorteo.822 - 2026-10-25
+
+### Maintenance
+
+- Merge renewal step timing: the runner diagnostic file records count and duration per phase and executor operation
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Added
+
+- Coordinator runner diagnostics record how long each runner phase and each executor operation (freeze, unload, selection, start, verification and others) took, in a bounded `timings` map in the runner's diagnostic file. A renewal that takes minutes now shows where the time went. Logging only; nothing a renewal does changes.
+
+## 0.11.0-beta.3.vorteo.821 - 2026-10-25
+
+### Maintenance
+
+- Merge release-note dedupe: the combine step skips byte-identical incoming notes and accepts branches cut before duplicate copies were removed; AGENTS.md asks threads to wait for Builds' install checks before heavy suites
+
+## 0.11.0-beta.3.vorteo.817 - 2026-10-25
+
+### Documentation
+
+- Keep the agent guide within its 32 KiB budget: the Builds gate marker rule is now one line that links to a new development doc section with the marker's fields, the wait rule and the shell check.
+
+## 0.11.0-beta.3.vorteo.816 - 2026-10-24
+
+### Fixed
+
+- Combining source contributions accepts a side that removed extra byte-identical copies of a release note, as long as one copy remains. A branch cut before a duplicate cleanup still combines, and deleting or editing any note is still refused.
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Fixed
+
+- Combining source contributions no longer copies a release note that is byte-identical to one already accepted, or repeated within the contribution. Repeated version headings with different notes still combine. Six exact copies of two vorteo.758 notes reached `main` this way on 2026-10-22, carried in from branch merges.
+
+### Documentation
+
+- The agent guide tells threads to check Builds' install gate marker before a full or heavy test suite, with a one-line shell check.
+
+## 0.11.0-beta.3.vorteo.820 - 2026-10-25
+
+### Maintenance
+
+- Merge commit-hook declaration freshness: protocol and client declarations rebuild before typecheck when their sources are newer
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Fixed
+
+- The pre-commit hook no longer fails typecheck on stale protocol or client declarations after a branch switch. It rebuilds them first, only when their sources are newer than the last successful build, which costs nothing on a clean commit.
+
+## 0.11.0-beta.3.vorteo.819 - 2026-10-25
+
+### Fixed
+
+- Startup health checks distinguish invalid responses, rejected network requests and actual eight-second timeouts. Script download errors and JavaScript execution errors have separate safe diagnostics, with hashed script paths, transfer timing, exception class and allowlisted engine messages instead of private exception text.
+- After a confirmed entry-script download failure, the loader can retry that exact script once without reloading the page. It preserves integrity, nonce, cross-origin and referrer restrictions, and does not offer download retry for execution errors. Reports include the current origin, expected-origin match and service-worker control state; unknown causes remain unknown.
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-25
+
+### Added
+
+- The delayed startup screen now offers the existing connection checker, separating endpoint health, WebSocket transport, app authentication and thread-directory readiness. It includes elapsed time and reload; a connected directory does not claim a selected workspace is ready.
+- The initial HTML loader can check its installation endpoint and copy a sanitized report even when the app bundle has not started. Failed script loads remain visible, and clipboard denial leaves a selectable report. Unknown daemon and session states remain unknown.
+
+## 0.11.0-beta.3.vorteo.817 - 2026-10-25
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.816 - 2026-10-22
+
+### Maintenance
+
+- Merge the Dev worktree link repair: a listing-first command rewrites older Dev worktree links from the container path to the Projects folder path, with backups, skipping kept paths
+
+## 0.11.0-beta.3.vorteo.807 - 2026-10-23
+
+### Added
+
+- `install-execution-host.mjs repair-projects-folder-worktree-links` repairs git worktree links that Dev wrote through its old container path before links were rewritten. The Host sees those worktrees as prunable, so a Host `git worktree prune` would orphan them for Dev too. By default it only lists what it would change; `--apply` rewrites each link to the Projects folder's logical path atomically, after a backup beside it. It skips kept paths such as freed, links already in logical form, worktrees outside the Projects folder and links whose worktree is missing, and reports container-only worktrees that a Host prune would orphan. A second run changes nothing.
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-22
+
+### Maintenance
+
+- Merge Host release retention and dependency cloning: Host builds clone dependencies from a private integrity-checked cache, and old Host release folders are pruned after each verified install, keeping current, previous, every release a plan or unfinished job names, and the newest three
+
+## 0.11.0-beta.3.vorteo.811 - 2026-10-23
+
+### Changed
+
+- Approved Host builds clone dependencies from a private copy-on-write cache instead of running a full `npm ci`, so releases share their unchanged 2.4 GB of `node_modules`. Only Host builds fill that cache, with an integrity-checked install.
+
+### Fixed
+
+- Old Host releases no longer pile up (43 releases, about 137 GB on 2026-10-23). After each verified Host install, the coordinator removes job folders that no plan or unfinished job references, keeping the selected, previous and three newest releases.
+
+## 0.11.0-beta.3.vorteo.814 - 2026-10-23
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.813 - 2026-10-22
+
+### Maintenance
+
+- Merge the CLI worktree fix: paseo worktree ls and archive send the current folder, or --cwd or --repo, so they work again
+
+## 0.11.0-beta.3.vorteo.807 - 2026-10-23
+
+### Fixed
+
+- `paseo worktree ls` and `paseo worktree archive` work again. Since upstream commit a94bc0720 the daemon refuses a worktree list without a repository, and both commands sent none, so they always failed with "cwd or repoRoot is required". They now list the worktrees of the current directory's repository.
+- Both commands accept `--cwd <path>`, matching `paseo worktree create`, and `--repo <path>`, which names the repository root and takes precedence. Relative paths resolve against the current directory.
+
+### Maintenance
+
+- Unit tests check the list request for the default directory, `--cwd` and `--repo`; the CLI worktree end-to-end test checks both options in help.
+
+## 0.11.0-beta.3.vorteo.812 - 2026-10-22
+
+### Maintenance
+
+- Merge automatic closure of failed coordinator updates: an automatic successor may close an automatic update that failed before promotion for the same coordinator process; owner-reviewed failures still need review
+
+## 0.11.0-beta.3.vorteo.807 - 2026-10-23
+
+### Fixed
+
+- An automatic coordinator update that failed before promotion, and so never froze or replaced the running coordinator, no longer waits for a hand-built successor. An automatic renewal can name it in `recoveredFrom` and is approved under Host coordinator permission, after the coordinator proves under its journal lock that the failure was never promoted and that the successor expects the same coordinator process. Owner-reviewed failures, failures after promotion, claimed recoveries and configuration changes still need the owner, so a reviewed change is never dropped.
+
+## 0.11.0-beta.3.vorteo.811 - 2026-10-22
+
+### Maintenance
+
+- Merge the Host launcher update, Factory checks around Dev restarts and the tracked Docker restart: each is a plan-bound job that stays off until an owner-reviewed coordinator renewal adds its plan, is never approved automatically, verifies its result and restores on failure
+
+## 0.11.0-beta.3.vorteo.802 - 2026-10-23
+
+### Maintenance
+
+- Update the app installation client tests for the restart query flags that negotiate the Docker restart and Host launcher review. Non-restart requests are unchanged.
+
+## 0.11.0-beta.3.vorteo.801 - 2026-10-23
+
+### Added
+
+- A one-time, owner-approved Host launcher update adds managed release selection to the Host's launchd plist, so later worker-only Host restarts load the selected build instead of the one the supervisor started from. It finishes turns, keeps the previous plist as a fallback, reloads the service once, and verifies the server identity, a new supervisor, the selected version and both settings in the live process. Any failure restores the previous plist. Reviewed coordinator plans and renewals accept `hostLauncherUpdateConfiguration` to set its plan.
+
+## 0.11.0-beta.3.vorteo.800 - 2026-10-23
+
+### Added
+
+- Once configured through a reviewed coordinator renewal, the coordinator runs Factory's read-only lock acceptance check around every restart that replaces the Dev worker. A restart is refused with nothing changed if Factory isn't in a known good state. It's reported as failed, naming the difference, if it moved Factory's controller, owner pause or custody records in a way its class doesn't allow. Builds no longer has to take and compare Factory snapshots by hand.
+
+### Changed
+
+- The tracked Docker restart also requires Factory's supervisor to be a new process afterwards.
+
+## 0.11.0-beta.3.vorteo.799 - 2026-10-23
+
+### Added
+
+- The installation coordinator can run a tracked Docker Desktop restart for Dev. A trusted Host request with `--engine-restart-plan` creates a Dev restart bound to the exact configured plan. After the owner or a delegated lead chooses Finish turns and restart Docker, it checks the engine, the pinned Dev and gateway containers and Factory's lock acceptance, restarts Docker once, and verifies that every container returned under its ID, Dev is healthy, a new Dev worker answers and Factory's controller epoch advanced. It is never approved automatically and never retried.
+- Reviewed coordinator plans and renewals accept `engineRestartConfiguration` to set or remove that plan. Clients that do not negotiate the field see it hidden and can only cancel.
+
+## 0.11.0-beta.3.vorteo.810 - 2026-10-23
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.809 - 2026-10-22
+
+### Maintenance
+
+- Merge the Host restart check: a Host update whose restarted daemon still runs the previous build fails before publishing, keeps the new release selected and refuses replay
+
+## 0.11.0-beta.3.vorteo.799 - 2026-10-23
+
+### Fixed
+
+- A Host source update no longer reports success when the Host comes back on the previous build. An idle or held restart replaces only the daemon worker, and the running supervisor starts that worker from the release it was launched from, so on 2026-10-21 the update to vorteo.729 succeeded while the daemon still ran 726. After the restart the install now compares the version the Host daemon reports with the new release. On a mismatch it fails before publishing the interface, keeps the new release selected so a full Host restart loads it, and refuses to replay. When the version cannot be read, readiness alone still decides, as before.
+
+## 0.11.0-beta.3.vorteo.808 - 2026-10-22
+
+### Maintenance
+
+- Merge the pruner resilience fix: removing an abandoned web build retries briefly, and a build that still cannot be removed is reported and skipped instead of stopping the prune
+
+## 0.11.0-beta.3.vorteo.800 - 2026-10-23
+
+### Maintenance
+
+- Move the web build pruner's per-build decision into its own helper so the prune loop stays within the lint complexity limit. Behavior is unchanged.
+
+## 0.11.0-beta.3.vorteo.799 - 2026-10-23
+
+### Fixed
+
+- The web build pruner no longer stops at the first build it cannot delete. A directory that stays non-empty mid-removal, for example while another cleanup deletes the same tree, is retried with backoff, then reported and skipped while the rest of the prune continues. On 2026-10-23 one such build crashed the whole run.
+
+## 0.11.0-beta.3.vorteo.807 - 2026-10-22
+
+### Maintenance
+
+- Merge the Windows path fixes: Projects folder aliases, separators, case and 8.3 short names compare correctly on Windows, git trust sends long forward-slash paths, and project exclusions apply on Windows
+
+## 0.11.0-beta.3.vorteo.799 - 2026-10-22
+
+### Fixed
+
+- Project exclusions now apply on Windows. Policy keys and working folders compare with either separator and without case for Windows paths, keys written through a symlink or an 8.3 short name also match the real folder, and the coordinator accepts Windows root paths as keys.
+- The Projects folder accepts folders inside it on Windows. Containment compares real paths from the native resolver on both sides, so an 8.3 short temp path such as `RUNNER~1` no longer reads as outside the folder.
+- Projects folder aliases map Windows paths with either separator and without case, and project keys with Windows paths map too. POSIX aliases and earlier locations from another daemon stay as written on Windows instead of being placed on the current drive.
+- The per-command and agent `safe.directory` entries name the repository's long real path with forward slashes on Windows, the form git there reports and compares.
+
 ## 0.11.0-beta.3.vorteo.808 - 2026-10-23
 
 ### Maintenance
@@ -15,6 +1279,84 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Merge the installed Host main into Dev's installed source so the Dev update descends from what Dev runs
+
+## 0.11.0-beta.3.vorteo.797 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.796 - 2026-10-22
+
+### Maintenance
+
+- Merge the installed Host main into Dev's installed source so the Dev update descends from what Dev runs
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.757 - 2026-10-22
+
+### Maintenance
+
+- Merge Dev's installed source so the Dev update is a fast-forward of what Dev runs; main already carries every Dev change
+
+## 0.11.0-beta.3.vorteo.693 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.692 - 2026-10-20
+
+### Fixes
+
+- ACP agents (Cursor, Copilot, Kimi, Kiro and generic ACP providers) now receive the agent's system prompt and the shared agent instructions in a marked block on a new session's first prompt. A failed first prompt keeps them for the next turn, a first-turn slash command defers them, and history replay hides the block.
+
+## 0.11.0-beta.3.vorteo.691 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.690 - 2026-10-20
+
+### Fixed
+
+- Accept the read-only Factory qualifier workspace. Governed workers previously had to use a fully writable workspace, so Factory issue qualification, which reads the workspace and writes only its private `.factory-tmp` scratch directory, failed right after launch with "Native worker filesystem confinement is unavailable". The verifier now accepts exactly two strict shapes, the existing writable one and the read-only one with `.factory-tmp` writable, and refuses near misses.
+- Require `.factory-tmp` to be a real directory, not a file or symlink, before a read-only worker starts.
+- Add focused tests for both shapes, near-miss shapes and the scratch directory checks.
+
+## 0.11.0-beta.3.vorteo.690 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.689 - 2026-10-20
+
+### Fixed
+
+- Bound how long one schedule tick waits for an admitted attempt. A protected attempt that has neither dispatched nor settled within 15 seconds stays running and admitted, and the tick continues with the remaining schedules. Without this, one hung quota preparation would stop all scheduled work until a daemon restart.
+- Log a warning when an attempt reaches the bound, and once when later ticks are skipped behind a long-held tick.
+- Add a regression test for a hung protected admission.
+
+## 0.11.0-beta.3.vorteo.688 - 2026-10-19
+
+### Fixed
+
+- Prevent overlapping schedule ticks. A tick that starts while another is still admitting schedules is skipped, and the guard is released after failures. Dispatched scheduled runs continue concurrently, so long runs do not delay other due schedules.
+- Skip a schedule that changed after the tick's snapshot and retry it on the next tick, instead of aborting the remaining schedules. This removes the repeated "Schedule changed before admission" failures from held protected schedules. Admission rules, protected custody and quota handling are unchanged.
+- Add focused schedule service tests for overlapping ticks, stale admission, guard release after failure and concurrent dispatched runs.
+
+## 0.11.0-beta.3.vorteo.688 - 2026-10-19
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
 
 ## 0.11.0-beta.3.vorteo.806 - 2026-10-23
 
@@ -266,84 +1608,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Tests
 
 - The packaged installation browser test opens provider pages and connection menus instead of the removed Manage sheet, installs runtimes on Host by default and in the Dev container explicitly, and removes a provider from its page. Environment access keeps showing Connect for an environment that is turned off, so a restored connection can sign in again.
-
-## 0.11.0-beta.3.vorteo.797 - 2026-10-22
-
-### Maintenance
-
-- Combine 1 source contributions; retain their release notes below
-
-## 0.11.0-beta.3.vorteo.796 - 2026-10-22
-
-### Maintenance
-
-- Merge the installed Host main into Dev's installed source so the Dev update descends from what Dev runs
-
-## 0.11.0-beta.3.vorteo.758 - 2026-10-22
-
-### Maintenance
-
-- Combine 1 source contributions; retain their release notes below
-
-## 0.11.0-beta.3.vorteo.757 - 2026-10-22
-
-### Maintenance
-
-- Merge Dev's installed source so the Dev update is a fast-forward of what Dev runs; main already carries every Dev change
-
-## 0.11.0-beta.3.vorteo.693 - 2026-10-20
-
-### Maintenance
-
-- Combine 1 source contributions; retain their release notes below
-
-## 0.11.0-beta.3.vorteo.692 - 2026-10-20
-
-### Fixes
-
-- ACP agents (Cursor, Copilot, Kimi, Kiro and generic ACP providers) now receive the agent's system prompt and the shared agent instructions in a marked block on a new session's first prompt. A failed first prompt keeps them for the next turn, a first-turn slash command defers them, and history replay hides the block.
-
-## 0.11.0-beta.3.vorteo.691 - 2026-10-20
-
-### Maintenance
-
-- Combine 1 source contributions; retain their release notes below
-
-## 0.11.0-beta.3.vorteo.690 - 2026-10-20
-
-### Fixed
-
-- Accept the read-only Factory qualifier workspace. Governed workers previously had to use a fully writable workspace, so Factory issue qualification, which reads the workspace and writes only its private `.factory-tmp` scratch directory, failed right after launch with "Native worker filesystem confinement is unavailable". The verifier now accepts exactly two strict shapes, the existing writable one and the read-only one with `.factory-tmp` writable, and refuses near misses.
-- Require `.factory-tmp` to be a real directory, not a file or symlink, before a read-only worker starts.
-- Add focused tests for both shapes, near-miss shapes and the scratch directory checks.
-
-## 0.11.0-beta.3.vorteo.690 - 2026-10-20
-
-### Maintenance
-
-- Combine 1 source contributions; retain their release notes below
-
-## 0.11.0-beta.3.vorteo.689 - 2026-10-20
-
-### Fixed
-
-- Bound how long one schedule tick waits for an admitted attempt. A protected attempt that has neither dispatched nor settled within 15 seconds stays running and admitted, and the tick continues with the remaining schedules. Without this, one hung quota preparation would stop all scheduled work until a daemon restart.
-- Log a warning when an attempt reaches the bound, and once when later ticks are skipped behind a long-held tick.
-- Add a regression test for a hung protected admission.
-
-## 0.11.0-beta.3.vorteo.688 - 2026-10-19
-
-### Fixed
-
-- Prevent overlapping schedule ticks. A tick that starts while another is still admitting schedules is skipped, and the guard is released after failures. Dispatched scheduled runs continue concurrently, so long runs do not delay other due schedules.
-- Skip a schedule that changed after the tick's snapshot and retry it on the next tick, instead of aborting the remaining schedules. This removes the repeated "Schedule changed before admission" failures from held protected schedules. Admission rules, protected custody and quota handling are unchanged.
-- Add focused schedule service tests for overlapping ticks, stale admission, guard release after failure and concurrent dispatched runs.
-
-## 0.11.0-beta.3.vorteo.688 - 2026-10-19
-
-### Maintenance
-
-- Combine 1 source contributions; retain their release notes below
 
 ## 0.11.0-beta.3.vorteo.795 - 2026-10-22
 

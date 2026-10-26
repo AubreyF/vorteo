@@ -1271,6 +1271,13 @@ test.runIf(process.platform === "darwin")(
     await expect(
       verifyRenewalPlan(setup, { ...plan, nativeHelperConfiguration: null }),
     ).rejects.toThrow("cannot change policy, helper or monitor");
+    // The listed shape keeps renewal's per-setting rule: no preview monitor changes.
+    await expect(
+      verifyRenewalPlan(setup, {
+        ...plan,
+        configurationChanges: [{ setting: "previewMonitor", value: null }],
+      }),
+    ).rejects.toThrow("cannot change policy, helper or monitor");
     // Claude refresh changes only with its exact reviewed field and candidate bytes.
     await expect(
       verifyRenewalPlan(setup, { ...plan, claudeHostRefreshConfiguration: true }),
@@ -1291,6 +1298,89 @@ test.runIf(process.platform === "darwin")(
     await expect(
       verifyRenewalPlan(setup, { ...refreshPlan, claudeHostRefreshConfiguration: null }),
     ).rejects.toThrow("outside its approved policy");
+    // Like Claude refresh, the Docker restart plan rides an owner-reviewed renewal.
+    const engineRestart = {
+      docker: "/fixture/docker",
+      socket: "/fixture/docker.sock",
+      containers: {
+        dev: "a".repeat(64),
+        gatewayTailscale: "b".repeat(64),
+        gatewayCaddy: "c".repeat(64),
+      },
+    };
+    await expect(
+      verifyRenewalPlan(setup, { ...plan, engineRestartConfiguration: engineRestart }),
+    ).rejects.toThrow("outside its approved policy");
+    const engineConfig = JSON.parse(readFileSync(candidateConfig.path, "utf8"));
+    const enginePlanned = f.save(path.join(f.root, "engine-restart.json"), {
+      ...engineConfig,
+      container: { ...engineConfig.container, engineRestart },
+    });
+    await expect(
+      verifyRenewalPlan(setup, {
+        ...plan,
+        candidate: { ...f.host, configuration: enginePlanned },
+        engineRestartConfiguration: engineRestart,
+      }),
+    ).resolves.toBeUndefined();
+    // Factory's Dev restart checks also ride an owner-reviewed renewal.
+    const factoryGate = {
+      docker: "/fixture/docker",
+      socket: "/fixture/docker.sock",
+      container: "a".repeat(64),
+      verify: {
+        script: "/fixture/verify.sh",
+        sha256: "b".repeat(64),
+        lockInode: 3901122,
+        ownerMode: "paused" as const,
+      },
+    };
+    const gateConfig = JSON.parse(readFileSync(candidateConfig.path, "utf8"));
+    const gatePlanned = f.save(path.join(f.root, "factory-gate.json"), {
+      ...gateConfig,
+      container: { ...gateConfig.container, factoryGate },
+    });
+    await expect(
+      verifyRenewalPlan(setup, { ...plan, factoryGateConfiguration: factoryGate }),
+    ).rejects.toThrow("outside its approved policy");
+    await expect(
+      verifyRenewalPlan(setup, {
+        ...plan,
+        candidate: { ...f.host, configuration: gatePlanned },
+        factoryGateConfiguration: factoryGate,
+      }),
+    ).resolves.toBeUndefined();
+    // The Host launcher update plan also rides an owner-reviewed renewal.
+    const launcherUpdate = { candidate: "/fixture/candidate.plist", sha256: "c".repeat(64) };
+    const launcherConfig = JSON.parse(readFileSync(candidateConfig.path, "utf8"));
+    const launcherPlanned = f.save(path.join(f.root, "host-launcher.json"), {
+      ...launcherConfig,
+      host: { ...launcherConfig.host, launcherUpdate },
+    });
+    await expect(
+      verifyRenewalPlan(setup, { ...plan, hostLauncherUpdateConfiguration: launcherUpdate }),
+    ).rejects.toThrow("outside its approved policy");
+    await expect(
+      verifyRenewalPlan(setup, {
+        ...plan,
+        candidate: { ...f.host, configuration: launcherPlanned },
+        hostLauncherUpdateConfiguration: launcherUpdate,
+      }),
+    ).resolves.toBeUndefined();
+    // The same change, listed in configurationChanges, verifies identically.
+    await expect(
+      verifyRenewalPlan(setup, {
+        ...plan,
+        configurationChanges: [{ setting: "hostLauncherUpdate", value: launcherUpdate }],
+      }),
+    ).rejects.toThrow("outside its approved policy");
+    await expect(
+      verifyRenewalPlan(setup, {
+        ...plan,
+        candidate: { ...f.host, configuration: launcherPlanned },
+        configurationChanges: [{ setting: "hostLauncherUpdate", value: launcherUpdate }],
+      }),
+    ).resolves.toBeUndefined();
     const removed = f.save(path.join(f.root, "factory-disabled.json"), {
       ...f.config,
       container: { ...f.config.container, factoryRuntimeAdoption: undefined },
@@ -1499,7 +1589,11 @@ test.runIf(process.platform === "darwin")(
   async () => {
     const f = await fixture();
     const node = realpathSync(process.execPath);
-    f.save(path.join(f.host.directory, workerRelative), "setInterval(() => {}, 1000);", true);
+    f.save(
+      path.join(f.host.directory, workerRelative),
+      'process.on("disconnect", () => process.exit(0)); setInterval(() => {}, 1000);',
+      true,
+    );
     const helperBytes = readFileSync(
       new URL("../../../../../scripts/inspect-coordinator-process.py", import.meta.url),
     );
@@ -1509,7 +1603,8 @@ test.runIf(process.platform === "darwin")(
       true,
     );
     const child = spawn(node, [path.join(f.host.directory, workerRelative)], {
-      stdio: "ignore",
+      // The IPC channel ends the fixture if the test worker dies before cleanup.
+      stdio: ["ignore", "ignore", "ignore", "ipc"],
       env: { PATH: "/usr/bin:/bin" },
     });
     await once(child, "spawn");

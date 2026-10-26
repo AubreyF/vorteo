@@ -124,14 +124,15 @@ async function expectCardsToStreamIn(
     stream: [first.promise, onWorkLogin(claude!), second.promise, onWorkLogin(codex!)],
   });
   const details = await openDetails(page);
-  await expect(details.getByText("Loading usage...", { exact: true })).toBeVisible();
+  // One loading pulse stands in for the breakdown and both usage sections (662ea77a7).
+  await expect(details.getByTestId("context-breakdown-loading")).toBeVisible();
   await shot("loading");
 
   first.open();
   await expect(
     usageCard(details, "claude:work").getByText("work@example.com", { exact: true }),
   ).toBeVisible();
-  await expect(details.getByText("Loading usage...", { exact: true })).toHaveCount(0);
+  await expect(details.getByTestId("context-breakdown-loading")).toHaveCount(0);
   await expect(usageCard(details, "codex:work")).toHaveCount(0);
   await shot("streaming");
 
@@ -171,7 +172,7 @@ async function expectOnlyContextWindowWithoutUsage(
   await reloadAgent(page);
   const details = await openDetails(page);
   await expect(details.getByText("25% used", { exact: true })).toBeVisible();
-  await expect(details.getByText("Loading usage...", { exact: true })).toHaveCount(0);
+  await expect(details.getByTestId("context-breakdown-loading")).toHaveCount(0);
   await expect(details.getByText("work@example.com", { exact: true })).toHaveCount(0);
   await shot("unsupported");
 }
@@ -200,7 +201,7 @@ for (const theme of ["light", "dark"] as const) {
       const slowSource = gate();
       usage.answerNext({ stream: [slowSource.promise, onWorkLogin(claude!)] });
       const closedEarly = await hoverContextWindowMeter(page);
-      await expect(closedEarly.getByText("Loading usage...", { exact: true })).toBeVisible();
+      await expect(closedEarly.getByTestId("context-breakdown-loading")).toBeVisible();
       await leaveContextWindowMeter(page);
 
       const resumed = gate();
@@ -209,7 +210,7 @@ for (const theme of ["light", "dark"] as const) {
         stream: [resumed.promise, onPersonalLogin(claude!), finished.promise],
       });
       const tooltip = await hoverContextWindowMeter(page);
-      await expect(tooltip.getByText("Loading usage...", { exact: true })).toBeVisible();
+      await expect(tooltip.getByTestId("context-breakdown-loading")).toBeVisible();
       await expect(tooltip.getByText("work@example.com", { exact: true })).toHaveCount(0);
 
       // The old login's report lands during the new request, before the new login's.

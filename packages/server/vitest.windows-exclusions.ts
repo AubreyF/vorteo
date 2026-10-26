@@ -35,8 +35,15 @@ export const WINDOWS_EXCLUDED_SUITES = [
   "src/server/execution-installation/coordinator-bootstrap-preclaim-recovery.test.ts",
   "src/server/execution-installation/coordinator-bootstrap-renewal.test.ts",
   "src/server/execution-installation/coordinator-bootstrap-runner.test.ts",
+  "src/server/execution-installation/coordinator-bootstrap-runtime-custody.test.ts",
   "src/server/execution-installation/coordinator-bootstrap.test.ts",
   "src/server/execution-installation/dev-source-repair.test.ts",
+  // Docker restart and Factory checks verify owner-controlled physical scripts by POSIX
+  // ownership, mode and inode; they run only on the macOS Host.
+  "src/server/execution-installation/engine-restart.test.ts",
+  "src/server/execution-installation/factory-gate.test.ts",
+  // The Host launcher update swaps an owner-controlled launchd plist on the macOS Host.
+  "src/server/execution-installation/host-launcher-update.test.ts",
   "src/server/execution-installation/maintenance/authorization.test.ts",
   "src/server/execution-installation/maintenance/dev-registration-execution.test.ts",
   "src/server/execution-installation/maintenance/dev-registration-native-executor.test.ts",

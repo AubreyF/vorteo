@@ -62,7 +62,7 @@ async function describe(root) {
  */
 export async function pruneInstanceBuilds(
   builds,
-  { current, now = Date.now(), isAlive = alive } = {},
+  { current, now = Date.now(), isAlive = alive, onError = () => {}, remove = removeTree } = {},
 ) {
   const names = await fs.readdir(builds).catch((error) => {
     if (error.code === "ENOENT") return [];
@@ -73,27 +73,54 @@ export async function pruneInstanceBuilds(
   for (const name of names) {
     const root = path.join(builds, name);
     if (!name.startsWith("build-") || root === current) continue;
-    const build = await describe(root).catch(() => null);
-    if (!build) continue;
-    if (build.owner && Number.isInteger(build.owner.pid) && isAlive(build.owner.pid)) continue;
-    const age = now - build.mtimeMs;
-    const finished = build.sealed && !(await hasSnapshot(root));
-    if (finished) {
-      exports.push({ name, root, mtimeMs: build.mtimeMs });
-      continue;
-    }
-    // Failed, interrupted or pre-cleanup builds still hold their snapshot.
-    if (age < (build.owner ? HOUR : UNOWNED_HOURS * HOUR)) continue;
-    await fs.rm(root, { recursive: true, force: true });
-    removed.push(name);
+    const verdict = await classifyBuild(root, { now, isAlive });
+    if (verdict.kind === "export") exports.push({ name, root, mtimeMs: verdict.mtimeMs });
+    else if (verdict.kind === "abandoned" && (await removeBuild(root, remove, onError)))
+      removed.push(name);
   }
   exports.sort((a, b) => b.mtimeMs - a.mtimeMs);
   for (const [index, { name, root, mtimeMs }] of exports.entries()) {
     if (index < KEEP_EXPORTS && now - mtimeMs < EXPORT_DAYS * 24 * HOUR) continue;
-    await fs.rm(root, { recursive: true, force: true });
-    removed.push(name);
+    if (await removeBuild(root, remove, onError)) removed.push(name);
   }
   return removed;
+}
+
+/**
+ * Decide one build's fate without touching it: `keep` (missing, in use, changing
+ * or too recent), `export` (sealed and trimmed; subject to export retention) or
+ * `abandoned` (failed, interrupted or pre-cleanup, and old enough to remove).
+ */
+async function classifyBuild(root, { now, isAlive }) {
+  const build = await describe(root).catch(() => null);
+  if (!build) return { kind: "keep" };
+  if (build.owner && Number.isInteger(build.owner.pid) && isAlive(build.owner.pid))
+    return { kind: "keep" };
+  const snapshot = await hasSnapshot(root).catch(() => null);
+  if (snapshot === null) return { kind: "keep" }; // Removed or changing under us; the next run decides.
+  if (build.sealed && !snapshot) return { kind: "export", mtimeMs: build.mtimeMs };
+  // Failed, interrupted or pre-cleanup builds still hold their snapshot.
+  const age = now - build.mtimeMs;
+  return age < (build.owner ? HOUR : UNOWNED_HOURS * HOUR)
+    ? { kind: "keep" }
+    : { kind: "abandoned" };
+}
+
+function removeTree(root) {
+  // A concurrent deleter or a straggling writer can leave a directory briefly
+  // non-empty mid-removal; Node retries ENOTEMPTY and EBUSY with backoff.
+  return fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+}
+
+/** One stubborn build must not stop the rest of the prune. */
+async function removeBuild(root, remove, onError) {
+  try {
+    await remove(root);
+    return true;
+  } catch (error) {
+    onError(root, error);
+    return false;
+  }
 }
 
 async function hasSnapshot(root) {

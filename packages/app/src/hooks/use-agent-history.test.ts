@@ -1,31 +1,32 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type {
   DaemonClient,
   FetchAgentHistoryEntry,
   FetchAgentHistoryOptions,
 } from "@getpaseo/client/internal/daemon-client";
-import type { AgentHistoryClient, AgentHistoryHost } from "./use-agent-history";
+import {
+  collectAgentHistoryHostErrors,
+  fetchAgentHistoryBatch,
+  fetchAgentHistoryPage,
+  type AgentHistoryClient,
+  type AgentHistoryHost,
+} from "./use-agent-history";
 import { allAgentHistoryQueryKey } from "./agent-history-query-key";
 
-(
-  globalThis as unknown as {
-    __DEV__: boolean;
-  }
-).__DEV__ = false;
+// Only the useAgentHistory hook reads the host runtime, and these tests call the fetch helpers with
+// their own clients. The real module pulls in the whole daemon runtime and its protocol
+// validators, about 10 s to transform.
+vi.mock("@/runtime/host-runtime", () => {
+  const unused = () => {
+    throw new Error("The host runtime is not available in these tests");
+  };
+  return { getHostRuntimeStore: unused, isHostRuntimeConnected: unused, useHosts: unused };
+});
 
-type UseAgentHistoryModule = typeof import("./use-agent-history");
-
-let fetchAgentHistoryBatch: UseAgentHistoryModule["fetchAgentHistoryBatch"];
-let fetchAgentHistoryPage: UseAgentHistoryModule["fetchAgentHistoryPage"];
-let collectAgentHistoryHostErrors: UseAgentHistoryModule["collectAgentHistoryHostErrors"];
-
-// Transforming this module graph takes about nine seconds on a loaded machine.
-beforeAll(async () => {
-  const module = await import("./use-agent-history");
-  fetchAgentHistoryBatch = module.fetchAgentHistoryBatch;
-  fetchAgentHistoryPage = module.fetchAgentHistoryPage;
-  collectAgentHistoryHostErrors = module.collectAgentHistoryHostErrors;
-}, 30_000);
+// Hoisted with the mocks so it is set before the static imports above load.
+vi.hoisted(() => {
+  (globalThis as unknown as { __DEV__: boolean }).__DEV__ = false;
+});
 
 type FetchAgentHistory = DaemonClient["fetchAgentHistory"];
 type FetchAgentHistoryResult = Awaited<ReturnType<FetchAgentHistory>>;

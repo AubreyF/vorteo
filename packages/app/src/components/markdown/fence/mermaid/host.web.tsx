@@ -1,3 +1,5 @@
+import { useDataSaver } from "@/network-preferences";
+import { Button } from "@/components/ui/button";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, View, type TextStyle, type ViewStyle } from "react-native";
 import { Code, Maximize2, Workflow } from "lucide-react-native";
@@ -24,6 +26,10 @@ function MermaidFenceHostImpl({
   colorScheme = "dark",
 }: MermaidFenceHostImplProps) {
   const { t } = useTranslation();
+  const dataSaver = useDataSaver();
+  const [downloadRequested, setDownloadRequested] = useState(false);
+  const loadDiagram = useCallback(() => setDownloadRequested(true), []);
+  const allowRuntime = !dataSaver || downloadRequested;
   const { state, request, rendered, renderFailed } = useMermaidRenderModel({
     source: code,
     phase,
@@ -50,7 +56,7 @@ function MermaidFenceHostImpl({
   );
   const visible = state.visible;
   const canShowDiagram = visible !== null && hasRuntimeContent;
-  const diagramVisible = canShowDiagram && !showSource;
+  const diagramVisible = allowRuntime && canShowDiagram && !showSource;
   const runtimeHeight = Math.max(visible?.height ?? 240, 1);
   const actions = useMemo(
     () => [
@@ -131,11 +137,17 @@ function MermaidFenceHostImpl({
         wheelActivation="modifier"
       >
         <MermaidIframeRuntime
+          enabled={allowRuntime}
           request={request}
           onRendered={handleRendered}
           onRenderFailed={renderFailed}
         />
       </ZoomableViewport>
+      {!allowRuntime ? (
+        <Button variant="outline" onPress={loadDiagram}>
+          Load diagram · data saver
+        </Button>
+      ) : null}
       {isFullscreen && visible ? (
         <MermaidFullscreenViewer
           source={visible.source}

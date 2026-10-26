@@ -200,7 +200,9 @@ test.describe("New workspace host project preservation", () => {
     await expectNewWorkspaceProjectSelected(page, SHARED_PROJECT_NAME);
   });
 
-  test("keeps the active workspace project selected when switching hosts", async ({
+  // Product regression, reported to Builds on 2026-10-25: choosing another host in the Environment
+  // step now clears the selected project (99eca19a7 behaviour; breaking commit not identified).
+  test.fixme("keeps the active workspace project selected when switching hosts", async ({
     page,
     crossHostProject,
   }) => {

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
+import { isMainModule } from "./is-main-module.mjs";
 import fs from "node:fs/promises";
 import {
   createPublicationBinding,
@@ -41,6 +42,11 @@ import {
   projectsFolderAliasCommands,
   writeProjectsFolderSettings,
 } from "./lib/projects-folder.mjs";
+import {
+  applyWorktreeLinkChanges,
+  formatWorktreeLinkReport,
+  scanWorktreeLinks,
+} from "./lib/worktree-links.mjs";
 
 const execute = promisify(execFile);
 const scriptPath = fileURLToPath(import.meta.url);
@@ -72,7 +78,10 @@ function json(file, data) {
   privateWrite(file, JSON.stringify(data, null, 2) + "\n");
 }
 async function run(command, args, options = {}) {
-  const result = await execute(command, args, { maxBuffer: 32 * 1024 * 1024, ...options });
+  const result = await execute(command, args, {
+    maxBuffer: 32 * 1024 * 1024,
+    ...options,
+  });
   return result.stdout.trim();
 }
 async function build(command, args, cwd, log, environment = {}) {
@@ -99,7 +108,13 @@ function plist(label, argv, environment, log, exitTimeOut) {
   const env = Object.entries(environment)
     .map(([key, value]) => `<key>${xml(key)}</key><string>${xml(value)}</string>`)
     .join("");
-  return `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>${xml(label)}</string><key>ProgramArguments</key><array>${args}</array><key>EnvironmentVariables</key><dict>${env}</dict><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>5</integer>${exitTimeOut === undefined ? "" : `<key>ExitTimeOut</key><integer>${exitTimeOut}</integer>`}<key>StandardOutPath</key><string>${xml(log)}</string><key>StandardErrorPath</key><string>${xml(log)}</string></dict></plist>\n`;
+  return `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>${xml(
+    label,
+  )}</string><key>ProgramArguments</key><array>${args}</array><key>EnvironmentVariables</key><dict>${env}</dict><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>5</integer>${
+    exitTimeOut === undefined ? "" : `<key>ExitTimeOut</key><integer>${exitTimeOut}</integer>`
+  }<key>StandardOutPath</key><string>${xml(log)}</string><key>StandardErrorPath</key><string>${xml(
+    log,
+  )}</string></dict></plist>\n`;
 }
 
 async function writableBindRoots(docker) {
@@ -310,7 +325,12 @@ async function install(planFile) {
         endpoint: new URL(plan.containerOrigin).host,
         useTls: true,
       },
-      { kind: "host", serverId: hostId, endpoint: new URL(hostOrigin).host, useTls: true },
+      {
+        kind: "host",
+        serverId: hostId,
+        endpoint: new URL(hostOrigin).host,
+        useTls: true,
+      },
     ],
   };
   const config = {
@@ -332,7 +352,10 @@ async function install(planFile) {
         home: hostHome,
       },
     },
-    container: { endpoint: `127.0.0.1:${plan.containerPort}`, password: containerPassword },
+    container: {
+      endpoint: `127.0.0.1:${plan.containerPort}`,
+      password: containerPassword,
+    },
   };
   const client = await connectInstallationDaemon(config, "container");
   try {
@@ -342,7 +365,9 @@ async function install(planFile) {
       throw new Error(
         "Narrow the existing container origin allowlist before pairing a privileged interface",
       );
-    json(path.join(plan.root, "container-origin-before.json"), { allowedOrigins });
+    json(path.join(plan.root, "container-origin-before.json"), {
+      allowedOrigins,
+    });
     const persistedId = await run(plan.docker, [
       "exec",
       "--user",
@@ -400,7 +425,9 @@ async function install(planFile) {
       .replaceAll("INSTALLATION_SETTINGS_URL", `${origin}/settings/general?installation=1`)
       .replaceAll(
         "INSTALLATION_CLIENT_COMMAND",
-        `${shellQuote(process.execPath)} ${shellQuote(agentScript)} --config ${shellQuote(hostClientFile)}`,
+        `${shellQuote(process.execPath)} ${shellQuote(
+          agentScript,
+        )} --config ${shellQuote(hostClientFile)}`,
       ),
   );
   json(path.join(hostHome, "config.json"), {
@@ -416,11 +443,18 @@ async function install(planFile) {
     features: { webUi: { enabled: false } },
   });
   // The System project branches new workspaces from the checkout this install came from.
-  writeSystemSource({ paseoHome: hostHome, checkout: sourceRoot, ref: plan.revision });
+  writeSystemSource({
+    paseoHome: hostHome,
+    checkout: sourceRoot,
+    ref: plan.revision,
+  });
   // New Host projects and worktrees go in the installation's Projects folder.
   if (plan.projectsFolder) {
     assertProjectsFolderSeparate(plan.projectsFolder, [plan.root, hostHome, sourceRoot]);
-    writeProjectsFolderSettings({ paseoHome: hostHome, root: plan.projectsFolder });
+    writeProjectsFolderSettings({
+      paseoHome: hostHome,
+      root: plan.projectsFolder,
+    });
   }
   const env = {
     HOME: os.homedir(),
@@ -529,7 +563,9 @@ async function install(planFile) {
       .replaceAll("INSTALLATION_SETTINGS_URL", `${origin}/settings/general?installation=1`)
       .replaceAll(
         "INSTALLATION_CLIENT_COMMAND",
-        `node ${shellQuote(`${guestDir}/installation-agent.mjs`)} --config ${shellQuote(`${guestDir}/client.json`)}`,
+        `node ${shellQuote(
+          `${guestDir}/installation-agent.mjs`,
+        )} --config ${shellQuote(`${guestDir}/client.json`)}`,
       ),
   );
   for (const [from, to] of [
@@ -559,7 +595,10 @@ async function install(planFile) {
   }
   json(recordFile, { ...record, phase: "started" });
   process.stdout.write(
-    `Installation started: ${origin}\nOwner password file: ${path.join(plan.root, "owner-password")}\nRun status and complete host/phone acceptance before claiming delivery.\n`,
+    `Installation started: ${origin}\nOwner password file: ${path.join(
+      plan.root,
+      "owner-password",
+    )}\nRun status and complete host/phone acceptance before claiming delivery.\n`,
   );
 }
 
@@ -779,7 +818,10 @@ export async function configureSystemSource(root, checkout = sourceRoot) {
   const resolved = realpathSync(path.resolve(checkout));
   if (!existsSync(path.join(resolved, ".git")))
     throw new Error(`${resolved} is not a git checkout`);
-  const host = writeSystemSource({ paseoHome: record.hostHome, checkout: resolved });
+  const host = writeSystemSource({
+    paseoHome: record.hostHome,
+    checkout: resolved,
+  });
   const config = JSON.parse(readFileSync(record.configFile, "utf8"));
   const dev = config.containerSourceUpdates
     ? await writeContainerSystemSource(config.containerSourceUpdates, resolved)
@@ -877,8 +919,12 @@ async function resolveContainerProjectsFolder(settings, root) {
       commands: {
         root: commands.root,
         verify: commands.verify,
-        dockerRoot: `${shellQuote(settings.docker)} exec --user root ${shellQuote(settings.containerId)} sh -c ${shellQuote(commands.root)}`,
-        dockerVerify: `${shellQuote(settings.docker)} exec --user ${shellQuote(settings.user)} ${shellQuote(settings.containerId)} sh -c ${shellQuote(commands.verify)}`,
+        dockerRoot: `${shellQuote(settings.docker)} exec --user root ${shellQuote(
+          settings.containerId,
+        )} sh -c ${shellQuote(commands.root)}`,
+        dockerVerify: `${shellQuote(settings.docker)} exec --user ${shellQuote(
+          settings.user,
+        )} ${shellQuote(settings.containerId)} sh -c ${shellQuote(commands.verify)}`,
       },
     },
   };
@@ -959,6 +1005,66 @@ export async function configureProjectsFolder(
     host = { ...withDetected, changed: host.changed || withDetected.changed };
   }
   return { folder: resolved, host, dev };
+}
+
+/** The Host's Projects folder settings, or none without an installation root. */
+function readHostProjectsFolderSettings(root) {
+  if (!root) return {};
+  const record = JSON.parse(readFileSync(path.join(root, "installation.json"), "utf8"));
+  const file = path.join(record.hostHome, PROJECTS_FOLDER_SETTINGS_PATH);
+  return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+}
+
+function resolveRepairFolder(folder) {
+  if (!folder || !path.isAbsolute(folder))
+    throw new Error(
+      "Use --folder with an absolute path, or --root with a configured Projects folder",
+    );
+  if (!statSync(folder).isDirectory()) throw new Error(`${folder} is not a folder`);
+  return folder;
+}
+
+function resolveRepairPrefixes(prefixes, folder) {
+  if (prefixes.length === 0)
+    throw new Error("Use --from <old prefix>, or --root with configured aliases");
+  for (const prefix of prefixes) {
+    if (!path.isAbsolute(prefix)) throw new Error("--from must be an absolute path");
+    if (isInsideFolder(prefix, folder) || isInsideFolder(folder, prefix))
+      throw new Error(`${prefix} overlaps the Projects folder ${folder}`);
+  }
+  return prefixes;
+}
+
+/**
+ * Rewrites worktree links that Dev recorded under an old container path to the Projects
+ * folder's logical path, so the Host no longer lists those worktrees as prunable. A dry run
+ * unless `apply` is set. With `root`, the Host's projects-folder.json supplies the folder,
+ * the old prefixes (`migrateFrom` and `aliases`) and the kept paths.
+ */
+export function repairProjectsFolderWorktreeLinks({
+  root,
+  folder,
+  from = [],
+  keepPaths = [],
+  depth = 4,
+  apply = false,
+}) {
+  const settings = readHostProjectsFolderSettings(root);
+  const resolvedFolder = resolveRepairFolder(folder ?? settings.root);
+  const prefixes = resolveRepairPrefixes(
+    from.length ? from : [...(settings.migrateFrom ?? []), ...(settings.aliases ?? [])],
+    resolvedFolder,
+  );
+  const scan = scanWorktreeLinks({
+    folder: resolvedFolder,
+    from: prefixes,
+    keepPaths: [...new Set([...(settings.keepPaths ?? []), ...keepPaths])],
+    depth,
+  });
+  return {
+    scan,
+    written: apply ? applyWorktreeLinkChanges(scan.changes) : null,
+  };
 }
 
 /** Prepare the scoped Dev updater without restarting any service or changing its launcher. */
@@ -1071,7 +1177,10 @@ console.log(JSON.stringify({expected:path.join(os.homedir(),'.local/share/vorteo
     reason: `Could not record the source checkout for the Dev System project: ${error.message}`,
   }));
   if (!systemSource.written) process.stderr.write(`${systemSource.reason}\n`);
-  json(settings.receiptFile, { sourceCommit: selected.sourceCommit, release: selected.release });
+  json(settings.receiptFile, {
+    sourceCommit: selected.sourceCommit,
+    release: selected.release,
+  });
   json(configFile, { ...config, containerSourceUpdates: settings });
   // Refresh request-only tooling in the already paired guest. Never copy Host credentials.
   const guestHome = await run(settings.docker, [
@@ -1094,7 +1203,9 @@ console.log(JSON.stringify({expected:path.join(os.homedir(),'.local/share/vorteo
     )
     .replaceAll(
       "INSTALLATION_CLIENT_COMMAND",
-      `${shellQuote(settings.node)} ${shellQuote(path.join(guestDir, "installation-agent.mjs"))} --config ${shellQuote(path.join(guestDir, "client.json"))}`,
+      `${shellQuote(settings.node)} ${shellQuote(
+        path.join(guestDir, "installation-agent.mjs"),
+      )} --config ${shellQuote(path.join(guestDir, "client.json"))}`,
     );
   const guestFiles = [
     [
@@ -1226,7 +1337,7 @@ async function manage(command, root) {
   );
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
+if (isMainModule(import.meta.url)) {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
     options: {
@@ -1238,6 +1349,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
       alias: { type: "string", multiple: true },
       "allow-outside": { type: "string", multiple: true },
       "keep-path": { type: "string", multiple: true },
+      from: { type: "string", multiple: true },
+      depth: { type: "string" },
+      apply: { type: "boolean" },
     },
   });
   if (positionals[0] === "install" && values.plan) await install(values.plan);
@@ -1263,9 +1377,25 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
         2,
       ) + "\n",
     );
+  else if (
+    positionals[0] === "repair-projects-folder-worktree-links" &&
+    (values.root || values.folder)
+  )
+    process.stdout.write(
+      formatWorktreeLinkReport(
+        repairProjectsFolderWorktreeLinks({
+          root: values.root,
+          folder: values.folder,
+          from: values.from,
+          keepPaths: values["keep-path"],
+          depth: values.depth === undefined ? undefined : Number.parseInt(values.depth, 10),
+          apply: values.apply === true,
+        }),
+      ),
+    );
   else if (values.root) await manage(positionals[0], values.root);
   else
     throw new Error(
-      "Use install/configure-dev-updates/configure-web-source --plan <private-plan.json>, configure-system-source --root <installation-root> [--checkout <path>], configure-projects-folder --root <installation-root> --folder <path> [--migrate-from <old container path>] [--alias <container path>] [--allow-outside <path>] [--keep-path <exact recorded path>], or status/remove --root <installation-root>",
+      "Use install/configure-dev-updates/configure-web-source --plan <private-plan.json>, configure-system-source --root <installation-root> [--checkout <path>], configure-projects-folder --root <installation-root> --folder <path> [--migrate-from <old container path>] [--alias <container path>] [--allow-outside <path>] [--keep-path <exact recorded path>], repair-projects-folder-worktree-links --folder <path> --from <old prefix> [--root <installation-root>] [--keep-path <repository root>] [--depth <n>] [--apply], or status/remove --root <installation-root>",
     );
 }

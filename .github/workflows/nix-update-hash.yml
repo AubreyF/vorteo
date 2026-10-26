@@ -23,6 +23,9 @@ permissions:
 
 jobs:
   update-hash:
+    # Upstream's bot commits hash updates to main with its GitHub App, which this fork
+    # does not have; here only Builds writes main.
+    if: ${{ github.repository == 'getpaseo/paseo' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/create-github-app-token@v1

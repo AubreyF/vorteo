@@ -236,3 +236,25 @@ describe("applyAppearance", () => {
     expect(runCapturedUpdater().colors.syntax).toEqual(resolveSyntaxColors("github", "dark"));
   });
 });
+
+describe("data saver appearance", () => {
+  beforeEach(() => {
+    updateTheme.mockReset();
+    runtime.themeName = undefined;
+    runtime.getTheme.mockReset();
+    runtime.getTheme.mockImplementation(() => makeFakeTheme());
+  });
+  it("data saver uses system fonts without changing saved choices and restores them when disabled", () => {
+    const saved = makeInput({ uiFontFamily: "Saved UI", monoFontFamily: "Saved Mono" });
+    applyAppearance({ ...saved, dataSaver: true });
+    expect(runCapturedUpdater().fontFamily).toMatchObject({
+      ui: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+      mono: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+    });
+    expect(saved.uiFontFamily).toBe("Saved UI");
+    expect(saved.monoFontFamily).toBe("Saved Mono");
+    updateTheme.mockClear();
+    applyAppearance(saved);
+    expect(runCapturedUpdater().fontFamily).toMatchObject({ ui: "Saved UI", mono: "Saved Mono" });
+  });
+});

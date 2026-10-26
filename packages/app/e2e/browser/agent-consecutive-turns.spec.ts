@@ -473,8 +473,10 @@ function expectRowContinuity(frames: TurnFrame[]): void {
       index > first &&
       [
         geometryChanged(frame.scroll.rect?.top, baselineFrame?.scroll.rect?.top),
-        geometryChanged(frame.scroll.rect?.height, baselineFrame?.scroll.rect?.height),
-        geometryChanged(frame.scroll.clientHeight, baselineFrame?.scroll.clientHeight),
+        // Since ab83bcdea the launch picker leaves once the first prompt is sent, so the viewport
+        // may grow downward. Its top edge must not move, and it must never shrink.
+        geometryShrank(frame.scroll.rect?.height, baselineFrame?.scroll.rect?.height),
+        geometryShrank(frame.scroll.clientHeight, baselineFrame?.scroll.clientHeight),
       ].some(Boolean),
   );
   const attachmentMissing = frames.findIndex(
@@ -492,7 +494,7 @@ function expectRowContinuity(frames: TurnFrame[]): void {
           `submitted row moved in scroll content from ${baselineContentTop?.toFixed(1)} to ${submittedRowContentTop(frames[contentShifted])?.toFixed(1)}`,
         ]
       : []),
-    ...(viewportChanged >= 0 ? ["scroll viewport geometry changed"] : []),
+    ...(viewportChanged >= 0 ? ["scroll viewport moved or shrank"] : []),
     ...(attachmentMissing >= 0 ? ["submitted image attachment left the painted layout"] : []),
   ];
   let failure = Math.max(0, first);
@@ -517,6 +519,14 @@ function geometryChanged(
 ): boolean {
   if (value == null || expected == null) return true;
   return Math.abs(value - expected) > 1;
+}
+
+function geometryShrank(
+  value: number | null | undefined,
+  expected: number | null | undefined,
+): boolean {
+  if (value == null || expected == null) return true;
+  return expected - value > 1;
 }
 
 function hasPaintedLayout(element: ElementFrame): boolean {
@@ -830,6 +840,9 @@ test("keeps the first prompt of a new agent in place through authoritative hydra
         }),
       );
     });
+    // Since ab83bcdea the first prompt deliberately fades up into place while the launch picker
+    // tucks away; reduced motion skips that animation so only hydration can move the row.
+    await page.emulateMedia({ reducedMotion: "reduce" });
     const gate = await installDaemonWebSocketGate(page);
     await gotoWorkspace(page, workspace.workspaceId);
     await clickNewChat(page);

@@ -38,6 +38,7 @@ import {
   readBootstrapPreparedFile,
   verifyBootstrapReleaseArtifacts,
 } from "./coordinator-bootstrap-artifact.js";
+import type { RequireRuntimeCustody } from "./coordinator-bootstrap-runtime-custody.js";
 
 const execute = promisify(execFile);
 
@@ -76,6 +77,9 @@ interface NativeLifecycleContext {
   manualPrevious?: BootstrapManualProcessControl;
   /** Set only by the independent startup runner after observing its native boot. */
   recoveryBootId?: string;
+  /** Set only for an ordinary renewal executor: the full runtime digest, run as the
+   * last await before freeze, unload and start. Recovery paths never receive it. */
+  requireRuntimeCustody?: RequireRuntimeCustody;
 }
 
 function isOriginalBootstrapService(
@@ -550,6 +554,8 @@ export function createBootstrapNativeLifecycle(
       await requireStage(request, "start_pending");
       if (JSON.stringify(await context.writableMountRoots()) !== JSON.stringify(roots))
         throw new BootstrapRequestConflict("Writable mounts changed before startup");
+      // The candidate executes this runtime; nothing else yields before the effect.
+      await context.requireRuntimeCustody?.("start");
       await command.run(["bootstrap", `gui/${uid}`, context.launcherFile]);
     },
     async verifyRollback(request: CoordinatorBootstrapRequest) {
@@ -734,6 +740,7 @@ export function createBootstrapNativeLifecycle(
       await requireStage(request, "freeze_pending");
       await verify(request);
       await requireStage(request, "freeze_pending");
+      await context.requireRuntimeCustody?.("freeze");
       if (request.plan.supervisionRecovery) await context.manualPrevious!.signal(request, "freeze");
       else await command.run(["kill", "SIGSTOP", request.plan.service]);
       await waitFor(() => verifyState(request, true));
@@ -760,6 +767,7 @@ export function createBootstrapNativeLifecycle(
         writableMountRoots: await context.writableMountRoots(),
       });
       await requireStage(request, "unload_pending");
+      await context.requireRuntimeCustody?.("unload");
       if (request.plan.supervisionRecovery)
         await context.manualPrevious!.signal(request, "terminate-frozen");
       else await command.run(["bootout", request.plan.service]);

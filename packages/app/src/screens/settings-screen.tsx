@@ -1,3 +1,4 @@
+import { DataSaverSection } from "@/screens/settings/general/data-saver-section";
 import { InstallationConnectionCheck } from "@/execution-installation/connection-check-wrapper";
 import { InstallationRestartBanner, InstallationControls } from "@/execution-installation/panel";
 import { SystemProjectCard } from "@/execution-installation/system-project-card";
@@ -1098,7 +1099,12 @@ const PANE_RENDERERS: Record<string, (context: PaneContext) => ReactNode> = {
   "general.about": (context) => (
     <AboutSection appVersionText={context.appVersionText} isDesktopApp={context.isDesktopApp} />
   ),
-  "general.hosts": (context) => <ConnectedHostsSection context={context} />,
+  "general.hosts": (context) => (
+    <>
+      <ConnectedHostsSection context={context} />
+      <DataSaverSection />
+    </>
+  ),
   "accounts.providers": installationPane("providers"),
   "accounts.profiles": installationPane("profiles"),
   "accounts.usage": installationPane("usage"),

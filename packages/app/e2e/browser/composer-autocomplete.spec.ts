@@ -10,7 +10,10 @@ import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
 import { getServerId } from "../support/helpers/server-id";
 import { switchWorkspaceViaSidebar } from "../support/helpers/workspace-ui";
 import { expectMobileAgentSidebarVisible } from "../support/helpers/sidebar";
-import { expectNewWorkspaceProjectSelected } from "../support/helpers/new-workspace";
+import {
+  expectNewWorkspaceProjectSelected,
+  openGlobalNewWorkspaceComposer,
+} from "../support/helpers/new-workspace";
 
 const TEST_COMMANDS = [
   {
@@ -151,8 +154,8 @@ async function installListCommandsStub(page: Page): Promise<void> {
 }
 
 async function openAppWideNewWorkspace(page: Page): Promise<void> {
-  await page.getByTestId("sidebar-global-new-workspace").first().click();
-  await page.waitForURL((url) => url.pathname === "/new", { timeout: 30_000 });
+  // The app-wide New workspace entry is in the sidebar's More menu since ab60c1e39.
+  await openGlobalNewWorkspaceComposer(page);
 }
 
 async function openSettingsThenBackToWorkspace(page: Page): Promise<void> {

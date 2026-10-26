@@ -93,6 +93,7 @@ import type {
   RestartJob,
   RestartSummary,
 } from "@getpaseo/protocol/execution-installation";
+import { restartOperationView } from "./restart-operations";
 
 const expandedDisclosure = { leftIcon: ChevronUp, accessibilityState: { expanded: true } };
 const collapsedDisclosure = { leftIcon: ChevronDown, accessibilityState: { expanded: false } };
@@ -1534,8 +1535,17 @@ function DevRepairAction({
   );
 }
 
+/** Reviewed plan operations run only after held turns finish, never when idle. */
+function isPlanBound(job: RestartJob): boolean {
+  return restartOperationView(job) !== undefined;
+}
+
 function isPlainHostRestart(job: RestartJob): boolean {
-  return job.target === "host" && !job.supervisorPlanSha256 && !job.factoryRuntimePlanSha256;
+  return job.target === "host" && !isPlanBound(job);
+}
+
+function finishLabel(job: RestartJob): string {
+  return restartOperationView(job)?.finishLabel ?? "Finish turns and restart";
 }
 
 export function RestartActions({
@@ -1587,7 +1597,7 @@ export function RestartActions({
       ) : null}
       {pending && !source ? (
         <ActionFooter style={styles.actions}>
-          {!job.supervisorPlanSha256 && !job.factoryRuntimePlanSha256 ? (
+          {!isPlanBound(job) ? (
             <RestartActionButton
               variant="outline"
               disabledReason={restartActionDisabledReason(
@@ -1613,9 +1623,7 @@ export function RestartActions({
             onPress={finish}
             testID={`restart-finish-${job.id}`}
           >
-            {job.factoryRuntimePlanSha256
-              ? "Finish turns and adopt Factory startup"
-              : "Finish turns and restart"}
+            {finishLabel(job)}
           </RestartActionButton>
           {plainHostRestart ? <ForceRestartButton job={job} model={model} busy={busy} /> : null}
           <Button variant="ghost" disabled={busy} onPress={cancel}>
@@ -1636,9 +1644,8 @@ export function RestartActions({
 }
 
 function restartTargetLabel(job: RestartJob): string {
-  if (job.factoryRuntimePlanSha256) return "Factory startup on Dev";
-  if (job.supervisorPlanSha256) return "Dev supervisor";
-  return job.target === "host" ? "Host" : "Dev container";
+  const view = restartOperationView(job);
+  return view?.cardTarget ?? view?.target ?? (job.target === "host" ? "Host" : "Dev container");
 }
 
 function RestartDetails({ job }: { job: RestartJob }) {
@@ -1646,6 +1653,7 @@ function RestartDetails({ job }: { job: RestartJob }) {
   const toggle = useCallback(() => setExpanded((value) => !value), []);
   const controlSize = useVortonTouch() ? "md" : "sm";
   const source = Boolean(job.update || job.sourceBatch);
+  const operation = restartOperationView(job);
   return (
     <View>
       <Button
@@ -1661,15 +1669,9 @@ function RestartDetails({ job }: { job: RestartJob }) {
         <SettingsExpansion>
           {source ? <SourceUpdateDetails job={job} /> : <RestartActivity job={job} />}
           {!source ? <Text style={styles.text}>{job.reason}</Text> : null}
-          {job.supervisorPlanSha256 ? (
+          {operation ? (
             <Text selectable style={styles.text}>
-              Reviewed supervisor plan: {job.supervisorPlanSha256}
-            </Text>
-          ) : null}
-          {job.factoryRuntimePlanSha256 ? (
-            <Text selectable style={styles.text}>
-              Select the reviewed Factory runtime and restart Dev. Existing Factory state is
-              retained. Reviewed adoption plan: {job.factoryRuntimePlanSha256}
+              {operation.detail(job[operation.field]!)}
             </Text>
           ) : null}
           {job.factoryRuntimeRecoveryOf ? (

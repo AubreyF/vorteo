@@ -31,6 +31,7 @@ import {
   type SourceContribution,
 } from "@getpaseo/protocol/execution-installation";
 import type { InstallationConfig } from "./config.js";
+import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
 import { RestartRequestError, type RestartExecutor } from "./restarts.js";
 
 import { digestBootstrapArtifact, sealBootstrapRelease } from "./coordinator-bootstrap-artifact.js";
@@ -48,6 +49,9 @@ import {
 import { prepareSourceBatch } from "./source-batches.js";
 import { prepareDevRepairBundle } from "./dev-source-repair.js";
 import { assertReleaseSelectionAllowed } from "./release-selection-guard.js";
+import { pruneHostReleases, startHostReleaseRetention } from "./host-release-retention.js";
+import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
+import { isCompletedBootstrap, openBootstrapRequests } from "./coordinator-bootstrap.js";
 import { isDeepStrictEqual } from "node:util";
 import type { StandingInterruption } from "@getpaseo/protocol/maintenance-interruption";
 
@@ -171,6 +175,35 @@ async function verifyPublishedInterruption(input: PublishedInterruption) {
 }
 
 /** Only the protected coordinator turns an approved bundle into executable code. */
+/**
+ * Paths whose release job folders Host retention must keep: the selected and previous
+ * releases, every release a kept coordinator plan names, unfinished jobs, and the
+ * update tooling the live configuration runs. Reviewed tooling selection points
+ * `sourceUpdates.toolingDirectory` into a release's scripts folder, so removing that
+ * release would break every later install at its first step.
+ */
+export function hostRetentionReferences(input: {
+  config: Pick<InstallationConfig, "sourceUpdates" | "containerSourceUpdates">;
+  previous: string;
+  plans: readonly CoordinatorBootstrapPlan[];
+  unfinished: readonly string[];
+}): string[] {
+  const { config } = input;
+  return [
+    ...(config.sourceUpdates
+      ? [config.sourceUpdates.currentReleaseLink, config.sourceUpdates.toolingDirectory]
+      : []),
+    ...(config.containerSourceUpdates ? [config.containerSourceUpdates.toolingDirectory] : []),
+    input.previous,
+    ...input.plans.flatMap((plan) =>
+      [plan.previous, plan.candidate, plan.compatibleRecovery]
+        .filter((release) => release !== undefined)
+        .map((release) => release.directory),
+    ),
+    ...input.unfinished,
+  ];
+}
+
 export class InstallationSourceUpdates {
   private readonly directory: string;
   private readonly candidateEvidence = new Map<
@@ -448,7 +481,15 @@ export class InstallationSourceUpdates {
     const resultFile = path.join(work, "prepared.json");
     writeFileSync(
       requestFile,
-      JSON.stringify({ ...settings, update, bundle: this.bundlePath(update), work, resultFile }),
+      JSON.stringify({
+        ...settings,
+        update,
+        bundle: this.bundlePath(update),
+        work,
+        resultFile,
+        // Private to approved Host builds; older tooling ignores it and runs npm ci.
+        dependencyCache: path.join(path.dirname(settings.releaseRoot), ".release-dependency-cache"),
+      }),
       { mode: 0o600, flag: "wx" },
     );
     const validation = this.config.host.startupValidation;
@@ -594,6 +635,8 @@ export class InstallationSourceUpdates {
     job: RestartJob,
     restart: RestartExecutor["restart"],
     beforeSelection?: () => Promise<void>,
+    // Reports the version of the Host daemon that answered after the restart.
+    loadedHostVersion?: () => Promise<string | null | undefined>,
   ): Promise<string> {
     if (job.target !== this.target) throw new Error("Source update target changed");
     const activationDirectory =
@@ -663,6 +706,7 @@ export class InstallationSourceUpdates {
         { cause: error },
       );
     }
+    await assertLoadedHostRelease(prepared.release, loadedHostVersion);
     const ready = {
       previous,
       candidate: prepared.release,
@@ -708,7 +752,46 @@ export class InstallationSourceUpdates {
       update,
       status: "succeeded",
     });
-    return `Installed source ${update.sourceCommit}. Host replacement identity and readiness verified; interface published. Previous release retained at ${previous}.`;
+    // Cleanup runs after this result, outside the readiness deadline: a first prune of a
+    // large backlog once took longer than the whole install window.
+    startHostReleaseRetention(
+      () => this.retainHostReleases(previous),
+      path.join(work, "retention.json"),
+    );
+    return `Installed source ${update.sourceCommit}. Host replacement identity and readiness verified; interface published. Previous release retained at ${previous}. Old Host releases are removed in the background; the result is recorded in retention.json in this job's folder.`;
+  }
+
+  /**
+   * After a verified install, remove old Host release folders. Keeps the selected and
+   * previous releases, every release an open or the latest completed coordinator plan
+   * names, and folders of unfinished jobs. Never fails the install.
+   */
+  private async retainHostReleases(previous: string): Promise<string> {
+    const settings = this.hostSettings();
+    const failures: string[] = [];
+    try {
+      const journal = new FileBootstrapRequestJournal(this.config.stateDir);
+      const requests = journal.read();
+      const latest = requests.findLast((request) => isCompletedBootstrap(request));
+      const plans = [...openBootstrapRequests(requests), ...(latest ? [latest] : [])].map(
+        (request) => request.plan,
+      );
+      const unfinished = journal
+        .readLifecycle()
+        .filter((job) => ["pending", "approved", "running"].includes(job.status))
+        .map((job) => path.join(settings.releaseRoot, job.id));
+      const removed = await pruneHostReleases({
+        releaseRoot: settings.releaseRoot,
+        referenced: hostRetentionReferences({ config: this.config, previous, plans, unfinished }),
+        onError: (folder) => failures.push(path.basename(folder)),
+      });
+      const note = removed.length ? ` Removed ${removed.length} old Host releases.` : "";
+      return failures.length
+        ? `${note} Could not remove ${failures.length} old releases; they are kept.`
+        : note;
+    } catch {
+      return " Old Host releases were not pruned this time.";
+    }
   }
 
   private selectRelease(release: string) {
@@ -732,5 +815,34 @@ export class InstallationSourceUpdates {
     if (!this.config.sourceUpdates)
       throw new Error("Source updates require Host installation setup");
     return this.config.sourceUpdates;
+  }
+}
+
+/**
+ * A worker-only restart keeps the running supervisor, which resolved its worker
+ * from the release it started in. It can come back healthy on the previous
+ * build (vorteo.726 and 729), so readiness alone is not success.
+ */
+async function assertLoadedHostRelease(
+  release: string,
+  loadedHostVersion: (() => Promise<string | null | undefined>) | undefined,
+): Promise<void> {
+  const expectedVersion = releaseServerVersion(release);
+  const loadedVersion = await loadedHostVersion?.();
+  if (expectedVersion && loadedVersion && loadedVersion !== expectedVersion)
+    throw new Error(
+      `Host restarted on ${loadedVersion}, not ${expectedVersion}: the running supervisor kept the previous build. The new release stays selected and loads on a full Host restart. Interface not published; do not replay the update.`,
+    );
+}
+
+/** The server package version a release's daemon reports, or null when unreadable. */
+function releaseServerVersion(release: string): string | null {
+  try {
+    const manifest = JSON.parse(
+      readFileSync(path.join(release, "packages/server/package.json"), "utf8"),
+    ) as { version?: unknown };
+    return typeof manifest.version === "string" ? manifest.version : null;
+  } catch {
+    return null;
   }
 }

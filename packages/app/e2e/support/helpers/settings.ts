@@ -1,8 +1,9 @@
 import { expect, type Page } from "@playwright/test";
 import { buildCreateAgentPreferences, buildSeededHost } from "./daemon-registry";
 import { getServerId } from "./server-id";
+import { openSettings } from "./app";
 import { expectAppRoute } from "./route-assertions";
-import { buildSettingsHostSectionRoute, buildSettingsRoute } from "@/utils/host-routes";
+import { buildSettingsRoute } from "@/utils/host-routes";
 import { getSection, resolveSettingsTarget } from "@/settings-catalog/catalog";
 
 const DISABLE_DEFAULT_SEED_ONCE_KEY = "@paseo:e2e-disable-default-seed-once";
@@ -58,10 +59,21 @@ export async function openSettingsSection(page: Page, section: SettingsSection):
 /** Scrolls the settings page to the pane that an old settings page name now opens. */
 export async function revealSettingsLocation(page: Page, slug: string): Promise<void> {
   const target = resolveSettingsTarget(slug);
-  await page.getByTestId(`settings-section-${target.section}`).click();
-  const anchor = page.getByTestId(
-    target.pane ? `settings-pane-${target.pane}` : `settings-page-section-${target.section}`,
-  );
+  // A drill-in can leave an earlier settings screen mounted but hidden, and a section can also
+  // appear in the page body, so use the visible sidebar's entry and the visible anchor.
+  const sidebar = page.getByTestId("settings-sidebar").filter({ visible: true }).first();
+  const scope = (await sidebar.isVisible()) ? sidebar : page;
+  await scope
+    .getByTestId(`settings-section-${target.section}`)
+    .filter({ visible: true })
+    .first()
+    .click();
+  const anchor = page
+    .getByTestId(
+      target.pane ? `settings-pane-${target.pane}` : `settings-page-section-${target.section}`,
+    )
+    .filter({ visible: true })
+    .first();
   await expect(anchor).toBeVisible();
   await anchor.scrollIntoViewIfNeeded();
 }
@@ -75,11 +87,27 @@ export async function openSettingsHost(page: Page, serverId: string): Promise<vo
 
 export async function openSettingsHostSection(
   page: Page,
-  _serverId: string,
+  serverId: string,
   section: HostSection,
 ): Promise<void> {
   await revealSettingsLocation(page, section === "host" ? "environments" : section);
   await expect(page.getByTestId("settings-host-picker")).toHaveCount(0);
+  if (section === "host" || section === "connections") {
+    await selectSettingsEnvironment(page, serverId);
+  }
+}
+
+/**
+ * Environments shows one host at a time. With more than one host, tabs under the heading
+ * choose which; a single host has no tabs.
+ */
+async function selectSettingsEnvironment(page: Page, serverId: string): Promise<void> {
+  const tab = page.getByTestId(`settings-environment-tab-${serverId}`);
+  if ((await page.getByTestId("settings-environment-tabs").count()) > 0) {
+    await tab.click();
+  }
+  // The section's test ID also marks its heading parts, so match the outermost element.
+  await expect(page.getByTestId(`settings-environment-${serverId}`).first()).toBeVisible();
 }
 
 /** A section or pane title is visible in the settings page, or a drill-in page's title. */
@@ -343,7 +371,12 @@ export async function openHostSection(
   section: HostSection,
 ): Promise<void> {
   if (section === "host") {
-    await page.goto(buildSettingsHostSectionRoute(serverId, "host"));
+    // Navigate inside the app: a full page load reseeds the host registry and drops added hosts.
+    if (!(await page.getByTestId("settings-scroll-page").isVisible())) {
+      await openSettings(page);
+    }
+    await openSettingsHostSection(page, serverId, "host");
+    // Environments renders only the selected host, so its identity badges are unique.
     await expect(page.getByTestId("host-page-identity")).toBeVisible();
     return;
   }
@@ -434,7 +467,8 @@ export async function expectHostRejectedWithReAddGuidance(
   page: Page,
   reason: string,
 ): Promise<void> {
-  const error = page.getByTestId("host-connection-error");
+  // Environments and Connections both show the host's connection error; check the first.
+  const error = page.getByTestId("host-connection-error").first();
   await expect(error).toContainText(reason);
   await expect(error).toContainText(
     "Remove this host and add it again with the password this daemon asks for.",

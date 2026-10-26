@@ -2,6 +2,9 @@ import { expect, test } from "../support/fixtures";
 import { composerLocator } from "../support/helpers/composer";
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
 
+// This spec handles the "Set up worktree scripts" notice itself.
+test.use({ dismissWorktreeSetupCallout: false });
+
 const API = "https://api.github.com/repos/AubreyF/paseo";
 const latestCommit = "b".repeat(40);
 

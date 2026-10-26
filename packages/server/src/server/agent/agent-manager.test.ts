@@ -3400,6 +3400,49 @@ test("listDraftCommands uses explicit model config without default model fetchin
   ]);
 });
 
+test("listDraftSkillCatalog reads skills and built-in skills from one draft session", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-draft-skills-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  class DraftSkillSession extends TestAgentSession {
+    closed = false;
+    override async listCommands(): Promise<AgentSlashCommand[]> {
+      return [
+        { name: "simplify", description: "", argumentHint: "", kind: "skill" },
+        { name: "clear", description: "", argumentHint: "", kind: "command" },
+      ];
+    }
+    async listBuiltinSkills(): Promise<string[]> {
+      if (this.closed) throw new Error("read after close");
+      return ["simplify"];
+    }
+    override async close(): Promise<void> {
+      this.closed = true;
+      await super.close();
+    }
+  }
+  class DraftSkillClient extends TestAgentClient {
+    createSessionCalls = 0;
+    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+      this.createSessionCalls += 1;
+      return new DraftSkillSession(config);
+    }
+  }
+  const client = new DraftSkillClient();
+  const manager = new AgentManager({ clients: { codex: client }, registry: storage, logger });
+
+  const catalog = await manager.listDraftSkillCatalog({
+    provider: "codex",
+    cwd: workdir,
+    model: "gpt-5.4",
+  });
+
+  expect(catalog).toEqual({ skills: ["simplify"], builtinSkills: ["simplify"] });
+  expect(client.createSessionCalls).toBe(1);
+  // Plain command listing never pays for the built-in skill read.
+  await manager.listDraftCommands({ provider: "codex", cwd: workdir, model: "gpt-5.4" });
+  expect(client.createSessionCalls).toBe(2);
+});
+
 test("listDraftFeatures does not start a fallback session without a model", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-draft-features-"));
   const storagePath = join(workdir, "agents");

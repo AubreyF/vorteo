@@ -30,6 +30,8 @@ async function typeComposerTextAndMeasureNextPaint(page: Page, text: string): Pr
   return readNextComposerPaintHeight(page);
 }
 
+// Since 1167acf35 the web chat composer inserts Shift+Enter newlines itself, which fires no
+// input event. A frame requested on keydown still runs before the first paint after the key.
 async function installNextComposerPaintProbe(page: Page): Promise<void> {
   await composerLocator(page).evaluate((element) => {
     Reflect.set(
@@ -37,7 +39,7 @@ async function installNextComposerPaintProbe(page: Page): Promise<void> {
       "__composerNextPaintHeight",
       new Promise<number>((resolve) => {
         element.addEventListener(
-          "input",
+          "keydown",
           () => {
             requestAnimationFrame(() => resolve(element.getBoundingClientRect().height));
           },

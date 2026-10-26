@@ -249,7 +249,8 @@ async function expectPluginSourceDocsOpen(page: Page): Promise<void> {
       (request) => request.isNavigationRequest() && request.url().startsWith("https://paseo.sh/"),
     );
   const docsPagePromise = page.context().waitForEvent("page");
-  await page.getByRole("link", { name: "Docs", exact: true }).click();
+  // The single settings page has other Docs links, such as metadata generation's.
+  await page.getByTestId("plugin-source-docs-link").click();
   const request = await requestedPage;
   const docsPage = await docsPagePromise;
   try {
@@ -330,6 +331,8 @@ test("installs, reloads, recovers, disables, and removes a trusted local plugin"
   page,
   pluginEnvironment,
 }, testInfo) => {
+  // Five phases through Settings take about 37 seconds locally and overran 60 seconds on CI.
+  test.setTimeout(120_000);
   const directory = await installLocalPluginWithStatusExamples(page, pluginEnvironment, testInfo);
   await reloadAndRecoverLocalPlugin(page, pluginEnvironment.client, directory);
   await toggleRemoveAndReinstallLocalPlugin(page, directory);
@@ -382,8 +385,10 @@ async function expectSourceHierarchy(page: Page, description: string, source: st
     Number.parseFloat(getComputedStyle(element).fontSize),
   );
   expect(sourceSize).toBeLessThan(descriptionSize);
-  await expect(sourceText).toHaveCSS("color", "rgb(120, 116, 111)");
-  await expect(descriptionText).toHaveCSS("color", "rgb(173, 169, 165)");
+  // Dark Star became the default dark appearance in 60f4899a6: the source uses its muted
+  // #aeaeb2 and the description its secondary #c7c7cc.
+  await expect(sourceText).toHaveCSS("color", "rgb(174, 174, 178)");
+  await expect(descriptionText).toHaveCSS("color", "rgb(199, 199, 204)");
 }
 
 async function installLocalPluginWithStatusExamples(

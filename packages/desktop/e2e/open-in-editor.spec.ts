@@ -37,10 +37,17 @@ async function readEditorOpenRecords(recordPath: string): Promise<EditorOpenReco
   }
 }
 
+/** Open in editor sits with the Explorer's toolbar actions, shown while the Explorer is open. */
+async function revealOpenInEditor(page: Page): Promise<void> {
+  const primary = page.getByTestId("workspace-open-in-editor-primary");
+  const toggle = page.getByTestId("workspace-explorer-toggle").first();
+  await expect(primary.or(toggle).first()).toBeVisible({ timeout: 30_000 });
+  if (!(await primary.isVisible())) await toggle.click();
+  await expect(primary).toBeVisible({ timeout: 30_000 });
+}
+
 async function selectEditorTarget(page: Page, targetId: string): Promise<void> {
-  await expect(page.getByTestId("workspace-open-in-editor-primary")).toBeVisible({
-    timeout: 30_000,
-  });
+  await revealOpenInEditor(page);
   await page.getByTestId("workspace-open-in-editor-caret").click();
   await expect(page.getByTestId("workspace-open-in-editor-menu")).toBeVisible();
   await page.getByTestId(`workspace-open-in-editor-item-${targetId}`).click();
@@ -196,6 +203,7 @@ test.describe("Workspace open in editor", () => {
     await clickSettingsBackToWorkspace(page);
     await expect(page).toHaveURL(/\/workspace\//, { timeout: 30_000 });
 
+    await revealOpenInEditor(page);
     await page.getByTestId("workspace-open-in-editor-primary").click();
     await expectEditorOpened({
       recordPath,
@@ -207,6 +215,7 @@ test.describe("Workspace open in editor", () => {
 
     await gotoAppShell(page);
     await workspace.navigateTo();
+    await revealOpenInEditor(page);
     await page.getByTestId("workspace-open-in-editor-primary").click();
     await expectEditorOpened({
       recordPath,

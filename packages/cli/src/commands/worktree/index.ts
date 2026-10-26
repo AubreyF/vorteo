@@ -9,7 +9,11 @@ export function createWorktreeCommand(): Command {
   const worktree = new Command("worktree").description("Manage Vorteo-managed git worktrees");
 
   addJsonAndDaemonHostOptions(
-    worktree.command("ls").description("List Vorteo-managed git worktrees"),
+    worktree
+      .command("ls")
+      .description("List Vorteo-managed git worktrees of a repository")
+      .option("--cwd <path>", "Directory inside the repository (default: current)")
+      .option("--repo <path>", "Repository root (overrides --cwd)"),
   ).action(withOutput(runLsCommand));
 
   addJsonAndDaemonHostOptions(
@@ -31,7 +35,9 @@ export function createWorktreeCommand(): Command {
     worktree
       .command("archive")
       .description("Archive a worktree (removes worktree and associated branch)")
-      .argument("<name>", "Worktree name or branch name"),
+      .argument("<name>", "Worktree name or branch name")
+      .option("--cwd <path>", "Directory inside the repository (default: current)")
+      .option("--repo <path>", "Repository root (overrides --cwd)"),
   ).action(withOutput(runArchiveCommand));
 
   return worktree;

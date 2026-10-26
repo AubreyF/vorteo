@@ -4,7 +4,9 @@ import type { AgentProfile, SharedProviderPreferences } from "@getpaseo/protocol
 import { gotoAppShell, openSettings } from "./app";
 import { connectDaemonClient } from "./daemon-client-loader";
 import { getServerId } from "./server-id";
+import { projectEquivalenceViewKey } from "./project-view-key";
 import { openSettingsHost, revealSettingsLocation } from "./settings";
+import { buildSchedulesRoute } from "../../../src/utils/host-routes";
 
 // ─── Daemon-side seeding ───────────────────────────────────────────────────
 
@@ -31,9 +33,24 @@ export interface HostSeed {
   restore(): Promise<void>;
 }
 
-async function connectAgentProfilesClient(): Promise<AgentProfilesDaemonClient> {
-  return connectDaemonClient<AgentProfilesDaemonClient>({ clientIdPrefix: "agent-profiles-e2e" });
+async function connectAgentProfilesClient(port?: number): Promise<AgentProfilesDaemonClient> {
+  return connectDaemonClient<AgentProfilesDaemonClient>({
+    clientIdPrefix: "agent-profiles-e2e",
+    port,
+  });
 }
+
+/**
+ * New chats and workspaces start from a profile, and New workspace refuses to create without
+ * one. The fixtures seed this shared mock profile on the test daemon; a second daemon a test
+ * starts needs it too. It pins no model, so a test's model choice holds.
+ */
+export const E2E_MOCK_PROFILE = {
+  id: "e2e-mock",
+  name: "E2E mock",
+  provider: "mock",
+  isDefault: true,
+};
 
 /**
  * Writes profiles into host config directly. Journeys that are *about* the
@@ -43,8 +60,9 @@ async function connectAgentProfilesClient(): Promise<AgentProfilesDaemonClient> 
 export async function seedAgentProfiles(
   profiles: AgentProfile[],
   shared = false,
+  port?: number,
 ): Promise<HostSeed> {
-  const client = await connectAgentProfilesClient();
+  const client = await connectAgentProfilesClient(port);
   const config = (await client.getDaemonConfig()).config;
   const previous = config.agentProfiles ?? [];
   if (shared) {
@@ -273,8 +291,18 @@ export interface AgentProfileDraft {
   notes?: string;
 }
 
+/**
+ * The profile editor. On phones it is a sheet whose header carries the test ID while its form
+ * and buttons sit in "-scroll" and "-footer" parts, so match all three.
+ */
 function editModal(page: Page): Locator {
-  return page.getByTestId("agent-profile-edit-modal");
+  return page.locator(
+    [
+      '[data-testid="agent-profile-edit-modal"]',
+      '[data-testid="agent-profile-edit-modal-scroll"]',
+      '[data-testid="agent-profile-edit-modal-footer"]',
+    ].join(", "),
+  );
 }
 
 async function chooseSelectFieldOption(
@@ -282,9 +310,12 @@ async function chooseSelectFieldOption(
   input: { field: "provider" | "model" | "mode" | "thinking"; option: string },
 ): Promise<void> {
   await editModal(page).getByTestId(`agent-profile-${input.field}-trigger`).click();
+  // Desktop lists options in a combobox popover; phones open a sheet, whose newest list is last.
   const option = page
     .getByTestId("combobox-desktop-container")
-    .getByRole("button", { name: input.option, exact: true });
+    .getByRole("button", { name: input.option, exact: true })
+    .or(page.getByRole("button", { name: input.option, exact: true }).filter({ visible: true }))
+    .last();
   await expect(option).toBeVisible({ timeout: 30_000 });
   await option.click();
   await expect(
@@ -326,9 +357,21 @@ async function saveAgentProfile(page: Page): Promise<void> {
   await expect(editModal(page)).toHaveCount(0, { timeout: 30_000 });
 }
 
+/** Choose a model in the open profile editor. */
+export async function draftModel(page: Page, model: string): Promise<void> {
+  await chooseSelectFieldOption(page, { field: "model", option: model });
+}
+
+/** Open a new profile's editor and fill it without saving. */
+export async function draftAgentProfile(page: Page, draft: AgentProfileDraft): Promise<void> {
+  await page.getByRole("button", { name: "Add agent profile", exact: true }).click();
+  await expect(editModal(page).first()).toBeVisible({ timeout: 30_000 });
+  await fillAgentProfileForm(page, draft);
+}
+
 export async function createAgentProfile(page: Page, draft: AgentProfileDraft): Promise<void> {
   await page.getByRole("button", { name: "Add agent profile", exact: true }).click();
-  await expect(editModal(page)).toBeVisible({ timeout: 30_000 });
+  await expect(editModal(page).first()).toBeVisible({ timeout: 30_000 });
   await fillAgentProfileForm(page, draft);
   await saveAgentProfile(page);
 }
@@ -341,7 +384,7 @@ export async function createAgentProfileFromEmptyState(
     .getByTestId("agent-profiles-card")
     .getByRole("button", { name: "New profile", exact: true })
     .click();
-  await expect(editModal(page)).toBeVisible({ timeout: 30_000 });
+  await expect(editModal(page).first()).toBeVisible({ timeout: 30_000 });
   await fillAgentProfileForm(page, draft);
   await saveAgentProfile(page);
 }
@@ -354,7 +397,7 @@ export async function editAgentProfile(
   await agentProfileRow(page, name)
     .getByRole("button", { name: "Edit profile", exact: true })
     .click();
-  await expect(editModal(page)).toBeVisible({ timeout: 30_000 });
+  await expect(editModal(page).first()).toBeVisible({ timeout: 30_000 });
   await fillAgentProfileForm(page, changes);
   await saveAgentProfile(page);
 }
@@ -369,7 +412,7 @@ export async function expectAgentProfileForm(
     .getByRole("button", { name: "Edit profile", exact: true })
     .click();
   const modal = editModal(page);
-  await expect(modal).toBeVisible({ timeout: 30_000 });
+  await expect(modal.first()).toBeVisible({ timeout: 30_000 });
   await expect(modal.getByRole("textbox", { name: "Name", exact: true })).toHaveValue(name);
   const notesHint = modal.getByTestId("agent-profile-notes-field-hint");
   await expect(notesHint).toHaveText(
@@ -403,6 +446,30 @@ function pickerViewport(page: Page): Locator {
 export async function openModelPicker(page: Page): Promise<void> {
   await page.getByTestId("combined-model-selector").filter({ visible: true }).first().click();
   await expect(pickerViewport(page)).toBeVisible({ timeout: 30_000 });
+}
+
+/**
+ * Open the model picker in a new schedule's form for `projectKey`. The composer lost its model
+ * picker with the Paseo mode in 471d7f22a; the schedule form keeps the same picker, including its
+ * cross-provider search. It opens inside the selected provider, so step back to the root view
+ * where that search lives.
+ */
+export async function openScheduleModelPicker(page: Page, projectKey: string): Promise<void> {
+  await page.goto(buildSchedulesRoute());
+  await page
+    .locator('[data-testid="schedules-new"]:visible, [data-testid="schedules-empty-new"]:visible')
+    .first()
+    .click();
+  await expect(page.getByTestId("schedule-form-sheet")).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId("schedule-project-trigger").click();
+  await page
+    .getByTestId(`schedule-project-option-${projectEquivalenceViewKey(projectKey)}`)
+    .click();
+  await page.getByTestId("schedule-model-trigger").click({ timeout: 30_000 });
+  await expect(pickerViewport(page)).toBeVisible({ timeout: 30_000 });
+  const back = pickerViewport(page).getByRole("button", { name: "Back", exact: true });
+  if (await back.isVisible()) await back.click();
+  await expect(page.getByTestId("model-search-all-input")).toBeVisible({ timeout: 30_000 });
 }
 
 export async function closeModelPicker(page: Page): Promise<void> {
@@ -552,7 +619,7 @@ export async function expectCreateProfileFromModelRow(
     .getByTestId(`model-create-profile-${input.provider}-${input.modelId}`)
     .click();
   const modal = editModal(page);
-  await expect(modal).toBeVisible({ timeout: 30_000 });
+  await expect(modal.first()).toBeVisible({ timeout: 30_000 });
   await expect(modal.getByRole("textbox", { name: "Name", exact: true })).toHaveValue(
     input.modelLabel,
   );

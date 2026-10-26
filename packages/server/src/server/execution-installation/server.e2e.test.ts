@@ -2776,7 +2776,7 @@ test("Host CLI source contributions carry the advertised owner-review requiremen
     expect(calls).toEqual([
       "GET /api/installation/capabilities",
       "GET /api/installation/update-source",
-      "POST /api/installation/source-update-requests?target=host&sourceBatches=1&requireOwnerApproval=1",
+      "POST /api/installation/source-update-requests?target=host&sourceBatches=1&requireOwnerApproval=1&engineRestart=1&hostLauncherUpdate=1",
     ]);
     expect(metadata).toMatchObject({
       request: { target: "host", requireOwnerApproval: true },

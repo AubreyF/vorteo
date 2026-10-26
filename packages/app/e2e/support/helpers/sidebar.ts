@@ -117,9 +117,15 @@ async function openWorkspaceSidebarKebab(page: Page, workspaceId: string) {
   await expect(row).toBeVisible({ timeout: 30_000 });
   await row.hover();
 
+  // Compact and touch rows have no overflow button (2415534c8); their context menu carries the
+  // same items, so open that when no kebab appears on hover.
   const kebab = page.getByTestId(`sidebar-workspace-kebab-${serverId}:${workspaceId}`);
-  await expect(kebab).toBeVisible({ timeout: 10_000 });
-  await kebab.click();
+  const shown = await kebab
+    .waitFor({ state: "visible", timeout: 3_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (shown) await kebab.click();
+  else await row.click({ button: "right" });
 
   return serverId;
 }
@@ -169,14 +175,25 @@ export async function expectWorkspaceAbsentFromSidebar(
 // The display-preferences menu is one row per decision, and the options sit a page below that
 // row. Every caller has to walk the same path, so it lives here: when the menu's shape moves
 // again, this is the only place that has to follow.
+/**
+ * Open the display-preferences menu. Since the sidebar toolbar redesign (ab60c1e39) its trigger
+ * is hidden and the More menu's View preferences item opens it.
+ */
+export async function openSidebarDisplayPreferences(page: Page): Promise<void> {
+  await page.locator('[data-testid="sidebar-footer-overflow"]:visible').first().click();
+  await page.getByTestId("sidebar-display-preferences-action").click();
+  // Touch layouts open the menu as a sheet, whose scroll content adds a "-content" suffix.
+  await expect(
+    page
+      .getByTestId("sidebar-display-preferences-content")
+      .or(page.getByTestId("sidebar-display-preferences-content-content"))
+      .filter({ visible: true })
+      .first(),
+  ).toBeVisible({ timeout: 10_000 });
+}
+
 export async function openSidebarDisplayPage(page: Page, branchTestID: string): Promise<void> {
-  const overflow = page.getByTestId("sidebar-footer-overflow");
-  if (await overflow.isVisible()) {
-    await overflow.click();
-    await page.getByTestId("sidebar-display-preferences-action").click();
-  } else {
-    await page.getByTestId("sidebar-display-preferences-menu").click();
-  }
+  await openSidebarDisplayPreferences(page);
   await page.getByTestId(branchTestID).click();
 }
 
@@ -206,12 +223,19 @@ export async function selectSidebarStatusGrouping(page: Page): Promise<void> {
   await page.getByTestId("sidebar-grouping-status").click();
 }
 
-export async function openMobileAgentSidebar(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Open menu" }).click();
+export async function selectSidebarProjectGrouping(page: Page): Promise<void> {
+  await openSidebarDisplayPage(page, "sidebar-display-grouping");
+  await page.getByTestId("sidebar-grouping-project").click();
 }
 
+export async function openMobileAgentSidebar(page: Page): Promise<void> {
+  // The sidebar's own collapse toggle shares the "Open menu" name; the header button comes first.
+  await page.getByRole("button", { name: "Open menu" }).filter({ visible: true }).first().click();
+}
+
+/** The phone sidebar closes from the collapse toggle at the start of its own toolbar. */
 export async function closeMobileAgentSidebar(page: Page): Promise<void> {
-  const closeButton = page.getByTestId("sidebar-close");
+  const closeButton = page.locator('[data-testid="sidebar-collapse"]:visible').first();
   await expect(closeButton).toBeInViewport({ ratio: 1, timeout: 5_000 });
   await closeButton.click();
 }
@@ -224,4 +248,11 @@ export async function expectMobileAgentSidebarVisible(page: Page): Promise<void>
 
 export async function expectMobileAgentSidebarHidden(page: Page): Promise<void> {
   await expect(page.getByTestId("sidebar-sessions")).not.toBeInViewport({ timeout: 5_000 });
+}
+
+/** Help and support opens from the sidebar's More menu; its own trigger stays hidden. */
+export async function openSidebarHelpMenu(page: Page): Promise<void> {
+  await page.locator('[data-testid="sidebar-footer-overflow"]:visible').first().click();
+  await page.getByTestId("sidebar-help-action").click();
+  await expect(page.getByTestId("sidebar-help-menu")).toBeVisible();
 }

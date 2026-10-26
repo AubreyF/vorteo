@@ -59,14 +59,9 @@ test("old Claude CLI explains missing models and clears the warning after upgrad
       await page.getByRole("button", { name: "Close", exact: true }).click();
       await expect(page.getByTestId("provider-settings-sheet")).toBeHidden();
     }
+    // Retired 2026-10-25: the Standard mode check that hid this warning went with the mode in
+    // 471d7f22a.
     await page.setViewportSize({ width: 1280, height: 1000 });
-    await openProvidersInMode({ page, vortonMode: false });
-    await expect(row).not.toContainText("CLI update needed");
-    await row.click();
-    await expect(page.getByTestId("provider-settings-sheet")).toBeVisible();
-    await expect(page.getByTestId("provider-cli-update")).toHaveCount(0);
-    await page.getByRole("button", { name: "Close", exact: true }).click();
-    await openProvidersInMode({ page, vortonMode: true });
     await expect(row).toContainText("CLI update needed");
     await client.patchDaemonConfig({
       providers: {

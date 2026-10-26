@@ -11,7 +11,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { expandTilde, isPathInsideRoot } from "../utils/path.js";
+import { expandTilde, isPathInsideRoot, looksLikeDefiniteWindowsPath } from "../utils/path.js";
 
 export const PROJECTS_FOLDER_SETTINGS_FILE = "projects-folder.json";
 /** Paseo-owned worktrees for user projects live here, hidden from the folder browser. */
@@ -80,7 +80,7 @@ export function resolveProjectsFolderConfig(
   }
   const absoluteList = (values: string[] | undefined) =>
     (values ?? []).flatMap((value) => {
-      const resolved = absolutePath(value);
+      const resolved = recordedPath(value);
       return resolved && resolved !== root ? [resolved] : [];
     });
   const physicalRoot = canonicalPathSync(root);
@@ -109,6 +109,12 @@ export function toLogicalProjectsPath(
 ): string {
   if (config.keepPaths?.includes(value)) return value;
   for (const alias of aliasesLongestFirst(config.aliases)) {
+    if (looksLikeDefiniteWindowsPath(alias)) {
+      const rest = windowsSuffixBelow(alias, value);
+      if (rest === "") return config.root;
+      if (rest !== null) return joinSuffix(config.root, rest);
+      continue;
+    }
     if (value === alias) return config.root;
     if (value.startsWith(`${alias}/`))
       return path.posix.join(config.root, value.slice(alias.length));
@@ -116,9 +122,38 @@ export function toLogicalProjectsPath(
   return value;
 }
 
+/**
+ * The part of `value` after a Windows `alias` ("" or a suffix starting with a separator), or
+ * null when `value` is not at or under it. Windows paths compare case-insensitively and with
+ * either separator; the suffix keeps the caller's own spelling.
+ */
+function windowsSuffixBelow(alias: string, value: string): string | null {
+  if (value.length < alias.length) return null;
+  const comparable = (text: string) => text.replaceAll("/", "\\").toLowerCase();
+  if (comparable(value.slice(0, alias.length)) !== comparable(alias)) return null;
+  const rest = value.slice(alias.length);
+  return rest === "" || rest.startsWith("/") || rest.startsWith("\\") ? rest : null;
+}
+
+function stripTrailingSeparators(value: string): string {
+  const pattern = looksLikeDefiniteWindowsPath(value) ? /[\\/]+$/u : /\/+$/u;
+  const stripped = value.replace(pattern, "");
+  // Keep a filesystem root such as "/" or "C:\" whole.
+  return stripped === "" || /^[a-zA-Z]:$/u.test(stripped) ? value : stripped;
+}
+
+function joinSuffix(root: string, suffix: string): string {
+  const base = stripTrailingSeparators(root);
+  return /[\\/]$/u.test(base) ? `${base}${suffix.slice(1)}` : `${base}${suffix}`;
+}
+
 function aliasesLongestFirst(aliases: readonly string[]): string[] {
   return aliases
-    .map((alias) => alias.replace(/\/+$/u, ""))
+    .map((alias) =>
+      looksLikeDefiniteWindowsPath(alias)
+        ? stripTrailingSeparators(alias)
+        : alias.replace(/\/+$/u, ""),
+    )
     .filter((alias) => alias.length > 0)
     .toSorted((left, right) => right.length - left.length);
 }
@@ -128,7 +163,7 @@ export function toLogicalProjectKey(
   config: Pick<ProjectsFolderConfig, "root" | "aliases" | "keepPaths">,
   key: string,
 ): string {
-  const match = /^(host:[^:]+:)?(\/.*)$/u.exec(key);
+  const match = /^(host:[^:]+:)?(\/.*|[a-zA-Z]:[\\/].*|\\\\.*)$/u.exec(key);
   if (!match?.[2]) return key;
   return `${match[1] ?? ""}${toLogicalProjectsPath(config, match[2])}`;
 }
@@ -184,9 +219,26 @@ function absolutePath(value: string): string | null {
   return path.isAbsolute(expanded) ? path.resolve(expanded) : null;
 }
 
+/**
+ * Like `absolutePath`, for aliases and other recorded paths. These can describe the folder as
+ * another daemon or an older install saw it, such as the Linux container's mount, so on
+ * Windows a POSIX-absolute value is kept as written instead of being placed on the current
+ * drive. It is only ever compared as text.
+ */
+function recordedPath(value: string): string | null {
+  const trimmed = value.trim();
+  if (process.platform === "win32" && /^\/(?!\/)/u.test(trimmed))
+    return stripTrailingSeparators(path.posix.normalize(trimmed));
+  return absolutePath(trimmed);
+}
+
+/**
+ * The real path, or `value` when it does not exist. Uses the native resolver, which on Windows
+ * also expands 8.3 short names (`RUNNER~1`), so it agrees with `fs.promises.realpath`.
+ */
 function canonicalPathSync(value: string): string {
   try {
-    return realpathSync(value);
+    return realpathSync.native(value);
   } catch {
     return value;
   }

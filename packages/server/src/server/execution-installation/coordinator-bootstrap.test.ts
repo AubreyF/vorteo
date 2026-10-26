@@ -69,6 +69,7 @@ import {
   createNativeBootstrapServiceReader,
 } from "./coordinator-bootstrap-service.js";
 import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
+import { createRuntimeCustody } from "./coordinator-bootstrap-runtime-custody.js";
 
 import {
   executeCoordinatorBootstrap,
@@ -1431,12 +1432,33 @@ test.runIf(process.platform === "darwin").each([
     };
     const calls: string[][] = [];
     const observations: string[] = [];
+    // Every awaited context callback, to prove the runtime digest is the last one.
+    const events: string[] = [];
     let owned = true;
+    const runtime = path.join(f.root, "runtime");
+    mkdirSync(runtime);
+    writeFileSync(path.join(runtime, "main.js"), "export {};");
+    const requireCustody = createRuntimeCustody({
+      custody: { runtimeDirectory: runtime, runtimeSha256: await digestBootstrapArtifact(runtime) },
+      digest: (directory) => digestBootstrapArtifact(directory),
+    });
     const reader = {
-      readService: async () => `${f.plan.service} = {\n\tpid = ${identity.pid}\n}`,
-      inspectProcess: async () => identity,
-      inspectStoppedProcess: async () => ({ ...identity, stopped: true as const, childPids: [] }),
-      inspectRunningProcess: async () => ({ ...identity, stopped: false as const }),
+      readService: async () => {
+        events.push("read-service");
+        return `${f.plan.service} = {\n\tpid = ${identity.pid}\n}`;
+      },
+      inspectProcess: async () => {
+        events.push("inspect");
+        return identity;
+      },
+      inspectStoppedProcess: async () => {
+        events.push("inspect");
+        return { ...identity, stopped: true as const, childPids: [] };
+      },
+      inspectRunningProcess: async () => {
+        events.push("inspect");
+        return { ...identity, stopped: false as const };
+      },
       verifyProcessExited: async () => {
         observations.push("exited");
       },
@@ -1455,11 +1477,17 @@ test.runIf(process.platform === "darwin").each([
           throw new Error("Unexpected fixture health read");
         },
         requireOwnership: async () => {
+          events.push("ownership");
           if (!owned) throw new Error("Ownership lost");
+        },
+        requireRuntimeCustody: async (boundary) => {
+          events.push(`custody:${boundary}`);
+          await requireCustody(boundary);
         },
       },
       {
         run: async (command) => {
+          events.push("command");
           calls.push([...command]);
         },
       },
@@ -1472,6 +1500,22 @@ test.runIf(process.platform === "darwin").each([
     await actions[operation](record);
     expect(calls).toEqual([[...args, f.plan.service]]);
     expect(observations).toEqual(operation === "unload" ? ["exited", "absent"] : []);
+    const custody = events.filter((event) => event.startsWith("custody:"));
+    if (operation === "resumePrevious") expect(custody).toEqual([]);
+    else {
+      // One full runtime digest, immediately before the native effect.
+      expect(custody).toEqual([`custody:${operation}`]);
+      expect(events.slice(events.indexOf("command") - 2, events.indexOf("command") + 1)).toEqual([
+        "ownership",
+        `custody:${operation}`,
+        "command",
+      ]);
+      // A runtime change after admission is refused at this boundary, with no effect.
+      writeFileSync(path.join(runtime, "main.js"), "export const changed = true;");
+      await expect(actions[operation](record)).rejects.toThrow(`refused before ${operation}`);
+      expect(calls).toHaveLength(1);
+      writeFileSync(path.join(runtime, "main.js"), "export {};");
+    }
     owned = false;
     await expect(actions[operation](record)).rejects.toThrow("Ownership lost");
     expect(calls).toHaveLength(1);
@@ -3049,7 +3093,9 @@ test.runIf(process.platform === "darwin").each(["normal", "before-first-freeze"]
     const runtime = path.join(root, "runtime");
     mkdirSync(runtime, { mode: 0o700 });
     const entrypoint = path.join(runtime, "entry.mjs");
-    writeFileSync(entrypoint, "setInterval(() => {}, 1000);", { mode: 0o600 });
+    // The test needs a launchd-style orphan (parent PID 1), so no IPC channel can end
+    // it. It exits on its own well after the 30 s test timeout instead.
+    writeFileSync(entrypoint, "setTimeout(() => {}, 120_000);", { mode: 0o600 });
     writeFileSync(
       path.join(runtime, ".installation-source.json"),
       JSON.stringify({ sourceCommit: "e".repeat(40) }),
@@ -4326,6 +4372,193 @@ test("stale coordinator cancellation never touches executing requests or restart
   ).toEqual([stale.id]);
   expect(g.journal.readLifecycle()).toEqual(jobs);
   expect(jobs[0]).toMatchObject({ status: "pending" });
+});
+
+test("old clients see a Host launcher update plan hidden and cannot approve it", async () => {
+  const f = fixture();
+  f.plan.hostLauncherUpdateConfiguration = {
+    candidate: "/fixture/candidate.plist",
+    sha256: "c".repeat(64),
+  };
+  const pending = await f.prepare();
+  const legacy = await handleBootstrapReview(
+    { type: "installation.bootstrap.list_requests.request", requestId: "old" },
+    f.service(),
+  );
+  expect(legacy.payload.requests![0]!.plan).not.toHaveProperty("hostLauncherUpdateConfiguration");
+  expect(legacy.payload.requests![0]!.reason).toContain("Host launcher");
+  const refused = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "approve",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    f.service(),
+  );
+  expect(refused.payload.error).toContain("Host launcher update plan");
+  const approved = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "decision",
+      ownerPassword,
+      hostLauncherUpdate: true,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    f.service(),
+  );
+  expect(approved.payload.error).toBeNull();
+});
+
+test("clients that do not name a listed setting see it hidden and cannot approve it", async () => {
+  const f = fixture();
+  f.plan.configurationChanges = [
+    {
+      setting: "hostLauncherUpdate",
+      value: { candidate: "/fixture/candidate.plist", sha256: "c".repeat(64) },
+    },
+  ];
+  const pending = await f.prepare();
+  const decide = (requestId: string, configurationSettings?: string[]) =>
+    handleBootstrapReview(
+      {
+        type: "installation.bootstrap.decide.request",
+        requestId,
+        ownerPassword,
+        ...(configurationSettings ? { configurationSettings } : {}),
+        input: { ...pickDecision(pending), decision: "approve" },
+      },
+      f.service(),
+    );
+  // A client from before configuration settings, and one that knows other settings only.
+  for (const configurationSettings of [undefined, ["claudeHostRefresh"]]) {
+    const listed = await handleBootstrapReview(
+      {
+        type: "installation.bootstrap.list_requests.request",
+        requestId: "list",
+        ...(configurationSettings ? { configurationSettings } : {}),
+      },
+      f.service(),
+    );
+    expect(listed.payload.requests![0]!.plan).not.toHaveProperty("configurationChanges");
+    expect(listed.payload.requests![0]!.reason).toContain("Reload the client");
+    expect((await decide("approve", configurationSettings)).payload.error).toContain(
+      "review this configuration change",
+    );
+  }
+  const current = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.list_requests.request",
+      requestId: "list",
+      configurationSettings: ["hostLauncherUpdate"],
+    },
+    f.service(),
+  );
+  expect(current.payload.requests![0]!.plan.configurationChanges).toHaveLength(1);
+  expect((await decide("decision", ["hostLauncherUpdate"])).payload.error).toBeNull();
+});
+
+test("automatic coordinator plans refuse listed configuration changes", async () => {
+  const f = await preFreezeFailureFixture();
+  const submitted = await f.submit({
+    ...f.plan,
+    configurationChanges: [{ setting: "claudeHostRefresh", value: true }],
+  });
+  await expect(
+    f.service().approveAutomatic(automaticCoordinatorIdentity(submitted)),
+  ).rejects.toThrow("require exact owner review");
+});
+
+test("old clients see a Factory check configuration hidden and cannot approve it", async () => {
+  const f = fixture();
+  f.plan.factoryGateConfiguration = {
+    docker: "/fixture/docker",
+    socket: "/fixture/docker.sock",
+    container: "a".repeat(64),
+    verify: {
+      script: "/fixture/verify.sh",
+      sha256: "b".repeat(64),
+      lockInode: 3901122,
+      ownerMode: "paused",
+    },
+  };
+  const pending = await f.prepare();
+  const legacy = await handleBootstrapReview(
+    { type: "installation.bootstrap.list_requests.request", requestId: "old" },
+    f.service(),
+  );
+  expect(legacy.payload.requests![0]!.plan).not.toHaveProperty("factoryGateConfiguration");
+  expect(legacy.payload.requests![0]!.reason).toContain("Factory check");
+  const refused = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "approve",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    f.service(),
+  );
+  expect(refused.payload.error).toContain("Factory check configuration");
+  const approved = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "decision",
+      ownerPassword,
+      factoryGate: true,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    f.service(),
+  );
+  expect(approved.payload.error).toBeNull();
+});
+
+test("old clients see a Docker restart plan hidden, cannot approve it, and can still cancel", async () => {
+  const f = fixture();
+  f.plan.engineRestartConfiguration = {
+    docker: "/fixture/docker",
+    socket: "/fixture/docker.sock",
+    containers: {
+      dev: "a".repeat(64),
+      gatewayTailscale: "b".repeat(64),
+      gatewayCaddy: "c".repeat(64),
+    },
+  };
+  const pending = await f.prepare();
+  const legacy = await handleBootstrapReview(
+    { type: "installation.bootstrap.list_requests.request", requestId: "old" },
+    f.service(),
+  );
+  const projected = legacy.payload.requests![0]!;
+  expect(projected.plan).not.toHaveProperty("engineRestartConfiguration");
+  expect(projected.planSha256).toBe(pending.planSha256);
+  expect(projected.reason).toContain("Docker restart");
+  const service = f.service();
+  const decide = vi.spyOn(service, "decide");
+  const refused = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "approve",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    service,
+  );
+  expect(refused.payload.error).toContain("Docker restart configuration");
+  expect(decide).not.toHaveBeenCalled();
+  const approved = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "decision",
+      ownerPassword,
+      engineRestart: true,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    f.service(),
+  );
+  expect(approved.payload.error).toBeNull();
+  expect(approved.payload.requests![0]!.plan.engineRestartConfiguration?.containers.dev).toBe(
+    "a".repeat(64),
+  );
 });
 
 test("source tooling selection is literal true and binds exact review identity and durable retries", async () => {
@@ -6288,4 +6521,97 @@ test("lifecycle mutation and admission share exclusion and isolate rejected muta
     ),
   ).toThrow("Grant revoked");
   expect(f.journal.readLifecycle()).toEqual(before);
+});
+
+/** A request whose claim failed before promotion, plus an automatic successor plan. */
+async function preFreezeFailureFixture({ promoted = false, ownerReviewed = false } = {}) {
+  const f = automaticCoordinatorFixture();
+  let approved: CoordinatorBootstrapRequest;
+  if (ownerReviewed) {
+    const pending = await f.prepare();
+    approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  } else {
+    const submitted = await f.submit();
+    const automatic = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
+    f.advance();
+    approved = f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(automatic));
+  }
+  const claimed = await f.service().claimDispatch(automaticCoordinatorIdentity(approved));
+  const progress = {
+    id: claimed.id,
+    revision: claimed.revision,
+    planSha256: claimed.planSha256,
+    generation: claimed.execution!.generation,
+  };
+  let failed: CoordinatorBootstrapRequest;
+  if (promoted) {
+    f.service().promoteDispatch(claimed);
+    const freezing = f.service().advanceDispatch(progress, "freeze_pending");
+    failed = f
+      .service()
+      .advanceDispatch({ ...progress, revision: freezing.revision }, "recovery_required");
+  } else failed = f.service().advanceDispatch(progress, "recovery_required");
+  const id = randomUUID();
+  const plan: CoordinatorBootstrapPlan = {
+    ...structuredClone(f.plan),
+    bootRecovery: { ...f.plan.bootRecovery!, requestId: id },
+    recoveredFrom: {
+      id: failed.id,
+      revision: failed.revision,
+      generation: failed.execution!.generation,
+      planSha256: failed.planSha256,
+    },
+  };
+  const submit = (value = plan) =>
+    f
+      .service()
+      .prepareAutomatic(
+        { id, reason: "Automatic successor", plan: value },
+        { credentialBinding: "b".repeat(64), policyActivatedAt: "2026-10-15T00:00:00Z" },
+      );
+  return { ...f, failed, plan, submit };
+}
+
+test("an automatic successor closes a failure that never reached promotion", async () => {
+  const f = await preFreezeFailureFixture();
+  expect(() => f.journal.verifyUnpromotedFailure(f.failed)).not.toThrow();
+  const submitted = await f.submit();
+  const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
+  expect(approved.status).toBe("approved");
+  expect(approved.automaticApproval?.requestRevision).toBe(approved.revision);
+  expect(approved.plan.recoveredFrom?.id).toBe(f.failed.id);
+});
+
+test("an automatic successor cannot close a failure after promotion or for another coordinator process", async () => {
+  const promoted = await preFreezeFailureFixture({ promoted: true });
+  const afterFreeze = await promoted.submit();
+  await expect(
+    promoted.service().approveAutomatic(automaticCoordinatorIdentity(afterFreeze)),
+  ).rejects.toThrow("require exact owner review");
+
+  const f = await preFreezeFailureFixture();
+  const other = await f.submit({
+    ...f.plan,
+    expectedProcess: { ...f.plan.expectedProcess, pid: 456 },
+  });
+  await expect(f.service().approveAutomatic(automaticCoordinatorIdentity(other))).rejects.toThrow(
+    "require exact owner review",
+  );
+});
+
+test("an automatic successor cannot close an owner-reviewed failure, so its reviewed change is never dropped", async () => {
+  const f = await preFreezeFailureFixture({ ownerReviewed: true });
+  expect(() => f.journal.verifyUnpromotedFailure(f.failed)).not.toThrow();
+  const submitted = await f.submit();
+  await expect(
+    f.service().approveAutomatic(automaticCoordinatorIdentity(submitted)),
+  ).rejects.toThrow("require exact owner review");
+  expect(
+    f
+      .service()
+      .list()
+      .find((item) => item.id === submitted.id)?.status,
+  ).toBe("pending");
 });

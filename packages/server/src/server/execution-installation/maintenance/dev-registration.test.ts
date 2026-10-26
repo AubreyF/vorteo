@@ -519,6 +519,25 @@ test("rejects changed prepared publication bytes before admission", () => {
   ).toThrow("publication bytes changed");
 });
 
+/**
+ * Selector fixtures live under the real home directory, since custody rejects shared temporary
+ * roots. Custody checks each ancestor more than once per inspection and fails if it changed in
+ * between, and other processes keep changing the home directory. Freeze the stat of directories
+ * above the fixture roots, which these tests do not examine; everything inside stays real.
+ */
+function stableAncestorFs(...roots: string[]): typeof fs {
+  const frozen = new Map<string, ReturnType<typeof fs.lstatSync>>();
+  const above = (value: string) =>
+    roots.some((root) => root.startsWith(value.endsWith(path.sep) ? value : value + path.sep));
+  const lstatSync = ((value: string, options?: fs.StatSyncOptions) => {
+    if (!above(value)) return fs.lstatSync(value, options);
+    const key = `${options?.bigint === true}:${value}`;
+    if (!frozen.has(key)) frozen.set(key, fs.lstatSync(value, options));
+    return frozen.get(key);
+  }) as typeof fs.lstatSync;
+  return { ...fs, lstatSync };
+}
+
 function selectorFixture() {
   const root = mkdtempSync(path.join(realpathSync(homedir()), ".vorteo-selector-test-"));
   const accountHome = path.join(root, "home");
@@ -544,7 +563,12 @@ test("complete observer selector traversal permits only the configured user home
   try {
     const custody = runInNewContext(
       `(${inspectDevRegistrationSelector.toString()})(input, fs, path, assertStat)`,
-      { input: f.input, fs, path, assertStat: assertDevRegistrationPathStat },
+      {
+        input: f.input,
+        fs: stableAncestorFs(f.root),
+        path,
+        assertStat: assertDevRegistrationPathStat,
+      },
     );
     expect(custody.selectedRelease).toBe(f.release);
     expect(() => custody.assertCurrent()).not.toThrow();
@@ -561,17 +585,18 @@ test("complete selector traversal rejects writable ancestors and directory alias
   try {
     const parent = path.dirname(f.input.releaseRoot);
     fs.chmodSync(parent, 0o777);
-    expect(() => inspectDevRegistrationSelector(f.input)).toThrow("writable");
+    expect(() => inspectDevRegistrationSelector(f.input, stableAncestorFs(f.root))).toThrow(
+      "writable",
+    );
     fs.chmodSync(parent, 0o700);
     const alias = path.join(f.root, "state-alias");
     fs.symlinkSync(f.input.account.stateDirectory, alias);
     const aliasRoot = path.join(alias, "managed", "releases");
     expect(() =>
-      inspectDevRegistrationSelector({
-        ...f.input,
-        releaseRoot: aliasRoot,
-        selectionPath: path.join(aliasRoot, "current"),
-      }),
+      inspectDevRegistrationSelector(
+        { ...f.input, releaseRoot: aliasRoot, selectionPath: path.join(aliasRoot, "current") },
+        stableAncestorFs(f.root),
+      ),
     ).toThrow("noncanonical");
   } finally {
     rmSync(f.root, { recursive: true, force: true });
@@ -581,13 +606,15 @@ test("complete selector traversal rejects writable ancestors and directory alias
 test("complete selector traversal rejects escaped targets and retains account anchors", () => {
   const f = selectorFixture();
   try {
-    const custody = inspectDevRegistrationSelector(f.input);
+    const custody = inspectDevRegistrationSelector(f.input, stableAncestorFs(f.root));
     fs.chmodSync(f.input.account.home, 0o750);
     expect(() => custody.assertCurrent()).toThrow("retained custody changed");
     fs.chmodSync(f.input.account.home, 0o700);
     fs.unlinkSync(f.input.selectionPath);
     fs.symlinkSync(f.input.account.home, f.input.selectionPath);
-    expect(() => inspectDevRegistrationSelector(f.input)).toThrow("escaped");
+    expect(() => inspectDevRegistrationSelector(f.input, stableAncestorFs(f.root))).toThrow(
+      "escaped",
+    );
   } finally {
     rmSync(f.root, { recursive: true, force: true });
   }
@@ -604,7 +631,7 @@ test("complete observer traversal retains a separate account anchor parent chain
       `(${inspectDevRegistrationSelector.toString()})(input, fs, path, assertStat)`,
       {
         input: { ...f.input, account: { ...f.input.account, home: anchor } },
-        fs,
+        fs: stableAncestorFs(f.root, outside),
         path,
         assertStat: assertDevRegistrationPathStat,
       },

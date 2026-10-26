@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
+import nodeOs from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { PermissionResult, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -1044,6 +1045,56 @@ describe("ClaudeAgentSession features", () => {
 
     await internalSession.close();
     await userSession.close();
+  });
+
+  test("checks the session's own Claude config folder before keeping built-in skills", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "claude-builtins-"));
+    try {
+      const userHome = path.join(root, "home");
+      const cwd = path.join(root, "project");
+      const configDir = path.join(root, "account");
+      await fs.mkdir(userHome, { recursive: true });
+      await fs.mkdir(path.join(cwd, ".git"), { recursive: true });
+      vi.spyOn(nodeOs, "homedir").mockReturnValue(userHome);
+      // A plugin under the account's config folder claims "simplify" after launch.
+      const plugin = path.join(configDir, "plugins/marketplaces/market/plugins/p/skills/s");
+      await fs.mkdir(plugin, { recursive: true });
+      await fs.writeFile(
+        path.join(plugin, "SKILL.md"),
+        "---\nname: simplify\ndescription: t\n---\nT",
+      );
+      // A plugin command in the same folder claims "claude-api".
+      const commands = path.join(configDir, "plugins/marketplaces/market/plugins/p/commands");
+      await fs.mkdir(commands, { recursive: true });
+      await fs.writeFile(path.join(commands, "claude-api.md"), "Call the API");
+      const { queryFactory } = createQueryMock();
+      const client = new ClaudeAgentClient({
+        logger,
+        queryFactory,
+        resolveBinary: async () => "/test/claude/bin",
+      });
+      const session = await client.createSession(
+        {
+          provider: "claude",
+          cwd,
+          skillSnapshot: {
+            capturedAt: "now",
+            provider: "claude",
+            skills: [],
+            builtins: ["claude-api", "dataviz", "simplify"],
+          },
+        },
+        { env: { CLAUDE_CONFIG_DIR: configDir } },
+      );
+
+      await session.startTurn("hello");
+
+      expect(queryFactory.mock.calls[0]?.[0].options.skills).toEqual(["dataviz"]);
+      await session.close();
+    } finally {
+      vi.restoreAllMocks();
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   test("turns Claude thinking off without retaining an effort level", async () => {
@@ -2347,6 +2398,143 @@ describe("ClaudeAgentSession context window usage", () => {
     ]);
   });
 
+  test("lists only skills Claude labels as built in", async () => {
+    const skill = (name: string, source: string) => ({ name, source, tokens: 1 });
+    const queryFactory = vi.fn(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+      void prompt;
+      return {
+        next: async () => ({ done: true, value: undefined }),
+        interrupt: async () => undefined,
+        return: async () => undefined,
+        close: () => undefined,
+        setPermissionMode: async () => undefined,
+        setModel: async () => undefined,
+        getContextUsage: async () => ({
+          skills: {
+            totalSkills: 7,
+            includedSkills: 7,
+            tokens: 7,
+            skillFrontmatter: [
+              skill("claude-api", "built-in"),
+              skill("simplify", "built-in"),
+              skill("simplify", "userSettings"),
+              skill("morning", "syncedSkills"),
+              skill("lint", "plugin"),
+              skill("dataviz", "built-in"),
+              skill("charts:dataviz", "plugin"),
+            ],
+          },
+        }),
+        supportedModels: async () => [],
+        supportedCommands: async () => [],
+        rewindFiles: async () => ({ canRewind: true }),
+        [Symbol.asyncIterator]() {
+          return this;
+        },
+      };
+    });
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({ provider: "claude", cwd: process.cwd() });
+
+    const builtins = await session.listBuiltinSkills?.();
+    await session.close();
+
+    // A user, account or plugin skill must not borrow a bundled skill's name.
+    expect(builtins).toEqual(["claude-api"]);
+  });
+
+  test("keeps no built-in skills when Claude reports a partial skill list", async () => {
+    const queryFactory = vi.fn(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+      void prompt;
+      return {
+        next: async () => ({ done: true, value: undefined }),
+        interrupt: async () => undefined,
+        return: async () => undefined,
+        close: () => undefined,
+        setPermissionMode: async () => undefined,
+        setModel: async () => undefined,
+        getContextUsage: async () => ({
+          skills: {
+            totalSkills: 2,
+            includedSkills: 1,
+            tokens: 1,
+            skillFrontmatter: [{ name: "claude-api", source: "built-in", tokens: 1 }],
+          },
+        }),
+        supportedModels: async () => [],
+        supportedCommands: async () => [],
+        rewindFiles: async () => ({ canRewind: true }),
+        [Symbol.asyncIterator]() {
+          return this;
+        },
+      };
+    });
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({ provider: "claude", cwd: process.cwd() });
+
+    const builtins = await session.listBuiltinSkills?.();
+    await session.close();
+
+    // The skill left out of the report could share a built-in name.
+    expect(builtins).toEqual([]);
+  });
+
+  test("keeps no built-in skills when Claude's skill report fails or times out", async () => {
+    let usage: () => Promise<unknown> = async () => {
+      throw new Error("context usage unavailable");
+    };
+    const queryFactory = vi.fn(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+      void prompt;
+      return {
+        next: async () => ({ done: true, value: undefined }),
+        interrupt: async () => undefined,
+        return: async () => undefined,
+        close: () => undefined,
+        setPermissionMode: async () => undefined,
+        setModel: async () => undefined,
+        getContextUsage: () => usage(),
+        supportedModels: async () => [],
+        supportedCommands: async () => [],
+        rewindFiles: async () => ({ canRewind: true }),
+        [Symbol.asyncIterator]() {
+          return this;
+        },
+      };
+    });
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({ provider: "claude", cwd: process.cwd() });
+
+    await expect(session.listBuiltinSkills?.()).resolves.toEqual([]);
+
+    vi.useFakeTimers();
+    try {
+      let requested = false;
+      usage = () => {
+        requested = true;
+        return new Promise(() => {});
+      };
+      const pending = session.listBuiltinSkills?.();
+      await vi.waitFor(() => expect(requested).toBe(true));
+      await vi.advanceTimersByTimeAsync(10_000);
+      await expect(pending).resolves.toEqual([]);
+    } finally {
+      vi.useRealTimers();
+      await session.close();
+    }
+  });
+
   test("deletes the persisted session jsonl on close when persistSession=false", async () => {
     const tmpConfigDir = await fs.mkdtemp(path.join(os.tmpdir(), "paseo-claude-persist-"));
     const previousConfigDir = process.env.CLAUDE_CONFIG_DIR;
@@ -3378,7 +3566,9 @@ describe("ClaudeAgentSession context window usage", () => {
     const result = await session.run("turn");
     await session.close();
 
-    expect(result.timeline).toEqual([
+    // The prompt's user_message echo arrives a timer tick after submission, so it appears only
+    // when the turn outlasts that tick. Assert the assistant output alone.
+    expect(result.timeline.filter((item) => item.type !== "user_message")).toEqual([
       {
         type: "assistant_message",
         text: "Here is the answer.",

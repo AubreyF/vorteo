@@ -44,6 +44,7 @@ import {
   verifyBootstrapConfiguration,
   verifyBootstrapPlan,
   createBootstrapReviewService,
+  SOURCE_UPDATE_TOOLING_FILES,
 } from "./coordinator-bootstrap-host.js";
 import { CoordinatorBootstrapPlanSchema } from "@getpaseo/protocol/coordinator-bootstrap";
 import {
@@ -57,6 +58,7 @@ import * as serviceCollector from "./coordinator-bootstrap-service.js";
 import * as claimedSuccessor from "./coordinator-bootstrap-claimed-successor.js";
 import { FileClaimedRecoveryReviewJournal } from "./coordinator-bootstrap-claimed-journal.js";
 import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
+import { createRuntimeCustody } from "./coordinator-bootstrap-runtime-custody.js";
 
 import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.js";
 import { CoordinatorBootstrapRequests, coordinatorPlanDigest } from "./coordinator-bootstrap.js";
@@ -291,10 +293,12 @@ test.runIf(process.platform === "darwin")(
       const child=spawn('/bin/sleep',['30'],{stdio:'ignore'});
       child.once('spawn',()=>process.stdout.write(String(child.pid)+'\\n'));
       process.on('SIGTERM',()=>{child.kill();child.once('close',()=>process.exit(0));});
+      process.on('disconnect',()=>{child.kill();process.exit(0);});
       setInterval(()=>{},1000);
     `,
       ],
-      { stdio: ["ignore", "pipe", "ignore"] },
+      // The IPC channel ends the fixture if the test worker dies before cleanup.
+      { stdio: ["ignore", "pipe", "ignore", "ipc"] },
     );
     const closed = once(parent, "close");
     const [data] = await once(parent.stdout!, "data");
@@ -571,6 +575,58 @@ test("bootstrap configuration preserves credentials, service targets and state w
   save(candidateFile, f.config);
   expect(verify).not.toThrow();
   delete plan.claudeHostRefreshConfiguration;
+  // The Docker restart plan changes only through its own reviewed field.
+  const engineRestart = {
+    docker: "/fixture/docker",
+    socket: "/fixture/docker.sock",
+    containers: {
+      dev: "a".repeat(64),
+      gatewayTailscale: "b".repeat(64),
+      gatewayCaddy: "c".repeat(64),
+    },
+  };
+  const withEngine = { ...f.config, container: { ...f.config.container, engineRestart } };
+  save(candidateFile, withEngine);
+  expect(verify).toThrow("outside its approved policy");
+  plan.engineRestartConfiguration = { ...engineRestart, deadlineSeconds: 120 };
+  expect(verify).toThrow("outside its approved policy");
+  plan.engineRestartConfiguration = engineRestart;
+  expect(verify).not.toThrow();
+  save(candidateFile, f.config);
+  expect(verify).toThrow("outside its approved policy");
+  plan.engineRestartConfiguration = null;
+  expect(verify).not.toThrow();
+  delete plan.engineRestartConfiguration;
+  // Factory's Dev restart checks change only through their own reviewed field.
+  const factoryGate = {
+    docker: "/fixture/docker",
+    socket: "/fixture/docker.sock",
+    container: "a".repeat(64),
+    verify: {
+      script: "/fixture/verify.sh",
+      sha256: "b".repeat(64),
+      lockInode: 3901122,
+      ownerMode: "paused" as const,
+    },
+  };
+  save(candidateFile, { ...f.config, container: { ...f.config.container, factoryGate } });
+  expect(verify).toThrow("outside its approved policy");
+  plan.factoryGateConfiguration = factoryGate;
+  expect(verify).not.toThrow();
+  save(candidateFile, f.config);
+  plan.factoryGateConfiguration = null;
+  expect(verify).not.toThrow();
+  delete plan.factoryGateConfiguration;
+  // The Host launcher update plan changes only through its own reviewed field.
+  const launcherUpdate = { candidate: "/fixture/candidate.plist", sha256: "c".repeat(64) };
+  save(candidateFile, { ...f.config, host: { ...f.config.host, launcherUpdate } });
+  expect(verify).toThrow("outside its approved policy");
+  plan.hostLauncherUpdateConfiguration = launcherUpdate;
+  expect(verify).not.toThrow();
+  save(candidateFile, f.config);
+  plan.hostLauncherUpdateConfiguration = null;
+  expect(verify).not.toThrow();
+  delete plan.hostLauncherUpdateConfiguration;
 
   const policy = { hostRequestsAfter: "2026-10-09T00:00:00.000Z" };
   save(candidateFile, { ...f.config, restartApprovalPolicy: policy });
@@ -590,6 +646,134 @@ test("bootstrap configuration preserves credentials, service targets and state w
   f.config.host.password = "new-host-password";
   f.save();
   expect(verify).toThrow("no longer matches");
+});
+
+test("listed configuration changes verify exactly like the legacy per-setting fields", () => {
+  const f = fixture();
+  const previousFile = path.join(f.root, "previous.json");
+  const candidateFile = path.join(f.root, "candidate.json");
+  const save = (file: string, value: unknown) =>
+    writeFileSync(file, JSON.stringify(value), { mode: 0o600 });
+  save(previousFile, f.config);
+  const file = { path: f.file, sha256: "a".repeat(64) };
+  const release = {
+    directory: f.root,
+    sourceCommit: "a".repeat(40),
+    artifactSha256: "a".repeat(64),
+    node: file,
+    entrypoint: file,
+    launcher: file,
+    configuration: file,
+  };
+  const base = {
+    version: 1,
+    operation: "coordinator-bootstrap",
+    installationId: f.config.public.installationId,
+    service: f.config.host.launchdService.replace(/\.host$/, ".installation"),
+    expectedProcess: {
+      pid: 1,
+      bootId: "fixture",
+      startIdentity: "fixture",
+      argumentsSha256: "a".repeat(64),
+    },
+    previous: { ...release, configuration: { ...file, path: previousFile } },
+    candidate: { ...release, configuration: { ...file, path: candidateFile } },
+    state: {
+      directory: f.config.stateDir,
+      restartJournal: path.join(f.config.stateDir, "restart-jobs.json"),
+      ownerSessions: path.join(f.config.stateDir, "owner-sessions.json"),
+    },
+    hostRequestsAfter: null,
+  };
+  const verify = (fields: Record<string, unknown>) => () =>
+    verifyBootstrapConfiguration({
+      plan: CoordinatorBootstrapPlanSchema.parse({ ...base, ...fields }),
+      configurationFile: f.file,
+      daemonId: "host-id",
+    });
+  const launcherUpdate = { candidate: "/fixture/candidate.plist", sha256: "c".repeat(64) };
+  const factoryGate = {
+    docker: "/fixture/docker",
+    socket: "/fixture/docker.sock",
+    container: "a".repeat(64),
+    verify: {
+      script: "/fixture/verify.sh",
+      sha256: "b".repeat(64),
+      lockInode: 3901122,
+      ownerMode: "paused",
+    },
+  };
+  const cases = [
+    {
+      setting: "hostLauncherUpdate",
+      legacy: "hostLauncherUpdateConfiguration",
+      value: launcherUpdate,
+      config: { ...f.config, host: { ...f.config.host, launcherUpdate } },
+    },
+    {
+      setting: "factoryGate",
+      legacy: "factoryGateConfiguration",
+      value: factoryGate,
+      config: { ...f.config, container: { ...f.config.container, factoryGate } },
+    },
+    {
+      setting: "claudeHostRefresh",
+      legacy: "claudeHostRefreshConfiguration",
+      value: true,
+      config: { ...f.config, claudeHostRefresh: true },
+    },
+  ];
+  for (const item of cases) {
+    const listed = { configurationChanges: [{ setting: item.setting, value: item.value }] };
+    const legacy = { [item.legacy]: item.value };
+    save(candidateFile, item.config);
+    // Both shapes accept exactly the same candidate, and neither accepts it unlisted.
+    expect(verify({})).toThrow("outside its approved policy");
+    expect(verify(listed)).not.toThrow();
+    expect(verify(legacy)).not.toThrow();
+    // A further change beyond the listed one is refused under both shapes.
+    save(candidateFile, {
+      ...item.config,
+      container: { ...item.config.container, password: "changed" },
+    });
+    expect(verify(listed)).toThrow("outside its approved policy");
+    expect(verify(legacy)).toThrow("outside its approved policy");
+    // Removal: null clears the setting from a configuration that has it.
+    save(previousFile, item.config);
+    save(f.file, item.config);
+    save(candidateFile, f.config);
+    expect(
+      verify({ configurationChanges: [{ setting: item.setting, value: null }] }),
+    ).not.toThrow();
+    expect(verify({ [item.legacy]: null })).not.toThrow();
+    save(previousFile, f.config);
+    save(f.file, f.config);
+    // Naming the setting both ways is refused.
+    save(candidateFile, item.config);
+    expect(verify({ ...listed, ...legacy })).toThrow("named twice");
+  }
+  save(candidateFile, f.config);
+  expect(
+    verify({ configurationChanges: [{ setting: "restartApprovalPolicy", value: {} }] }),
+  ).toThrow("Unknown configuration setting");
+  expect(
+    verify({ configurationChanges: [{ setting: "factoryGate", value: { docker: 1 } }] }),
+  ).toThrow("Invalid value");
+  expect(
+    verify({
+      configurationChanges: [
+        { setting: "claudeHostRefresh", value: true },
+        { setting: "claudeHostRefresh", value: null },
+      ],
+    }),
+  ).toThrow("named twice");
+  // The wire schema stays loose so older readers can parse later settings.
+  expect(() =>
+    CoordinatorBootstrapPlanSchema.parse({
+      ...base,
+      configurationChanges: [{ setting: "future", value: 1 }],
+    }),
+  ).not.toThrow();
 });
 
 test("Dev registration configuration requires an explicit coordinator adoption transition", () => {
@@ -1138,6 +1322,15 @@ test.runIf(process.platform === "darwin")(
     ] as const)
       advance(stage);
     const commands: string[][] = [];
+    // Every awaited context callback, to prove the runtime digest is the last one.
+    const events: string[] = [];
+    const runtime = path.join(f.root, "custody-runtime");
+    mkdirSync(runtime);
+    writeFileSync(path.join(runtime, "main.js"), "export {};");
+    const requireCustody = createRuntimeCustody({
+      custody: { runtimeDirectory: runtime, runtimeSha256: await digestBootstrapArtifact(runtime) },
+      digest: (directory) => digestBootstrapArtifact(directory),
+    });
     const processIdentity = {
       ...expectedProcess,
       parentPid: 1,
@@ -1159,8 +1352,12 @@ test.runIf(process.platform === "darwin")(
         ...processIdentity,
         stopped: false as const,
       }),
-      verifyProcessExited: async () => {},
-      verifyServiceAbsent: async () => {},
+      verifyProcessExited: async () => {
+        events.push("exited");
+      },
+      verifyServiceAbsent: async () => {
+        events.push("absent");
+      },
     };
     const actions = createBootstrapNativeLifecycle(
       {
@@ -1168,27 +1365,48 @@ test.runIf(process.platform === "darwin")(
         reader,
         configurationFile: f.file,
         launcherFile: selectedLauncher,
-        writableMountRoots: async () => [],
+        writableMountRoots: async () => {
+          events.push("mounts");
+          return [];
+        },
         readHealth: async () => {
           throw new Error("Unexpected fixture health read");
         },
-        requireOwnership: async () => {},
+        requireOwnership: async () => {
+          events.push("ownership");
+        },
+        requireRuntimeCustody: async (boundary) => {
+          events.push(`custody:${boundary}`);
+          await requireCustody(boundary);
+        },
       },
       {
         run: async (args) => {
+          events.push("command");
           commands.push([...args]);
         },
       },
     );
     await actions.select(executing);
+    // Selection is not a runtime custody boundary.
+    expect(events.filter((event) => event.startsWith("custody:"))).toEqual([]);
     advance("selected");
     advance("start_pending");
     writeFileSync(candidate.entrypoint.path, "changed after selection");
     await expect(actions.start(executing)).rejects.toThrow("digest changed");
     expect(commands).toEqual([]);
     writeFileSync(candidate.entrypoint.path, "export {};");
+    // A runtime change after admission is refused at start, before the candidate runs.
+    writeFileSync(path.join(runtime, "main.js"), "export const changed = true;");
+    await expect(actions.start(executing)).rejects.toThrow("refused before start");
+    expect(commands).toEqual([]);
+    writeFileSync(path.join(runtime, "main.js"), "export {};");
+    events.length = 0;
     await actions.start(executing);
     expect(commands).toEqual([["bootstrap", `gui/${process.getuid!()}`, selectedLauncher]]);
+    // One full runtime digest, the last await before launchctl bootstrap.
+    expect(events.filter((event) => event.startsWith("custody:"))).toEqual(["custody:start"]);
+    expect(events.slice(-3)).toEqual(["mounts", "custody:start", "command"]);
   },
 );
 
@@ -1458,6 +1676,10 @@ test.runIf(process.platform === "darwin")(
       coordinatorBootstrapCompatibleRecovery: false,
       coordinatorBootstrapPreviewMonitor: false,
       coordinatorBootstrapClaudeHostRefresh: false,
+      coordinatorBootstrapEngineRestart: false,
+      coordinatorBootstrapFactoryGate: false,
+      coordinatorBootstrapHostLauncherUpdate: false,
+      coordinatorBootstrapConfigurationChanges: false,
       coordinatorBootstrapSourceUpdateTooling: false,
       coordinatorBootstrapBootRecovery: false,
       coordinatorBootstrapRecoveryBootPlan: false,
@@ -2526,12 +2748,8 @@ async function sourceToolingAdmissionFixture() {
   const previous = await makeRelease("previous", f.file);
   const candidate = await makeRelease("candidate", "");
   const scripts = path.join(candidate.directory, "scripts");
-  mkdirSync(scripts, { mode: 0o700 });
-  const toolingFiles = [
-    "prepare-installation-update.mjs",
-    "publish-instance-web.mjs",
-    "instance-web-artifact.mjs",
-  ].map((name) => path.join(scripts, name));
+  mkdirSync(path.join(scripts, "lib"), { recursive: true, mode: 0o700 });
+  const toolingFiles = SOURCE_UPDATE_TOOLING_FILES.map((name) => path.join(scripts, name));
   for (const file of toolingFiles)
     writeFileSync(file, "throw new Error('must never execute');", { mode: 0o600 });
   candidate.artifactSha256 = await digestBootstrapArtifact(candidate.directory);

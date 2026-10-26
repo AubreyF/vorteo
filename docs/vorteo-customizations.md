@@ -1,5 +1,257 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-26): build only. The Nix daemon trace leaves out the npm Electron package, which the daemon never loads, so Linux Nix builds stop failing on its musl zip addon. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): build and CI only. The desktop web export gets the 8 GB worker heap, and upstream's Nix hash bot is skipped in this fork. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): CI only. The app and relay Cloudflare deploys are skipped in this fork, matching the website deploy. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): the daemon web UI build used by the container image gets the 8 GB export heap, and the upstream website deployment is skipped in this fork. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Three POSIX-only coordinator test suites now skip on Windows, like the other installation suites. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): source update tooling admission pins all six scripts the Host installer runs or imports, and the Lucide import plugin always emits an explicitly relative path. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Disposable processes in the preclaim native-proof test now exit when the test worker goes away. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Long-running coordinator test fixtures now exit when the test worker goes away or after a fixed limit. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): the reviewed coordinator settings registry accepts settings without a legacy plan field, so new settings change only through `configurationChanges`. Existing settings and wire shapes are unchanged. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): startup diagnostics share a ten-second reveal and automatic-check threshold. The V mark moves and shrinks in sync with the content reveal, with an immediate final layout for reduced motion. Eighteen scoped Chromium tests cover the loader, including intermediate geometry at compact and desktop sizes; separate motion-preference checks cover both layouts. Publication and physical-device acceptance are pending. README overview and onboarding are unchanged.
+
+Startup diagnostics operate before the interface bundle and automatically check installation reachability after 10 seconds, using the same threshold as the expanded display. The existing V mark shrinks and moves from its original position while the diagnostic content fades and slides into place on the same timeline. Reduced motion settles immediately. They use bounded requests, defer offline checks until resume, distinguish completed browser resource timings from unknown in-flight progress, and show only the coordinator's existing public restart-request counts. Counts cannot establish an active component restart, its initiation time, or the cause of a connection failure. The themed app shell dismisses the overlay after local settings load and two paint frames; daemon connection and session readiness remain separate stages. Production exports preload their original entry script with matching security attributes and embed validated source/version metadata. The compact diagnostic reveal uses inline CSS and system fonts, with no additional downloaded assets.
+
+Maintenance review (2026-10-25): repository hygiene only. Accidentally committed test screenshots are removed and their names ignored. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Three appearance browser tests wait for settled settings layout or get a longer budget. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): merge-only change. The browser test repair branch takes main b08980d36. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Composer, agent stream and card tests follow current behaviour; one queue test is retired, two regressions are marked and two layout differences go to owner review. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. The worktree notice handler stops waiting for a vanished notice, and the local plugin journey test gets a longer budget. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): merge and test-only change. The browser test repair branch takes main 67375bccd and re-enables the favourites migration and saved layout recovery tests now that both fixes are on main. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Layout, appearance, chat outline, startup and card tests follow the current design; two layout regressions are marked and three geometry differences go to owner review. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Settings, provider and sidebar tests follow current sign-in, settings and startup behaviour; Standard-mode checks are retired and one favourites migration regression is marked. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. File, Explorer and plugin tests follow supporting cards, toasts and current colors; the Explorer plugin menu test is retired and one diff scrollbar regression is marked. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): CI and test-only change. Playwright CI drops temporary diagnostic flags, and queue tests follow touch-based row targets and the known tooltip press regression. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): merge of main through 71925c85e into the test repair branch. Functionality from main is unchanged by the merge. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Composer model and mode tests are retired with the Paseo mode, and New workspace entry tests use the More menu. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. The composer diff pill test is retired, diff counter and Explorer keyboard tests follow the supporting cards, and one geometry drift and one phone regression are marked. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): merge of main through 24e167c54 into the test repair branch, plus supporting card targets for Explorer shortcut tests. Functionality from main is unchanged by the merge. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Two New workspace project selection regressions are marked as known failures and the paste helper works on macOS. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Browser tests reset the host-synced sidebar before each test, the header helper reads the route row, and the subagent status test follows delegated task ownership. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Sidebar helpers, reorder and pin shortcut tests follow hidden sidebar copies, touch sheets and host-synced sidebar state; one touch title test awaits owner review. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Subagent and title suggestion tests follow the current rows and menus; two product regressions are marked as known failures. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Draft thinking preference tests are retired, the upstream settings test follows the single settings page, and a duplicated changelog entry is removed. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. The plan card test follows the fixed card heading; question card and sidebar project row geometry await owner review. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Queue tests follow the Queue card title and duplicate placement, one queue geometry test awaits owner review, and the open questions test seeds its usage. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Provider settings stacking tests use the schedule form model picker. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Codex speed coverage moved to the profile editor, and profile editor helpers support the phone sheet. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Standard mode checks are retired, skill library tests use the settings pane, and duplicate locators are narrowed. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Import session tests use the current workspace actions menus; the desktop entry point is marked as a known regression. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Usage, provider removal, CLI warning and sidebar tests follow the Quota card, provider rows and More menu. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Worktree notice dismissal, plugin settings addresses and workspace title checks follow the current interface; three product regressions are marked as known failures. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Settings and project grouping tests follow the single settings page, the Environment step and the profile requirement on secondary hosts; one per-host project test awaits owner review. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Profile picker tests follow the switch sheet, collapsible compact sections and the defaults editor, and retire checks for removed reasoning and mode controls. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. The desktop plugin links check follows the renderer window-open denial from cd90c8f78. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Model picker tests now use profile selection and the schedule form picker; tests for the removed Paseo picker are retired, and two profile picker gaps are marked as known failures. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. The worktree notice dismissal survives covering overlays, display preference tests use the More menu, and the label failure test expects a toast. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Explorer tab dock tests are retired, split pane tests use the pane menu, and the saved layout recovery test is marked as a known regression. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Context window, workspace setup and launcher tests follow the current loading pulse, menus, script button and settings addresses. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Appearance theme tests scope their alerts and timeouts; two geometry checks are marked for owner review. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Sidebar workspace tests follow the toolbar, icon rail and context menus; one is marked as a known regression. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Browser tests find desktop workspace actions in the pane menu. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Agent skills tests target the installation's first host and read failed saves inline. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Open question tests expect refused answers as toasts. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Command center agent control tests are marked for the missing Mode commands; the composer thinking selector test is retired. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Two workspace standing tests are marked for owner review. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Workspace standing tests follow the current menus, badges and touch actions; two are marked as known regressions. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. The desktop appearance font size check follows one Theme label. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Plugin sidebar item tests follow the toolbar and footer layout; steps for removed sidebar customization are retired. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Usage screen tests open Usage directly; tests for the removed sidebar Usage summary, pins and footer rows are retired. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. The desktop shortcut unassign test timeout is raised. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): merged main into the browser test repair branch; only release notes conflicted and both histories are kept. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Demo compact theme tests use the inline Files card; three phone Changes tests are marked as a known regression. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): test-only change. The desktop Settings memory check follows the single settings page. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): test-only change. Projects settings and chat outline browser tests follow the single settings page and the workspace card column. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): test and CI change. Desktop renderer tests follow the More menu, Explorer and About pane layouts; the workspace title check follows the desktop sidebar; Metro warm-up allows five minutes in CI. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): test-only change. Browser tests choose models through pinned mock profiles, dismiss the worktree setup notice automatically and queue through the composer's default action. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): test-only change. Browser tests reach Changes through the Explorer cards and host settings through Environments tabs. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): test-only change. Browser tests seed a default mock profile, use the New workspace Environment step, open Help from the More menu and check the sidebar toolbar line; three tests for the removed sidebar customization are retired. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): CI-only change. Browser test shards upload results after hitting their time limit, and temporarily run without retries with inline failure output for diagnosis. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): the bundled-skill resume check reads every folder inside a commands tree, including ones named node_modules or .git, which Claude treats as command namespaces. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): three chmod-based skill policy tests skip on Windows, where chmod cannot make a path unreadable. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): the bundled-skill resume check skips file and dangling symlinks and dependency folders, and treats too-deep command folders as unknown. Skill inventory no longer reports those symlinks as read errors. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): resuming a restricted Claude session also reads custom command folders (project, home, account and plugin commands) for claims on bundled skill names, after confirming against Claude 2.1.285 that its skill allowlist matches commands by name. Skill policy tests are isolated from the real home folder. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): on resume, skills the inventory could not fully inspect claim their frontmatter name, read directly from SKILL.md, and an unreadable SKILL.md drops all bundled skills. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): resuming a restricted Claude session inventories the account's own `CLAUDE_CONFIG_DIR` skills and its plugin cache, marketplace and synced folders for claims on bundled skill names, and keeps no bundled skills when a root cannot be read. The package selector check keeps its earlier scope. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): restricted Claude sessions keep the skills Claude labels as built in, read from Claude's skill list at launch and recorded in an optional `builtins` list in the frozen skill snapshot. A name shared with any other skill, including a `plugin:name` suffix, is left out, and a package that later claims a name turns it off. Checked against the real Claude 2.1.285 CLI with a forced exclusion. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): restricted Claude and Codex skill selections leave out provider defaults that have no package on disk, such as Claude's bundled skills, instead of refusing the launch. This fixes Claude launches whenever a personal skill is unshared or excluded. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): Host installs now apply the guarded build's script preloads and build metadata, both web exports run with an 8 GB worker heap, and the Lucide import plugin emits a root-independent path, so shared Metro caches stay valid across builds. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): the shared Lucide test fixture now exports every common icon imported by the deferred plugin-icon adapter. The four affected files collect and all fifteen tests pass with their original assertions and per-test mocks. Production behavior, README overview and onboarding are unchanged.
+
+- **Browser data saver and smaller startup assets.** The initial V spinner uses the existing brand silhouette as inline SVG. Delayed-start diagnostics and Settings > General share an explicit browser-local Data saver preference, read before optional font downloads. It temporarily uses system fonts without overwriting saved appearance choices, leaves diagram source readable until Load diagram, and defers the optional custom-icon catalogue while preserving common icons, aliases and action labels. Failed optional icon downloads show an actionable error and allow at most three explicit attempts; pending downloads are shared. Already-started transfers may finish. Text and attachments retain their existing connection requirements. Web compilation maps individual public icons directly and resolves the installed package's original provider context with a guarded export-layout check; native compilation is unchanged. Package upgrades require the generated icon-name metadata and mapping tests to agree with the installed exports. Chromium production-export checks cover synthetic text and reload persistence; native Safari and physical-device acceptance remain open.
+
+Maintenance review (2026-10-25): test-only change. A drift test ties each reviewed restart operation to the registered coordinator setting that supplies its plan. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): coordinator renewals hash the runtime tree only at admission, freeze, unload, start and release, and derive the renewal once at the claim. All other per-step custody checks are unchanged. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): Host release cleanup keeps the releases holding the live Host and Dev update tooling, so cleanup can no longer remove the scripts that Host installs run. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): Host release cleanup runs after an install reports its result, with a receipt and no overlap, and deletes plain trees directly, so cleanup time no longer counts against the install's readiness deadline. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): removed six duplicate vorteo.758 release-note copies; no feature changed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): the pre-commit hook rebuilds stale protocol and client declarations before typecheck. Tooling only. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): documentation only. The Builds gate marker check moved from the agent guide to the development doc to keep the guide within its size budget. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): the release-note combine step accepts history whose extra byte-identical copies were removed, so branches cut before a duplicate cleanup still combine. Edits and deleted notes are still refused. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): combining source contributions skips release notes byte-identical to accepted or repeated ones; repeated version headings with different notes still combine. The agent guide adds the Builds gate marker check before heavy test suites. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): coordinator runner diagnostics record per-phase and per-operation wall time, so slow renewals can be profiled. Behavior is unchanged. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): built-in plugins start concurrently, small artifact verification skips a reader thread, and two tests import large modules outside their timeouts; four flaky gate timeouts were fixed at their cause. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): reviewed coordinator configuration changes share one plan field, `configurationChanges`, and a protocol registry of reviewable settings, negotiated by setting name. Older per-setting fields still work unchanged. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): the four reviewed restart operations share one coordinator table for their request, decision, dispatch, contribution, automatic-approval and older-client rules, with matching app and CLI tables. Functionality, wire fields and messages are unchanged. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): scripts run through a symlinked installation path, such as `current`, no longer exit silently; the shared main-module check compares real paths. Functionality is otherwise unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): Windows server CI skips the POSIX-only Docker restart and Factory check suites; no feature changed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): release-tree removal skips clearing macOS immutable flags on other systems, where none can exist, so retention works and tests pass on Linux and Windows. Host behaviour is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): restoring a saved Explorer pane drops drafts with no saved text, attachments, setup or tab state, so a layout holding thousands of empty generated drafts no longer mounts thousands of composer cards and freezes the page. Drafts with content and drafts in ordinary panes are kept. Touch detection and interface zoom share one window listener each. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): source contribution batches now read and write release files with batched git commands. Results are unchanged; a repository-sized batch takes 8 seconds instead of 26. Two timing-dependent tests were repaired. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): git timeout tests tolerate the connection reset caused by killing a fetch helper on Windows. Behavior is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): timed-out git commands now kill their whole process tree, so HTTP fetches and clones no longer leave helper processes behind. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): releases now ship prebuilt built-in plugin bundles, verified by content hash at daemon start, with compilation from source as the fallback. This shortens every Host and Dev daemon start. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): the late worker output supervisor test is POSIX-only. Behavior is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): the supervisor keeps a worker's final output and its exit lines in daemon.log when it exits right after the worker; two timing-dependent installation tests were repaired. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): session host markers are written atomically, and the initial Host module contract tests no longer depend on shared folders staying unchanged. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): the Host module contract pins folders above the release by directory identity rather than timestamps, so sibling writes in the home folder no longer refuse coordinator updates; absence is still proven directly. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): the one-time import of device-local model favourites into host profiles now reads preferences saved before Paseo mode was removed, which still carry `vortonMode`. It never deletes the stored preferences; a value it cannot read is copied to a backup key and the host is retried on a later start. The device keeps no other copy of favourites the earlier import deleted; only hosts imported before 471d7f22a still hold them as `legacy_favorite:` profiles. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): two app tests mock the host runtime so their setup no longer spends about 10 seconds transforming it. Behavior is unchanged. README overview and onboarding are unchanged.
+
+## Startup connection diagnostics
+
+The delayed startup screen exposes the existing device connection checker before the host is available. It separates health HTTP, WebSocket transport, saved app authentication and thread-directory readiness, with elapsed time, reload and a sanitized copyable report. The initial HTML loader distinguishes script transfer errors, JavaScript execution errors, invalid health responses, network rejection and actual timeouts even without the application bundle. A confirmed failed entry-script download can be retried once without reloading, preserving its integrity and browser security attributes. Reports include safe script timing, exception class and allowlisted engine messages, current origin and service-worker control, excluding query strings and private exception text. Clipboard failure exposes selectable text. A cached page, successful health response or loaded directory does not establish remote-client or selected-workspace readiness. This interface change does not restart daemons or change credentials, permissions or network settings. The README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): automatic coordinator renewals can close a failed automatic update that never reached promotion, proven under the journal lock and bound to the same coordinator process. Owner-reviewed and other failures still need owner review. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): app installation client tests now expect the Docker restart and Host launcher query flags on restart routes. Behavior is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): added the one-time Host launcher update, configured through a reviewed renewal with `hostLauncherUpdateConfiguration`. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): added Factory checks around every Dev worker restart, configured through a reviewed renewal with `factoryGateConfiguration`. The Docker restart now also requires a new Factory supervisor. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): added the tracked Docker engine restart for Dev as a plan-bound Dev restart behind a new `engineRestart` capability, with an `engineRestartConfiguration` field for reviewed coordinator plans and renewals. Not yet installed. README overview and onboarding are unchanged.
+
+- **Vorteo System project.** Every daemon creates one protected Vorteo System project at startup, under `$PASEO_HOME/system`, and keeps its standing upkeep workspaces there, starting with the Optimization Runner on the Host and single-daemon installs. The daemon finds the project by a marker it alone writes; the registries refuse to archive, remove, move, rename or unprotect system items, and refuse thread deletion in system workspaces, for every client and tool. The project keeps its own key so a Vorteo clone never merges it into another group. An install-local `system.json` can adopt an existing workspace into a role by exact ID, keeping its threads, and names the repository for Set up Vorteo source, which clones into the project root on request and adds an ordinary Vorteo source workspace for your own changes. Reconciliation no longer archives protected workspaces whose folders are missing, and one refusal no longer fails the whole pass. The sidebar shows it as an ordinary project with the Vorteo mark as its default icon: it drags with other projects, creates workspaces, and keeps Remove project disabled with an explanation; its settings explain the project and lock only its name. `system.json` can name the installation's own `source.checkout`, which becomes the project root so new workspaces are its worktrees, and can `absorb` existing projects and workspaces by ID, archived ones included, archiving each emptied project. The Host installer and Dev update setup write `source.checkout`, translating the path through the container's bind mounts, and `configure-system-source` updates existing installations. The clone does not follow later updates yet. See [Vorteo System project](system-project.md).
+- **Host restarts that load the selected build.** A one-time, owner-approved launcher update adds managed release selection to the Host's launchd plist, keeps the previous plist as a fallback and verifies the new supervisor before keeping it. See [one-time Host launcher update](execution-installation.md#one-time-host-launcher-update). Not yet installed.
+- **Factory checks around Dev restarts.** Once configured, the coordinator runs Factory's read-only check before and after every restart that replaces the Dev worker. It refuses a restart from a bad state and fails one that moved Factory's controller, owner pause or custody records. See [Factory checks](execution-installation.md#factory-checks-around-dev-restarts). Not yet installed.
+- **Tracked Docker engine restart for Dev.** An owner-reviewed Dev restart runs `docker desktop restart` once after holding Dev's turns. It then verifies that Dev and the gateway's Tailscale and Caddy containers return under their pinned IDs, Dev is healthy, a new Dev worker answers, and Factory's lock acceptance check passes with a higher epoch. A reviewed coordinator renewal sets the plan, and it is never approved automatically. See [tracked Docker engine restart](execution-installation.md#tracked-docker-engine-restart-for-dev). Not yet installed.
+- **Reviewed Factory startup adoption.** Factory installation and coordinator binding resolve shared profiles through native account selection, retain exact coordinator snapshots and refuse changed or mismatched profiles. A separate Host-requested Installation operation binds approval to a protected startup plan, keeps cancellation visible, stages the reviewed source and verifies the replacement Dev worker. It cannot inherit automatic Host approval or a plain restart's approval. Coordinator maintenance binds configuration changes to its exact reviewed plan. Failed adoption fences later lifecycle work until a separately approved linked recovery verifies the selection. Trusted startup can select the retained accounting directory without moving the daemon home or opening a second ledger. Deployment, private controller wiring and operating-loop acceptance remain separate. See [Factory startup adoption](execution-installation.md#tracked-factory-startup-adoption).
+
+October 23, 2026: Fixed the hidden `paseo worktree ls` and `paseo worktree archive` commands, which had failed since upstream commit a94bc0720 made the daemon require a repository for worktree lists. They now send the current directory, or `--cwd` or `--repo`. This repairs upstream behavior and adds no Vorteo feature; the request fields already existed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): Host builds clone dependencies from a private copy-on-write cache, and the coordinator prunes unreferenced old Host releases after each verified install. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-22): the Projects folder and project exclusions work on Windows. Containment and exclusion matching compare real paths, either separator and any case, aliases from another daemon stay as written, and git trust entries use git's own path form. Not yet installed. README overview and onboarding are unchanged.
+
+- **Projects folder.** An installation can name one Projects folder that the Host and the Dev container see at the same absolute path. Daemons with one accept new projects from Add project, Open project, new folders and GitHub clones only strictly inside it, following symlinks and refusing the folder itself, while earlier registrations keep working wherever they are. Browsing and directory search start there, listings mark git checkouts and registered projects, and new Paseo-owned worktrees go in its hidden `.vorteo/worktrees` while worktrees in the old location stay owned. A folder can be created without becoming a project. The Dev daemon moves registry paths from an earlier container path once at startup, after backing up the registry. An existing Dev container can reach the folder's own path through a symlink to its older mount instead of being recreated: daemons treat that mount and other configured aliases as the same folder, record every registry path, project key and git result by the logical path, and rewrite new worktrees' git link files to it so Dev worktrees open on the Host. Workspace membership keys and the Host's shared sidebar order, collapse and folder keys move to the logical path too, after a backup, so moved projects keep one sidebar group and their saved state. Daemon git commands inside the folder trust their repository's exact physical path for that command only, which git 2.39 in Dev needs when it reports dubious ownership, and projects and worktrees reached through an alias are appended to the daemon user's global `safe.directory` for agents and terminals. The container installer mounts the folder at its own path, and `configure-projects-folder` writes both daemons' settings, with the same aliases and kept paths on the Host, and git trust for existing installations, accepting an identical mount or a verified symlink and printing the symlink commands when neither exists. Processes inside Dev may still print the alias path. When both daemons advertise the same folder, every environment supports every project inside it without setup: a workspace or draft moved to an environment without the project uses the identical path and adds the project there on demand, placements at the same root merge into one sidebar project even without a git remote, and Settings > Projects lists the project once and opens the Host placement's settings. Moving a draft between environments notes that installed dependencies may need reinstalling. Daemons without a matching folder keep the earlier folder mapping and chooser. The Add project flow and live installation are pending. See [Projects folder](execution-installation.md#projects-folder).
+- **Project exclusions.** A project's settings page has an Exclusions section that turns off an environment, accounts, profiles or skills for that project, on top of each environment's exclusions. The installation stores them by project root path, never in `paseo.json`, and refuses a policy that leaves no environment. Daemons check them at agent launch and when creating a workspace, refusing with a message that names the setting, and environment and profile menus hide excluded choices. Plugins cannot be excluded per project because they apply to a whole environment. A policy covers its folder, everything inside it and the project's git worktrees, matched by real path, and Windows paths match with either separator and any case. Not yet installed. See [Project exclusions](execution-installation.md#project-exclusions).
+- **Vorteo System project.** Every daemon creates one protected Vorteo System project at startup, under `$PASEO_HOME/system`, and keeps its standing upkeep workspaces there, starting with the Optimization Runner on the Host and single-daemon installs. The daemon finds the project by a marker it alone writes; the registries refuse to archive, remove, move, rename or unprotect system items, and refuse thread deletion in system workspaces, for every client and tool. The project keeps its own key so a Vorteo clone never merges it into another group. An install-local `system.json` can adopt an existing workspace into a role by exact ID, keeping its threads, and names the repository for Set up Vorteo source, which clones into the project root on request and adds an ordinary Vorteo source workspace for your own changes. Reconciliation no longer archives protected workspaces whose folders are missing, and one refusal no longer fails the whole pass. The sidebar shows it as an ordinary project with the Vorteo mark as its default icon: it drags with other projects, creates workspaces, and keeps Remove project disabled with an explanation; its settings explain the project and lock only its name. `system.json` can name the installation's own `source.checkout`, which becomes the project root so new workspaces are its worktrees, and can `absorb` existing projects and workspaces by ID, archived ones included, archiving each emptied project. The Host installer and Dev update setup write `source.checkout`, translating the path through the container's bind mounts, and `configure-system-source` updates existing installations. The clone does not follow later updates yet. See [Vorteo System project](system-project.md).
+- **Reviewed Factory startup adoption.** Factory installation and coordinator binding resolve shared profiles through native account selection, retain exact coordinator snapshots and refuse changed or mismatched profiles. A separate Host-requested Installation operation binds approval to a protected startup plan, keeps cancellation visible, stages the reviewed source and verifies the replacement Dev worker. It cannot inherit automatic Host approval or a plain restart's approval. Coordinator maintenance binds configuration changes to its exact reviewed plan. Failed adoption fences later lifecycle work until a separately approved linked recovery verifies the selection. Trusted startup can select the retained accounting directory without moving the daemon home or opening a second ledger. Deployment, private controller wiring and operating-loop acceptance remain separate. See [Factory startup adoption](execution-installation.md#tracked-factory-startup-adoption).
+
+Maintenance review (2026-10-23): the web build pruner's per-build decision moved into a helper to satisfy the lint complexity limit; behavior is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): the web build pruner retries and then skips a build it cannot delete instead of stopping. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): Host source updates verify that the restarted daemon reports the new release's version and fail before interface publication when an idle or held restart left the previous build running. Making worker-only restarts load the new release needs a separate supervisor change. README overview and onboarding are unchanged.
+
+- **Projects folder.** An installation can name one Projects folder that the Host and the Dev container see at the same absolute path. Daemons with one accept new projects from Add project, Open project, new folders and GitHub clones only strictly inside it, following symlinks and refusing the folder itself, while earlier registrations keep working wherever they are. Browsing and directory search start there, listings mark git checkouts and registered projects, and new Paseo-owned worktrees go in its hidden `.vorteo/worktrees` while worktrees in the old location stay owned. A folder can be created without becoming a project. The Dev daemon moves registry paths from an earlier container path once at startup, after backing up the registry. An existing Dev container can reach the folder's own path through a symlink to its older mount instead of being recreated: daemons treat that mount and other configured aliases as the same folder, record every registry path, project key and git result by the logical path, and rewrite new worktrees' git link files to it so Dev worktrees open on the Host. Workspace membership keys and the Host's shared sidebar order, collapse and folder keys move to the logical path too, after a backup, so moved projects keep one sidebar group and their saved state. Daemon git commands inside the folder trust their repository's exact physical path for that command only, which git 2.39 in Dev needs when it reports dubious ownership, and projects and worktrees reached through an alias are appended to the daemon user's global `safe.directory` for agents and terminals. The container installer mounts the folder at its own path, and `configure-projects-folder` writes both daemons' settings, with the same aliases and kept paths on the Host, and git trust for existing installations, accepting an identical mount or a verified symlink and printing the symlink commands when neither exists. Processes inside Dev may still print the alias path. When both daemons advertise the same folder, every environment supports every project inside it without setup: a workspace or draft moved to an environment without the project uses the identical path and adds the project there on demand, placements at the same root merge into one sidebar project even without a git remote, and Settings > Projects lists the project once and opens the Host placement's settings. Moving a draft between environments notes that installed dependencies may need reinstalling. Daemons without a matching folder keep the earlier folder mapping and chooser. The Add project flow and live installation are pending. See [Projects folder](execution-installation.md#projects-folder).
+- **Project exclusions.** A project's settings page has an Exclusions section that turns off an environment, accounts, profiles or skills for that project, on top of each environment's exclusions. The installation stores them by project root path, never in `paseo.json`, and refuses a policy that leaves no environment. Daemons check them at agent launch and when creating a workspace, refusing with a message that names the setting, and environment and profile menus hide excluded choices. Plugins cannot be excluded per project because they apply to a whole environment. Not yet installed. See [Project exclusions](execution-installation.md#project-exclusions).
+- **Vorteo System project.** Every daemon creates one protected Vorteo System project at startup, under `$PASEO_HOME/system`, and keeps its standing upkeep workspaces there, starting with the Optimization Runner on the Host and single-daemon installs. The daemon finds the project by a marker it alone writes; the registries refuse to archive, remove, move, rename or unprotect system items, and refuse thread deletion in system workspaces, for every client and tool. The project keeps its own key so a Vorteo clone never merges it into another group. An install-local `system.json` can adopt an existing workspace into a role by exact ID, keeping its threads, and names the repository for Set up Vorteo source, which clones into the project root on request and adds an ordinary Vorteo source workspace for your own changes. Reconciliation no longer archives protected workspaces whose folders are missing, and one refusal no longer fails the whole pass. The sidebar shows it as an ordinary project with the Vorteo mark as its default icon: it drags with other projects, creates workspaces, and keeps Remove project disabled with an explanation; its settings explain the project and lock only its name. `system.json` can name the installation's own `source.checkout`, which becomes the project root so new workspaces are its worktrees, and can `absorb` existing projects and workspaces by ID, archived ones included, archiving each emptied project. The Host installer and Dev update setup write `source.checkout`, translating the path through the container's bind mounts, and `configure-system-source` updates existing installations. The clone does not follow later updates yet. See [Vorteo System project](system-project.md).
+- **Reviewed Factory startup adoption.** Factory installation and coordinator binding resolve shared profiles through native account selection, retain exact coordinator snapshots and refuse changed or mismatched profiles. A separate Host-requested Installation operation binds approval to a protected startup plan, keeps cancellation visible, stages the reviewed source and verifies the replacement Dev worker. It cannot inherit automatic Host approval or a plain restart's approval. Coordinator maintenance binds configuration changes to its exact reviewed plan. Failed adoption fences later lifecycle work until a separately approved linked recovery verifies the selection. Trusted startup can select the retained accounting directory without moving the daemon home or opening a second ledger. Deployment, private controller wiring and operating-loop acceptance remain separate. See [Factory startup adoption](execution-installation.md#tracked-factory-startup-adoption).
+
+Maintenance review (2026-10-23): added a Host command that lists, then repairs with backups, git worktree links Dev wrote through its old container path, so a Host `git worktree prune` cannot orphan them. Kept paths such as freed are skipped. Not yet installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): test-only change. The browser helper that opens Settings waits for the toolbar button before using the overflow menu. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): test-only change. Browser test helpers stop using the removed sidebar Hosts control: waiting for a connected host goes through Settings Connections, and the footer check drops the Hosts icon. Functionality is unchanged. README overview and onboarding are unchanged.
@@ -1552,3 +1804,5 @@ October 14, 2026: Integrated the responsive card refinements with the reviewed m
 Maintenance review: Dev repair controls retain their validated implementation while incorporating the current published card layout and prepared capacity ancestry. This isolated integration does not change the pending Host request.
 
 Coordinator startup reads promoted requests plus only their exactly bound recovered ancestry. A fenced predecessor can remain in the pending journal without preventing its approved successor from starting. Unrelated pending claims retain no startup authority, and observation leaves both journals unchanged.
+
+Startup diagnostics operate before the interface bundle and automatically check installation reachability after 15 seconds. They use bounded requests, defer offline checks until resume, distinguish completed browser resource timings from unknown in-flight progress, and show only the coordinator's existing public restart-request counts. Counts cannot establish an active component restart, its initiation time, or the cause of a connection failure. The themed app shell dismisses the overlay after local settings load and two paint frames; daemon connection and session readiness remain separate stages. Production exports preload their original entry script with matching security attributes and embed validated source/version metadata. The compact diagnostic reveal uses inline CSS, system fonts and reduced-motion support.

@@ -23,6 +23,11 @@ import {
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { BootstrapExecutorRecordSchema } from "./coordinator-bootstrap-process.js";
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
+import {
+  REVIEWED_CONFIGURATION_SETTINGS,
+  planConfigurationChanges,
+  type ReviewedConfigurationChange,
+} from "@getpaseo/protocol/coordinator-configuration-settings";
 import { InstallationConfigSchema, type InstallationConfig } from "./config.js";
 import { coordinatorAutomaticAuthority } from "./daemon-automation.js";
 import {
@@ -212,6 +217,17 @@ function verifyMonitorBootstrapBinding(
     );
 }
 
+/** Source update tooling a Host install runs: the preparer, the publisher and every
+ * module the preparer imports. A selected release must hold each as a protected file. */
+export const SOURCE_UPDATE_TOOLING_FILES = [
+  "prepare-installation-update.mjs",
+  "publish-instance-web.mjs",
+  "instance-web-artifact.mjs",
+  "preload-web-entry.mjs",
+  "lib/web-export.mjs",
+  "lib/dependency-cache.mjs",
+] as const;
+
 /** Tooling is selected only from the reviewed, fully hashed candidate release.
  * Inspect bytes as protected documents without importing or executing them. */
 async function verifySourceUpdateTooling(
@@ -222,11 +238,7 @@ async function verifySourceUpdateTooling(
   const directory = path.join(plan.candidate.directory, "scripts");
   if (realpathSync(directory) !== directory)
     throw new BootstrapRequestConflict("Source update tooling requires a canonical directory");
-  const files = [
-    "prepare-installation-update.mjs",
-    "publish-instance-web.mjs",
-    "instance-web-artifact.mjs",
-  ].map((name) => path.join(directory, name));
+  const files = SOURCE_UPDATE_TOOLING_FILES.map((name) => path.join(directory, name));
   await assertBootstrapPathsProtected([directory, ...files], writableMountRoots);
   for (const file of files) await readProtectedDocument(file);
 }
@@ -477,7 +489,8 @@ function expectedBootstrapConfiguration(
   plan: CoordinatorBootstrapPlan,
   current: InstallationConfig,
 ): InstallationConfig {
-  const expected = { ...current, container: { ...current.container } };
+  // Copy each section edited below so the live configuration is never mutated.
+  const expected = { ...current, host: { ...current.host }, container: { ...current.container } };
   if (plan.sourceUpdateTooling === true) {
     if (!current.sourceUpdates)
       throw new BootstrapRequestConflict("Source update tooling requires existing source updates");
@@ -486,21 +499,37 @@ function expectedBootstrapConfiguration(
       toolingDirectory: path.join(plan.candidate.directory, "scripts"),
     };
   }
-  if (plan.factoryRuntimeAdoptionConfiguration === null)
-    delete expected.container.factoryRuntimeAdoption;
-  else if (plan.factoryRuntimeAdoptionConfiguration !== undefined)
-    expected.container.factoryRuntimeAdoption = plan.factoryRuntimeAdoptionConfiguration;
-  if (plan.previewMonitorConfiguration === null) delete expected.previewMonitor;
-  else if (plan.previewMonitorConfiguration !== undefined)
-    expected.previewMonitor = plan.previewMonitorConfiguration;
-  if (plan.claudeHostRefreshConfiguration === null) delete expected.claudeHostRefresh;
-  else if (plan.claudeHostRefreshConfiguration === true) expected.claudeHostRefresh = true;
+  for (const change of reviewedConfigurationChanges(plan))
+    applyConfigurationChange(expected, change);
   if (plan.nativeHelperConfiguration === null) delete expected.nativeHelper;
   else if (plan.nativeHelperConfiguration !== undefined)
     expected.nativeHelper = plan.nativeHelperConfiguration;
   if (plan.hostRequestsAfter !== null)
     expected.restartApprovalPolicy = { hostRequestsAfter: plan.hostRequestsAfter };
   return expected;
+}
+
+/** The plan's registered setting changes, or a conflict naming why they are refused. */
+export function reviewedConfigurationChanges(
+  plan: CoordinatorBootstrapPlan,
+): ReviewedConfigurationChange[] {
+  const result = planConfigurationChanges(plan);
+  if (!result.ok) throw new BootstrapRequestConflict(result.reason);
+  return result.changes;
+}
+
+/** Set or remove one registered setting. `expected` already copies the host and
+ * container sections, so the live configuration is never mutated. */
+function applyConfigurationChange(
+  expected: InstallationConfig,
+  change: ReviewedConfigurationChange,
+): void {
+  const location = REVIEWED_CONFIGURATION_SETTINGS[change.setting].path;
+  const root = expected as unknown as Record<string, unknown>;
+  const section = location.length === 1 ? root : (root[location[0]] as Record<string, unknown>);
+  const key = location[location.length - 1]!;
+  if (change.value === null) delete section[key];
+  else section[key] = change.value;
 }
 
 interface BootstrapConfigurationInput {

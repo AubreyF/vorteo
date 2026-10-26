@@ -29,7 +29,18 @@ import {
   type RestartImpact,
   type RestartJob,
 } from "@getpaseo/protocol/execution-installation";
-import { InstallationRestarts, type RestartJournal, type RestartExecutor } from "./restarts.js";
+import {
+  InstallationRestarts,
+  RestartRequestError,
+  type RestartJournal,
+  type RestartExecutor,
+} from "./restarts.js";
+import {
+  RESTART_OPERATIONS,
+  automaticPermitted,
+  automaticPolicy,
+  operationFor,
+} from "./restart-operations.js";
 import {
   createSessionHostReleaseGuard,
   setReleaseSelectionGuard,
@@ -1393,6 +1404,97 @@ test("interruption outcome requires the exact installed candidate and published 
     });
     await expect(updates.verifyInstalledInterruption(input)).rejects.toThrow();
     expect(await readFile(activationFile)).toEqual(receiptBefore);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// 2026-10-21: an idle Host restart replaced only the worker, which reloaded the
+// old supervisor's build (vorteo.726) while the install reported 729 installed.
+test("a Host install fails when the restarted daemon still runs the previous build", async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "source-version-")));
+  try {
+    const previous = path.join(root, "previous");
+    await mkdir(previous);
+    const baseCommit = "b".repeat(40);
+    await writeFile(
+      path.join(previous, ".installation-source.json"),
+      JSON.stringify({ sourceCommit: baseCommit }),
+    );
+    await writeFile(path.join(root, "release.json"), JSON.stringify({ sourceCommit: baseCommit }));
+    await writeFile(path.join(root, "index.html"), "old interface");
+    const link = path.join(root, "current");
+    await symlink(previous, link);
+    const config = restartTestConfig(
+      root,
+      path.join(link, "packages/server/dist/scripts/supervisor-entrypoint.js"),
+    );
+    config.sourceUpdates = {
+      sourceRepository: root,
+      releaseRoot: root,
+      currentReleaseLink: link,
+      webDirectory: root,
+      toolingDirectory: root,
+      integrationRef: "refs/heads/main",
+    };
+    await writeFile(
+      path.join(root, "prepare-installation-update.mjs"),
+      `import fs from 'node:fs/promises'; import path from 'node:path';
+      const input = JSON.parse(await fs.readFile(process.argv[2], 'utf8'));
+      const release = path.join(input.work, 'release'); const exported = path.join(release, 'web-export');
+      const scripts = path.join(release, 'packages/server/dist/scripts');
+      await fs.mkdir(scripts, {recursive:true}); await fs.mkdir(exported);
+      await fs.writeFile(path.join(scripts, 'supervisor-entrypoint.js'), 'process.exit(0)');
+      await fs.writeFile(path.join(release, 'packages/server/package.json'), JSON.stringify({version: '1.0.1'}));
+      await fs.writeFile(path.join(release, '.installation-source.json'), JSON.stringify({sourceCommit: input.update.sourceCommit}));
+      await fs.writeFile(input.resultFile, JSON.stringify({release,exported}));`,
+    );
+    await writeFile(
+      path.join(root, "publish-instance-web.mjs"),
+      `import fs from 'node:fs/promises'; import path from 'node:path'; await fs.writeFile(path.join(process.argv[3], 'published'), 'yes');`,
+    );
+    const updates = new InstallationSourceUpdates(config);
+    const bundle = Buffer.from("approved inert source");
+    const update = {
+      sourceCommit: "a".repeat(40),
+      baseCommit,
+      sha256: createHash("sha256").update(bundle).digest("hex"),
+      bytes: bundle.length,
+    };
+    updates.stage(update, bundle);
+    const job = () => ({
+      id: randomUUID(),
+      revision: randomUUID(),
+      target: "host" as const,
+      requestedBy: "host-agent" as const,
+      reason: "Install fixture",
+      createdAt: new Date().toISOString(),
+      expiresAt: "9999-12-31T23:59:59.999Z",
+      status: "approved" as const,
+      detail: "Prepared",
+      update,
+    });
+    const restart = vi.fn(async () => "Replacement worker 2 is ready");
+
+    const stale = job();
+    await expect(updates.install(stale, restart, undefined, async () => "1.0.0")).rejects.toThrow(
+      "Host restarted on 1.0.0, not 1.0.1",
+    );
+    expect(restart).toHaveBeenCalledTimes(1);
+    await expect(readFile(path.join(root, "published"))).rejects.toThrow();
+    expect(
+      JSON.parse(await readFile(path.join(root, stale.id, "activation.json"), "utf8")),
+    ).toMatchObject({ status: "activating", previous });
+    await expect(
+      updates.install({ ...stale, updatePreparation: "prepared" }, restart),
+    ).rejects.toThrow("Activation was already attempted");
+
+    await rm(link);
+    await symlink(previous, link);
+    await expect(
+      updates.install(job(), restart, undefined, async () => "1.0.1"),
+    ).resolves.toContain("Installed source");
+    expect(await readFile(path.join(root, "published"), "utf8")).toBe("yes");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -2790,7 +2892,7 @@ test("supervisor repair preserves a pending source batch and serializes both app
   expect(queue.list().find((entry) => entry.id === job.id)?.status).toBe("succeeded");
 });
 
-test("release notes preserve interleaved history and reject edits or missing duplicates", async () => {
+test("release notes preserve interleaved history and reject edits or deleted notes", async () => {
   const { reconcileReleaseNotes } = await import("./source-release-metadata.js");
   const prefix = "# Vorteo changelog\n\n";
   const old = "## 0.11.0-beta.3.vorteo.177 - 2026-10-07\n\n- Existing note";
@@ -2812,13 +2914,48 @@ test("release notes preserve interleaved history and reject edits or missing dup
   expect(() => reconcileReleaseNotes(base, accepted, `${prefix}${old}\n`)).toThrow(
     "Existing release notes were edited",
   );
-  const duplicate = `${prefix}${old}\n\n${old}\n`;
-  expect(() => reconcileReleaseNotes(duplicate, duplicate, `${prefix}${old}\n`)).toThrow(
+  const duplicate = `${prefix}${old}\n\n${old}\n\n${older}\n`;
+  expect(() => reconcileReleaseNotes(duplicate, duplicate, `${prefix}${old}\n\n${old}\n`)).toThrow(
     "Existing release notes were edited",
   );
   expect(() =>
     reconcileReleaseNotes(base, accepted, incoming.replace("# Vorteo changelog", "# Changed")),
   ).toThrow("introduction changed");
+});
+
+test("release notes combine a branch cut before duplicate copies were removed", async () => {
+  const { reconcileReleaseNotes } = await import("./source-release-metadata.js");
+  const prefix = "# Vorteo changelog\n\n";
+  const note = "## 0.11.0-beta.3.vorteo.758 - 2026-10-22\n\n- Drag the bottom edge";
+  const old = "## 0.11.0-beta.3.vorteo.757 - 2026-10-22\n\n- Existing note";
+  const added = "## 0.11.0-beta.3.vorteo.816 - 2026-10-24\n\n- New note";
+  // The branch's base still holds three copies; main kept one in a cleanup commit.
+  const base = `${prefix}${note}\n\n${note}\n\n${note}\n\n${old}\n`;
+  const cleaned = `${prefix}${note}\n\n${old}\n`;
+  const branch = `${prefix}${added}\n\n${note}\n\n${note}\n\n${note}\n\n${old}\n`;
+  expect(reconcileReleaseNotes(base, cleaned, branch)).toBe(
+    `${prefix}${added}\n\n${cleaned.slice(prefix.length)}`,
+  );
+  // Deleting the last copy is still an edit.
+  expect(() => reconcileReleaseNotes(base, `${prefix}${old}\n`, branch)).toThrow(
+    "Existing release notes were edited",
+  );
+});
+
+test("release notes skip incoming entries identical to accepted or repeated ones", async () => {
+  const { reconcileReleaseNotes } = await import("./source-release-metadata.js");
+  const prefix = "# Vorteo changelog\n\n";
+  const old = "## 0.11.0-beta.3.vorteo.757 - 2026-10-22\n\n- Existing note";
+  const note = "## 0.11.0-beta.3.vorteo.758 - 2026-10-22\n\n- Drag the bottom edge";
+  const sameVersion = "## 0.11.0-beta.3.vorteo.758 - 2026-10-22\n\n- Show Vorteo System";
+  const base = `${prefix}${old}\n`;
+  const accepted = `${prefix}${note}\n\n${old}\n`;
+  // The contribution carries the accepted note three times, as vorteo.758 did on 2026-10-22.
+  const incoming = `${prefix}${sameVersion}\n\n${note}\n\n${note}\n\n${sameVersion}\n\n${note}\n\n${old}\n`;
+  const result = reconcileReleaseNotes(base, accepted, incoming);
+  // One new entry under the repeated heading; no copy of the accepted note.
+  expect(result).toBe(`${prefix}${sameVersion}\n\n${note}\n\n${old}\n`);
+  expect(reconcileReleaseNotes(base, result, incoming)).toBe(result);
 });
 
 test("release notes accept a heading-only entry and still refuse malformed headings or edits", async () => {
@@ -5170,4 +5307,267 @@ test("source updates refuse a release without the session host while its job is 
     setReleaseSelectionGuard(null);
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("a Docker restart needs a trusted request, the exact plan and owner review, even under automatic policy", async () => {
+  const sha = "e".repeat(64);
+  const f = automaticFixture(() => new Date(1000).toISOString());
+  const calls: string[] = [];
+  f.executor.engineRestartPlan = () => sha;
+  f.executor.restartEngine = async () => {
+    calls.push("engine");
+    return "Docker restarted";
+  };
+  const standing = {
+    grantId: randomUUID(),
+    grantRevision: randomUUID(),
+    manifestSha256: "1".repeat(64),
+    planSha256: "2".repeat(64),
+    targetIdentitySha256: "3".repeat(64),
+    authoritySha256: "4".repeat(64),
+    policyActivatedAt: new Date(1000).toISOString(),
+  };
+  const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, {
+    ...f.policy,
+    standingDecision: () => standing,
+  });
+  const input = {
+    target: "container-daemon" as const,
+    reason: "Docker restart for Factory",
+    engineRestartPlanSha256: sha,
+  };
+  expect(() => queue.request(input, "container-agent")).toThrow("trusted Host");
+  expect(() => queue.request({ ...input, target: "host" }, "host-agent")).toThrow("trusted Host");
+  expect(() =>
+    queue.request({ ...input, engineRestartPlanSha256: "f".repeat(64) }, "host-agent"),
+  ).toThrow("unavailable or changed");
+  expect(() => queue.request({ ...input, requireOwnerApproval: true }, "host-agent")).toThrow(
+    "already requires exact owner review",
+  );
+  expect(() =>
+    queue.contribute(
+      input,
+      "host-agent",
+      {
+        sourceCommit: "a".repeat(40),
+        baseCommit: "b".repeat(40),
+        sha256: "c".repeat(64),
+        bytes: 1,
+      },
+      randomUUID(),
+    ),
+  ).toThrow("source contribution");
+  const job = queue.request(input, "host-agent");
+  await queue.drain();
+  expect(queue.list()[0]?.status).toBe("pending");
+  expect(queue.list()[0]?.automaticApproval).toBeUndefined();
+  expect(() =>
+    queue.request({ target: "container-daemon", reason: "Plain restart" }, "host-agent"),
+  ).toThrow("different");
+  expect(() => queue.decide(job.id, job.revision, "finish-current-turns")).toThrow(
+    "exact Docker restart",
+  );
+  expect(() =>
+    queue.decide(job.id, job.revision, "approve-when-idle", undefined, undefined, undefined, sha),
+  ).toThrow("Finish turns");
+  queue.decide(job.id, job.revision, "finish-current-turns", undefined, undefined, undefined, sha);
+  await queue.drain();
+  expect(f.events).toEqual(["hold"]);
+  expect(calls).toEqual([]);
+  f.idle();
+  await queue.drain();
+  expect(calls).toEqual(["engine"]);
+  expect(queue.list()[0]?.status).toBe("succeeded");
+  // The hold is renewed at dispatch and released once the job is terminal.
+  await queue.drain();
+  expect(f.events).toEqual(["hold", "hold", "release"]);
+  expect(calls).toEqual(["engine"]);
+});
+
+test("a Docker restart never dispatches on a changed plan or replays an interrupted run", async () => {
+  let sha = "e".repeat(64);
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  const executor: RestartExecutor = {
+    engineRestartPlan: () => sha,
+    restartEngine: async () => {
+      calls.push("engine");
+      return "Docker restarted";
+    },
+    restart: async () => {
+      throw new Error("A worker restart cannot run a Docker restart");
+    },
+  };
+  const queue = new InstallationRestarts(journal, executor);
+  const input = {
+    target: "container-daemon" as const,
+    reason: "Docker restart",
+    engineRestartPlanSha256: sha,
+  };
+  const changed = queue.request(input, "owner");
+  queue.decide(changed.id, changed.revision, "approve", undefined, undefined, undefined, sha);
+  sha = "d".repeat(64);
+  await queue.drain();
+  expect(calls).toEqual([]);
+  expect(queue.list()[0]?.status).toBe("failed");
+
+  const job = queue.request({ ...input, engineRestartPlanSha256: sha }, "host-agent");
+  queue.decide(job.id, job.revision, "approve", undefined, undefined, undefined, sha);
+  const interrupted = queue.list();
+  for (const entry of interrupted) if (entry.id === job.id) entry.status = "running";
+  journal.write(interrupted);
+  const recovered = new InstallationRestarts(journal, executor);
+  await recovered.drain();
+  expect(recovered.list().find((entry) => entry.id === job.id)?.status).toBe("failed");
+  expect(calls).toEqual([]);
+});
+
+test("Factory's guard wraps every approved Dev dispatch and never a Host one", async () => {
+  const guarded: string[] = [];
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    restart: async (target) => `${target} ready`,
+    async guardDevRestart(job, dispatch) {
+      guarded.push(job.target);
+      const detail = await dispatch();
+      return detail === null ? null : `${detail}; Factory checked`;
+    },
+  });
+  const dev = queue.request({ target: "container-daemon", reason: "Dev" }, "host-agent");
+  queue.decide(dev.id, dev.revision, "approve");
+  await queue.drain();
+  const host = queue.request({ target: "host", reason: "Host" }, "host-agent");
+  queue.decide(host.id, host.revision, "approve");
+  await queue.drain();
+  expect(guarded).toEqual(["container-daemon"]);
+  expect(queue.list().find((job) => job.id === dev.id)?.detail).toBe(
+    "container-daemon ready; Factory checked",
+  );
+  expect(queue.list().find((job) => job.id === host.id)?.detail).toBe("host ready");
+});
+
+test("the Host launcher update needs a trusted Host request, the exact plan and owner review", async () => {
+  const sha = "c".repeat(64);
+  const f = automaticFixture(() => new Date(1000).toISOString());
+  const calls: string[] = [];
+  f.executor.hostLauncherPlan = () => sha;
+  f.executor.updateHostLauncher = async () => {
+    calls.push("launcher");
+    return "Host launcher updated";
+  };
+  const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+  const input = {
+    target: "host" as const,
+    reason: "Managed releases",
+    hostLauncherPlanSha256: sha,
+  };
+  expect(() => queue.request(input, "container-agent")).toThrow("trusted Host");
+  expect(() => queue.request({ ...input, target: "container-daemon" }, "host-agent")).toThrow(
+    "trusted Host",
+  );
+  expect(() =>
+    queue.request({ ...input, hostLauncherPlanSha256: "d".repeat(64) }, "host-agent"),
+  ).toThrow("unavailable or changed");
+  const job = queue.request(input, "host-agent");
+  await queue.drain();
+  expect(queue.list()[0]?.status).toBe("pending");
+  expect(queue.list()[0]?.automaticApproval).toBeUndefined();
+  expect(() => queue.request({ target: "host", reason: "Plain" }, "host-agent")).toThrow(
+    "different",
+  );
+  expect(() => queue.decide(job.id, job.revision, "finish-current-turns")).toThrow(
+    "exact Host launcher update",
+  );
+  const decide = (decision: "approve-when-idle" | "finish-current-turns") =>
+    queue.decide(job.id, job.revision, decision, undefined, undefined, undefined, undefined, sha);
+  expect(() => decide("approve-when-idle")).toThrow("Finish turns");
+  decide("finish-current-turns");
+  await queue.drain();
+  expect(calls).toEqual([]);
+  f.idle();
+  await queue.drain();
+  expect(calls).toEqual(["launcher"]);
+  expect(queue.list()[0]?.status).toBe("succeeded");
+});
+
+test("every reviewed restart operation enforces the shared request, decision and contribution rules", () => {
+  const plans = new Map(
+    RESTART_OPERATIONS.map((operation, position) => [
+      operation.field,
+      String(position + 1).repeat(64),
+    ]),
+  );
+  for (const operation of RESTART_OPERATIONS) {
+    const f = automaticFixture(() => new Date(1000).toISOString());
+    f.executor.supervisorPlan = () => plans.get("supervisorPlanSha256");
+    f.executor.restartSupervisor = async () => "supervisor";
+    f.executor.factoryRuntimePlan = () => plans.get("factoryRuntimePlanSha256");
+    f.executor.adoptFactoryRuntime = async () => "factory";
+    f.executor.engineRestartPlan = () => plans.get("engineRestartPlanSha256");
+    f.executor.restartEngine = async () => "engine";
+    f.executor.hostLauncherPlan = () => plans.get("hostLauncherPlanSha256");
+    f.executor.updateHostLauncher = async () => "launcher";
+    const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+    const input = {
+      target: operation.target,
+      reason: `${operation.label} fixture`,
+      [operation.field]: plans.get(operation.field),
+    };
+    expect(() => queue.request(input, "container-agent")).toThrow(
+      `${operation.label} requires a trusted Host request`,
+    );
+    const otherTarget = operation.target === "host" ? "container-daemon" : "host";
+    expect(() => queue.request({ ...input, target: otherTarget }, "host-agent")).toThrow(
+      `${operation.label} requires a trusted Host request`,
+    );
+    expect(() =>
+      queue.request({ ...input, [operation.field]: "f".repeat(64) }, "host-agent"),
+    ).toThrow(`${operation.planLabel} is unavailable or changed`);
+    // A request naming two operations is always refused; the earlier entry's own
+    // checks run first, so the message names whichever rule fails first, as before.
+    for (const other of RESTART_OPERATIONS.filter((candidate) => candidate !== operation))
+      expect(() =>
+        queue.request({ ...input, [other.field]: plans.get(other.field) }, "host-agent"),
+      ).toThrow(RestartRequestError);
+    expect(() =>
+      queue.contribute(
+        input,
+        "host-agent",
+        {
+          sourceCommit: "a".repeat(40),
+          baseCommit: "b".repeat(40),
+          sha256: "c".repeat(64),
+          bytes: 1,
+        },
+        randomUUID(),
+      ),
+    ).toThrow(`${operation.label} cannot be submitted as a source contribution`);
+    if (operation.refusesRedundantOwnerApproval)
+      expect(() => queue.request({ ...input, requireOwnerApproval: true }, "host-agent")).toThrow(
+        `${operation.label} already requires exact owner review`,
+      );
+    const job = queue.request(input, "host-agent");
+    expect(job[operation.field]).toBe(plans.get(operation.field));
+    expect(() => queue.decide(job.id, job.revision, "finish-current-turns")).toThrow(
+      operation.reviewMessage,
+    );
+  }
+});
+
+test("a reviewed restart operation without an explicit automatic policy is never automatic", () => {
+  const { automatic: _automatic, ...unset } = operationFor("engineRestartPlanSha256");
+  expect(automaticPolicy(unset)).toBe("never");
+  const job = { engineRestartPlanSha256: "e".repeat(64) };
+  expect(automaticPermitted(job, true, [unset])).toBe(false);
+  expect(automaticPermitted(job, false, [{ ...unset, automatic: "standing" }])).toBe(false);
+  expect(automaticPermitted(job, true, [{ ...unset, automatic: "standing" }])).toBe(true);
+  expect(automaticPermitted(job, false, [{ ...unset, automatic: "allowed" }])).toBe(true);
+  // The two operations that may be automatic keep their own rules; the others never are.
+  expect(
+    RESTART_OPERATIONS.map((operation) => [operation.field, automaticPolicy(operation)]),
+  ).toEqual([
+    ["supervisorPlanSha256", "allowed"],
+    ["factoryRuntimePlanSha256", "standing"],
+    ["engineRestartPlanSha256", "never"],
+    ["hostLauncherPlanSha256", "never"],
+  ]);
 });

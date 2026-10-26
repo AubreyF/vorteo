@@ -1,6 +1,7 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import { gotoAppShell } from "./app";
 import { addConnectedHostsAndReload, waitForConnectedHost } from "./hosts";
+import { selectNewWorkspaceHost, submitNewWorkspaceEmpty } from "./new-workspace";
 import { openProjectSettings } from "./project-settings";
 import { openSettingsHostSection } from "./settings";
 import { waitForSidebarHydration } from "./workspace-ui";
@@ -77,14 +78,13 @@ export async function beginWorkspaceFromProject(page: Page, projectName: string)
   );
 }
 
+/** New workspace chooses its host in the Environment step. */
 export async function selectWorkspaceHost(page: Page, hostName: string): Promise<void> {
-  await page.getByRole("button", { name: "Host", exact: true }).click();
-  await page.getByRole("button", { name: hostName, exact: true }).click();
-  await expect(page.getByRole("button", { name: "Host", exact: true })).toContainText(hostName);
+  await selectNewWorkspaceHost(page, hostName);
 }
 
 export async function createWorkspaceWithoutAgent(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await submitNewWorkspaceEmpty(page);
 }
 
 export async function expectProjectWorkspaceCountForHost(
