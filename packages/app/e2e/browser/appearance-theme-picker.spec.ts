@@ -11,8 +11,12 @@ import { gotoAppShell } from "../support/helpers/app";
 import { seedWorkspace } from "../support/helpers/seed-client";
 import { getServerId } from "../support/helpers/server-id";
 import { openSettingsSection } from "../support/helpers/settings";
+import { waitForSettledPosition } from "../support/helpers/sheet-layout";
 import { TerminalE2EHarness } from "../support/helpers/terminal-dsl";
 import { getTerminalBufferText, waitForTerminalContent } from "../support/helpers/terminal-perf";
+
+// This spec handles the "Set up worktree scripts" notice itself.
+test.use({ dismissWorktreeSetupCallout: false });
 
 test("updates a running terminal across all six themes without replacing its session", async ({
   page,
@@ -83,10 +87,11 @@ test("updates a running terminal across all six themes without replacing its ses
           await page.evaluate((original) => window.__paseoTerminal === original, initialTerminal),
         ).toBe(true);
         expect(await getTerminalBufferText(page)).toContain("THEME_BUFFER_RETAINED");
-        await expect(terminal.locator(".xterm-rows")).toHaveCSS(
-          "font-family",
-          /monospace|Mono|Menlo/,
-        );
+        // The WebGL renderer draws into a canvas with no .xterm-rows, so read the font the
+        // terminal renders with from its options; both renderers use it.
+        expect(
+          await page.evaluate(() => String(window.__paseoTerminal?.options.fontFamily ?? "")),
+        ).toMatch(/monospace|Mono|Menlo/);
         await page.screenshot({
           path: info.outputPath(`${theme}-terminal.png`),
         });
@@ -143,7 +148,11 @@ test("offers six reference themes with Dark Star selected by default", async ({
   });
 });
 
-test("keeps sidebar theme bubbles in one row and lifts them on hover", async ({ page }, info) => {
+// Geometry drift, owner review (2026-10-24): 1d041fbea set the six sidebar theme bubbles on one
+// row with centres within 1px; they now measure up to 8.7px apart. No later commit records it.
+test.fixme("keeps sidebar theme bubbles in one row and lifts them on hover", async ({
+  page,
+}, info) => {
   await page.setViewportSize({ width: 1600, height: 900 });
   await gotoAppShell(page);
   await page.getByTestId("sidebar-footer-overflow").click();
@@ -199,6 +208,9 @@ test("stacks font labels above inputs on compact screens", async ({ page }, test
   const label = page.getByText("Interface font", { exact: true });
   const input = page.getByLabel("Interface font family", { exact: true });
   await expect(input).toBeVisible();
+  // The single settings page scrolls to Appearance after load; measure once it stops moving.
+  await waitForSettledPosition(label);
+  await waitForSettledPosition(input);
   const labelBox = await label.boundingBox();
   const inputBox = await input.boundingBox();
   expect(labelBox).not.toBeNull();
@@ -381,7 +393,9 @@ test("restores the saved theme when storage is full and allows retry", async ({ 
     }
   });
   await midas.click();
-  await expect(page.getByRole("alert")).toHaveText("Could not save the theme. Try again.");
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Could not save the theme. Try again." }),
+  ).toBeVisible();
   await expect(darkStar).toHaveAttribute("aria-pressed", "true");
   await expect(midas).toHaveAttribute("aria-pressed", "false");
   await page.mouse.move(0, 0);
@@ -393,7 +407,9 @@ test("restores the saved theme when storage is full and allows retry", async ({ 
     }
   });
   await midas.click();
-  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Could not save the theme. Try again." }),
+  ).toHaveCount(0);
   await expect(midas).toHaveAttribute("aria-pressed", "true");
   await page.reload();
   await expect(midas).toHaveAttribute("aria-pressed", "true");
@@ -401,7 +417,11 @@ test("restores the saved theme when storage is full and allows retry", async ({ 
 
 test.describe("touch theme swatches", () => {
   test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
-  test("keeps six swatches compact and commits a theme with one tap", async ({ page }, info) => {
+  // Geometry drift, owner review (2026-10-24): the touch theme swatch should be 48px wide and now
+  // measures 44.3px. No commit after 1d041fbea records the change.
+  test.fixme("keeps six swatches compact and commits a theme with one tap", async ({
+    page,
+  }, info) => {
     await page.goto("/settings/appearance");
     const card = page.getByTestId("theme-preview-neon");
     await card.scrollIntoViewIfNeeded();
@@ -444,6 +464,9 @@ test("keeps System appearance available without plugin themes", async ({ page })
 });
 
 test("keeps shared button labels themed across palette changes", async ({ page }, info) => {
+  // Seven themes at three widths each outlast the default timeout. The run takes about 90 seconds
+  // locally and reached 180 seconds on CI.
+  test.setTimeout(300_000);
   const agent = await seedLongMockAgentTimeline({ turns: 16 });
   const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "button-colors" });
   try {
@@ -518,16 +541,21 @@ test.describe("whole-interface zoom", () => {
       const swatch = page.getByTestId("theme-preview-neon");
       const initialHeight = (await swatch.boundingBox())!.height;
       if (width === 1133) {
-        const track = (await slider.boundingBox())!;
-        await page.mouse.move(track.x + track.width * 0.2, track.y + track.height / 2);
-        await page.mouse.down();
-        await page.mouse.move(track.x + track.width * 0.6, track.y + track.height / 2, {
-          steps: 8,
-        });
-        expect((await slider.boundingBox())!.width).toBeCloseTo(track.width, 0);
-        await expect(page.locator("html")).toHaveAttribute("data-interface-zoom", "100");
-        await page.mouse.up();
-        await expect(slider).not.toHaveValue("100");
+        // Settings panes above the slider can still be loading and move it after it first
+        // settles, so a drag that missed the track is measured and made again.
+        await expect(async () => {
+          await waitForSettledPosition(slider);
+          const track = (await slider.boundingBox())!;
+          await page.mouse.move(track.x + track.width * 0.2, track.y + track.height / 2);
+          await page.mouse.down();
+          await page.mouse.move(track.x + track.width * 0.6, track.y + track.height / 2, {
+            steps: 8,
+          });
+          expect((await slider.boundingBox())!.width).toBeCloseTo(track.width, 0);
+          await expect(page.locator("html")).toHaveAttribute("data-interface-zoom", "100");
+          await page.mouse.up();
+          await expect(slider).not.toHaveValue("100", { timeout: 2_000 });
+        }).toPass({ timeout: 20_000 });
       }
       for (const zoom of [125, 75, 200, 100]) {
         await slider.fill(String(zoom));

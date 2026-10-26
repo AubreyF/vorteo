@@ -43,9 +43,9 @@ import {
 } from "../support/helpers/timeline-pagination";
 
 // Wide enough that the timeline panel clears the rail's MIN_PANEL_WIDTH with room
-// to spare. At 1280 the panel measures 960, which sits too close to the threshold
-// for chrome-width changes elsewhere to stay out of these tests.
-const WIDE_VIEWPORT = { width: 1440, height: 900 };
+// to spare. The workspace card column now sits beside the conversation, so at 1440
+// the panel measures about 760 and the rail hides.
+const WIDE_VIEWPORT = { width: 2400, height: 900 };
 const LOADED_TURNS = 16;
 
 // Dispatch tests cover provenance; this fixture isolates the optional wire field.
@@ -85,7 +85,8 @@ test.describe("desktop chat outline", () => {
         if (reload) await page.reload({ waitUntil: "domcontentloaded" });
         await movePointerOffChatOutline(page);
         await expectChatOutlinePrompts(page, 16);
-        await expect(page.getByTestId("thread-cards-column")).toBeVisible();
+        // Inside a workspace the task cards sit in the workspace's card column (60f4899a6).
+        await expect(page.getByTestId("workspace-supporting-cards").first()).toBeVisible();
         const textColumn = await page.getByTestId("thread-text-column").boundingBox();
         const textRegion = await page.getByTestId("thread-text-region").boundingBox();
         expect(textColumn!.width).toBeLessThan(918);
@@ -321,8 +322,11 @@ test.describe("desktop chat outline", () => {
   test("hides the rail when a split makes its panel narrow", async ({ page }) => {
     const agent = await seedLongMockAgentTimeline({ turns: 2 });
     try {
-      await page.setViewportSize(WIDE_VIEWPORT);
+      // At 2400px each split pane is about 1030px, still above the rail's 918px minimum, so use a
+      // width where one panel fits the rail and half of it does not.
+      await page.setViewportSize({ width: 1900, height: 900 });
       await openAgentTimeline(page, agent);
+      await expectChatOutlinePrompts(page, 2);
 
       await splitCurrentPanelRight(page);
 

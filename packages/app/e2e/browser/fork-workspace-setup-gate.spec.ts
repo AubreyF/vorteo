@@ -6,9 +6,8 @@ import { createTempGitRepo } from "../support/helpers/workspace";
 import {
   connectWorkspaceSetupClient,
   openHomeWithProject,
-  openWorkspaceScriptsMenu,
   seedProjectForWorkspaceSetup,
-  startWorkspaceScriptFromMenu,
+  startOnlyWorkspaceScript,
 } from "../support/helpers/workspace-setup";
 import { waitForWorkspaceTabsVisible } from "../support/helpers/workspace-tabs";
 import { getServerId } from "../support/helpers/server-id";
@@ -80,8 +79,8 @@ test("fork workspace setup stays blocked until the user runs it", async ({ page 
     });
 
     await test.step("starting a script explains why it is blocked", async () => {
-      await openWorkspaceScriptsMenu(page);
-      await startWorkspaceScriptFromMenu(page, "dev");
+      // The only script gets a play button that starts it without a menu (fa9a1859d).
+      await startOnlyWorkspaceScript(page);
       await expect(page.getByText(/Scripts are blocked for PR #2/)).toBeVisible();
       await page.screenshot({
         path: path.join(evidenceDir, "blocked-script-error.png"),

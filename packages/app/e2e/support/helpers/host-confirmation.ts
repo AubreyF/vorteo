@@ -88,8 +88,11 @@ export async function expectHostInConnections(
   expected: "listed" | "not listed",
 ): Promise<void> {
   await page.getByTestId("settings-section-environments").click();
-  await page.getByTestId("settings-pane-environments.connections").scrollIntoViewIfNeeded();
-  await expect(page.getByTestId(`settings-environment-${serverId}`)).toHaveCount(
-    expected === "listed" ? 1 : 0,
-  );
+  const connections = page.getByTestId("settings-pane-environments.connections");
+  await connections.scrollIntoViewIfNeeded();
+  // The single settings page repeats each host's section under several panes, and the section's
+  // test ID also marks its heading parts, so check presence within Connections.
+  const host = connections.getByTestId(`settings-environment-${serverId}`);
+  if (expected === "listed") await expect(host.first()).toBeVisible();
+  else await expect(host).toHaveCount(0);
 }

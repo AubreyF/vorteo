@@ -158,7 +158,6 @@ test.describe("Project with no workspaces persists", () => {
       const newWorkspaceRow = page.getByTestId(
         `sidebar-project-new-workspace-row-${projectViewKey}`,
       );
-      const globalNewWorkspace = page.getByTestId("sidebar-global-new-workspace");
 
       await gotoAppShell(page);
       await waitForSidebarHydration(page);
@@ -181,7 +180,12 @@ test.describe("Project with no workspaces persists", () => {
       await expect(projectRow).toBeVisible({ timeout: 30_000 });
       await expect(newWorkspaceRow).toBeVisible({ timeout: 30_000 });
       await expect(newWorkspaceRow).toContainText("New workspace");
-      await expect(globalNewWorkspace).toBeVisible({ timeout: 30_000 });
+      // The app-wide New workspace entry lives in the sidebar's More menu since ab60c1e39.
+      await page.locator('[data-testid="sidebar-footer-overflow"]:visible').first().click();
+      await expect(
+        page.locator('[data-testid="sidebar-global-new-workspace"]:visible').first(),
+      ).toBeVisible({ timeout: 30_000 });
+      await page.keyboard.press("Escape");
 
       // The project survives a reload after its last workspace is archived.
       await page.reload();

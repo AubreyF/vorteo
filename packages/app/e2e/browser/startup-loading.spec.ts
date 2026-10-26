@@ -30,5 +30,6 @@ test("Vorteo explains an unreachable saved workspace after ten seconds", async (
   await expect(page.getByTestId("startup-diagnostics")).toHaveCount(0);
   await page.clock.fastForward(10_000);
   await expect(page.getByTestId("startup-diagnostics")).toBeVisible();
-  await expect(page.getByText("Make sure the host is awake and Vorteo is running.")).toBeVisible();
+  // The connection diagnostics in 24e167c54 replaced the "host is awake" hint.
+  await expect(page.getByText(/Check your connection and VPN/)).toBeVisible();
 });

@@ -9,12 +9,9 @@ import { buildOpenProjectRoute } from "@/utils/host-routes";
 import { gotoAppShell, openSettings } from "./app";
 import { connectDaemonClient } from "./daemon-client-loader";
 import { startIsolatedHostDaemon, type IsolatedHostDaemon } from "./isolated-host-daemon";
-import {
-  addDirectHostFromSettings,
-  goBackInSettings,
-  openCompactSettings,
-  openHostSection,
-} from "./settings";
+import { getE2EDaemonPort } from "./daemon-port";
+import { getServerId } from "./server-id";
+import { openCompactSettings, revealSettingsLocation, seedSavedSettingsHosts } from "./settings";
 
 type AgentSkillsClient = Pick<
   InternalDaemonClient,
@@ -122,19 +119,24 @@ export async function openAgentSkillsSettings(
   sandbox: AgentSkillsSandbox,
   options: { compact?: boolean } = {},
 ): Promise<void> {
+  // Agent behavior settings manage the installation's first host (471d7f22a), so the sandbox
+  // is saved first and the worker daemon second.
+  await seedSavedSettingsHosts(page, [
+    {
+      serverId: sandbox.daemon.serverId,
+      label: "Skills sandbox",
+      endpoint: `127.0.0.1:${sandbox.daemon.port}`,
+    },
+    { serverId: getServerId(), label: "localhost", endpoint: `127.0.0.1:${getE2EDaemonPort()}` },
+  ]);
   await gotoAppShell(page);
   if (options.compact) {
     await openCompactSettings(page, buildOpenProjectRoute());
   } else {
     await openSettings(page);
   }
-  await addDirectHostFromSettings(page, {
-    host: "127.0.0.1",
-    port: sandbox.daemon.port,
-  });
-  if (options.compact) await goBackInSettings(page);
-  await openHostSection(page, sandbox.daemon.serverId, "agents");
-  await expect(page.getByTestId("host-agent-skills-card")).toBeVisible();
+  await revealSettingsLocation(page, "agents");
+  await expect(page.getByTestId("host-agent-skills-card")).toBeVisible({ timeout: 30_000 });
 }
 
 export async function openSkillSelection(page: Page): Promise<void> {

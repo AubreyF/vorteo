@@ -69,13 +69,14 @@ test.describe("Branch switcher", () => {
         title: customTitle,
       });
 
-      // The header shows the custom title verbatim (a plain static title), never a
-      // branch name, and the branch switcher does not live in the header.
+      // The workspace shows the custom title verbatim, never a branch name, and the branch
+      // switcher does not live in the header. Desktop has no title header since 195e1c044, so
+      // read the open workspace's sidebar row.
       const headerTitle = page
-        .getByTestId("workspace-header-title")
+        .getByTestId(`sidebar-workspace-row-${serverId}:${workspace.workspaceId}`)
         .filter({ visible: true })
         .first();
-      await expect(headerTitle).toHaveText(customTitle, { timeout: 30_000 });
+      await expect(headerTitle).toContainText(customTitle, { timeout: 30_000 });
       await expectNoBranchSwitcherInWorkspaceHeader(page);
 
       // The diff panel's switcher tracks the real branch ("main"), not the title,
@@ -86,7 +87,7 @@ test.describe("Branch switcher", () => {
       await expectWorkspaceBranch(page, "dev");
 
       // The custom title is unaffected by the branch switch.
-      await expect(headerTitle).toHaveText(customTitle, { timeout: 30_000 });
+      await expect(headerTitle).toContainText(customTitle, { timeout: 30_000 });
 
       await expect
         .poll(

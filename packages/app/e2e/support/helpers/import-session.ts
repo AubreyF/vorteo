@@ -5,6 +5,7 @@ import { openCommandCenter } from "./command-center";
 import { openGlobalNewWorkspaceComposer } from "./new-workspace";
 import { getServerId } from "./server-id";
 import { expectMobileAgentSidebarVisible, openMobileAgentSidebar } from "./sidebar";
+import { openWorkspaceActionsMenu } from "./workspace-ui";
 
 const rowTestId = (id: string) => `import-session-session-claude-${id}`;
 const rowFolderTestId = (id: string) => `import-session-row-folder-claude-${id}`;
@@ -15,9 +16,14 @@ export class ImportSessionFlow {
     await this.page.setViewportSize(viewport);
     await gotoAppShell(this.page);
     await this.page.goto(buildHostWorkspaceRoute(getServerId(), workspaceId));
-    await expect(this.page.getByRole("button", { name: "Workspace actions" })).toBeVisible({
-      timeout: 30_000,
-    });
+    // Workspace actions open from the phone title menu or, on desktop, the pane menu (195e1c044).
+    await expect(
+      this.page
+        .getByTestId("workspace-header-menu-trigger")
+        .or(this.page.getByTestId("workspace-split-pane-menu"))
+        .filter({ visible: true })
+        .first(),
+    ).toBeVisible({ timeout: 30_000 });
   }
   /** The new workspace screen's Import session button, reached from the sidebar. */
   async revealNewWorkspaceEntryPoint() {
@@ -40,7 +46,7 @@ export class ImportSessionFlow {
     await this.expectSheetReady();
   }
   async openFromWorkspaceHeader() {
-    await this.page.getByRole("button", { name: "Workspace actions" }).click();
+    await openWorkspaceActionsMenu(this.page);
     await this.page.getByTestId("workspace-header-import-agent").click();
     await this.expectScope("This workspace");
     await expect(this.page.getByTestId("import-session-show-all")).toBeVisible();

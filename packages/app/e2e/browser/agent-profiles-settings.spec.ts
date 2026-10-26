@@ -1,4 +1,6 @@
-import { test } from "../support/fixtures";
+import { test, type Page } from "../support/fixtures";
+import { gotoAppShell } from "../support/helpers/app";
+import { getServerId } from "../support/helpers/server-id";
 import {
   createAgentProfile,
   createAgentProfileFromEmptyState,
@@ -18,22 +20,51 @@ import {
 
 const MOCK_PROVIDER_LABEL = "Mock Load Test";
 
+/**
+ * Like stageLegacyFavoritesForHostMigration, but drops the legacy `vortonMode` field that the
+ * fixture seeds, so the migration sees preferences that the current schema accepts.
+ */
+async function stageLegacyFavoritesWithoutLegacyMode(
+  page: Page,
+  favorites: Array<{ provider: string; modelId: string }>,
+): Promise<void> {
+  await gotoAppShell(page);
+  await page.evaluate(
+    ({ favorites: storedFavorites, serverId }) => {
+      const preferencesKey = "@paseo:create-agent-preferences";
+      const { vortonMode: _legacyMode, ...preferences } = JSON.parse(
+        localStorage.getItem(preferencesKey) ?? "{}",
+      );
+      localStorage.setItem(
+        preferencesKey,
+        JSON.stringify({ ...preferences, favoriteModels: storedFavorites }),
+      );
+      localStorage.removeItem(`@paseo:legacy-favorites-to-agent-profiles:v1:${serverId}`);
+      const nonce = localStorage.getItem("@paseo:e2e-seed-nonce");
+      if (nonce) localStorage.setItem("@paseo:e2e-disable-default-seed-once", nonce);
+    },
+    { favorites, serverId: getServerId() },
+  );
+  await page.reload();
+}
+
 test.describe("Agent profiles settings", () => {
+  // These journeys own the host's profile list, including its empty state.
+  test.use({ defaultMockProfile: false });
+
+  const migratedProfile = {
+    id: "legacy_favorite:mock:one-minute-stream",
+    name: "One minute stream",
+    provider: "mock",
+    model: "one-minute-stream",
+  };
+
   test("legacy model favourites migrate into provider-and-model-only host profiles", async ({
     page,
   }) => {
     const seed = await seedAgentProfiles([]);
-    const migratedProfile = {
-      id: "legacy_favorite:mock:one-minute-stream",
-      name: "One minute stream",
-      provider: "mock",
-      model: "one-minute-stream",
-    };
-
     try {
-      // The fixture's seeded preferences carry the legacy `vortonMode` field, as values saved
-      // before 471d7f22a do, so this also covers upgrades from that shape.
-      await stageLegacyFavoritesForHostMigration(page, [
+      await stageLegacyFavoritesWithoutLegacyMode(page, [
         { provider: "mock", modelId: "one-minute-stream" },
       ]);
 
@@ -43,6 +74,21 @@ test.describe("Agent profiles settings", () => {
         name: migratedProfile.name,
         tags: [MOCK_PROVIDER_LABEL, "One minute stream"],
       });
+    } finally {
+      await seed.restore();
+    }
+  });
+
+  // Preferences saved before 471d7f22a carry `vortonMode`; the migration accepts them since
+  // a6a91bc4a instead of deleting the preferences entry.
+  test("legacy favourites saved beside the old mode setting still migrate", async ({ page }) => {
+    const seed = await seedAgentProfiles([]);
+    try {
+      // The fixture seeds `vortonMode: false`, as upgraded installs stored it.
+      await stageLegacyFavoritesForHostMigration(page, [
+        { provider: "mock", modelId: "one-minute-stream" },
+      ]);
+      await expectHostAgentProfiles([migratedProfile]);
     } finally {
       await seed.restore();
     }

@@ -5,6 +5,7 @@ import { seedWorkspace } from "../support/helpers/seed-client";
 import { getServerId } from "../support/helpers/server-id";
 import {
   closeSidebarDisplayPreferences,
+  openSidebarDisplayPreferences,
   openSidebarProjectFilter,
   pinWorkspaceFromSidebar,
   selectAllProjectsFilter,
@@ -38,7 +39,7 @@ test.describe("Sidebar project filter", () => {
       await expect(betaRow).toHaveCount(0, { timeout: 10_000 });
 
       // The indicator reads the filter as it is applied, so it must be on here.
-      await page.getByTestId("sidebar-display-preferences-menu").click();
+      await openSidebarDisplayPreferences(page);
       await expect(filterTrigger).toBeVisible();
       await expect(filterTrigger.getByTestId("menu-sub-indicator")).toBeVisible();
       await closeSidebarDisplayPreferences(page);
@@ -94,7 +95,9 @@ test.describe("Sidebar project filter", () => {
       await expect(alphaRow).toBeVisible();
 
       // The way out of the filter is still on screen.
-      await expect(page.getByTestId("sidebar-display-preferences-menu")).toBeVisible();
+      await expect(
+        page.getByTestId("sidebar-footer-overflow").filter({ visible: true }),
+      ).toBeVisible();
       await openSidebarProjectFilter(page);
       await selectAllProjectsFilter(page);
       await closeSidebarDisplayPreferences(page);
@@ -117,8 +120,7 @@ test.describe("Sidebar project filter", () => {
         page.getByTestId(`sidebar-workspace-row-${serverId}:${only.workspaceId}`),
       ).toBeVisible({ timeout: 30_000 });
 
-      await page.getByTestId("sidebar-display-preferences-menu").click();
-      await expect(page.getByTestId("sidebar-display-preferences-content")).toBeVisible();
+      await openSidebarDisplayPreferences(page);
       await expect(page.getByTestId("sidebar-display-project-filter")).toHaveCount(0);
     } finally {
       await only.cleanup();

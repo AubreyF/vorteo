@@ -2,11 +2,11 @@ import { expect, test, type Page } from "../support/fixtures";
 import { gotoAppShell, openSettings } from "../support/helpers/app";
 import { getServerId } from "../support/helpers/server-id";
 import { connectNewWorkspaceDaemonClient } from "../support/helpers/new-workspace";
-import {
-  expectSettingsHeader,
-  openHostSection,
-  openSettingsHost,
-} from "../support/helpers/settings";
+import { openHostSection, openSettingsHost } from "../support/helpers/settings";
+
+function metadataSection(page: Page) {
+  return page.getByTestId("metadata-generation-settings").filter({ visible: true }).first();
+}
 
 async function openMetadataGenerationSettings(page: Page) {
   const serverId = getServerId();
@@ -14,7 +14,9 @@ async function openMetadataGenerationSettings(page: Page) {
   await openSettings(page);
   await openSettingsHost(page, serverId);
   await openHostSection(page, serverId, "metadata");
-  await expectSettingsHeader(page, "Metadata");
+  // 537b619e2 folded the Metadata page into the single Settings page as the
+  // "Metadata generation" pane.
+  await expect(metadataSection(page)).toBeVisible();
 }
 
 async function openManualMetadataModelPicker(page: Page) {
@@ -41,7 +43,7 @@ test("chooses a metadata model and can return to automatic selection", async ({
   });
 
   await openManualMetadataModelPicker(page);
-  await page.getByText("Mock Load Test", { exact: true }).click();
+  await page.getByTestId("model-provider-mock").click();
   await expect(page.getByText("Ten second stream", { exact: true })).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath("metadata-model-picker.png"),

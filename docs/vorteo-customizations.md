@@ -28,6 +28,116 @@ Maintenance review (2026-10-25): restricted Claude sessions keep the skills Clau
 
 Maintenance review (2026-10-25): restricted Claude and Codex skill selections leave out provider defaults that have no package on disk, such as Claude's bundled skills, instead of refusing the launch. This fixes Claude launches whenever a personal skill is unshared or excluded. README overview and onboarding are unchanged.
 
+Maintenance review (2026-10-25): repository hygiene only. Accidentally committed test screenshots are removed and their names ignored. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Three appearance browser tests wait for settled settings layout or get a longer budget. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): merge-only change. The browser test repair branch takes main b08980d36. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Composer, agent stream and card tests follow current behaviour; one queue test is retired, two regressions are marked and two layout differences go to owner review. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. The worktree notice handler stops waiting for a vanished notice, and the local plugin journey test gets a longer budget. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): merge and test-only change. The browser test repair branch takes main 67375bccd and re-enables the favourites migration and saved layout recovery tests now that both fixes are on main. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Layout, appearance, chat outline, startup and card tests follow the current design; two layout regressions are marked and three geometry differences go to owner review. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Settings, provider and sidebar tests follow current sign-in, settings and startup behaviour; Standard-mode checks are retired and one favourites migration regression is marked. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. File, Explorer and plugin tests follow supporting cards, toasts and current colors; the Explorer plugin menu test is retired and one diff scrollbar regression is marked. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): CI and test-only change. Playwright CI drops temporary diagnostic flags, and queue tests follow touch-based row targets and the known tooltip press regression. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): merge of main through 71925c85e into the test repair branch. Functionality from main is unchanged by the merge. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Composer model and mode tests are retired with the Paseo mode, and New workspace entry tests use the More menu. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. The composer diff pill test is retired, diff counter and Explorer keyboard tests follow the supporting cards, and one geometry drift and one phone regression are marked. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): merge of main through 24e167c54 into the test repair branch, plus supporting card targets for Explorer shortcut tests. Functionality from main is unchanged by the merge. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Two New workspace project selection regressions are marked as known failures and the paste helper works on macOS. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Browser tests reset the host-synced sidebar before each test, the header helper reads the route row, and the subagent status test follows delegated task ownership. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Sidebar helpers, reorder and pin shortcut tests follow hidden sidebar copies, touch sheets and host-synced sidebar state; one touch title test awaits owner review. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Subagent and title suggestion tests follow the current rows and menus; two product regressions are marked as known failures. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Draft thinking preference tests are retired, the upstream settings test follows the single settings page, and a duplicated changelog entry is removed. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. The plan card test follows the fixed card heading; question card and sidebar project row geometry await owner review. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Queue tests follow the Queue card title and duplicate placement, one queue geometry test awaits owner review, and the open questions test seeds its usage. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Provider settings stacking tests use the schedule form model picker. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Codex speed coverage moved to the profile editor, and profile editor helpers support the phone sheet. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Standard mode checks are retired, skill library tests use the settings pane, and duplicate locators are narrowed. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Import session tests use the current workspace actions menus; the desktop entry point is marked as a known regression. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Usage, provider removal, CLI warning and sidebar tests follow the Quota card, provider rows and More menu. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Worktree notice dismissal, plugin settings addresses and workspace title checks follow the current interface; three product regressions are marked as known failures. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Settings and project grouping tests follow the single settings page, the Environment step and the profile requirement on secondary hosts; one per-host project test awaits owner review. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Profile picker tests follow the switch sheet, collapsible compact sections and the defaults editor, and retire checks for removed reasoning and mode controls. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. The desktop plugin links check follows the renderer window-open denial from cd90c8f78. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Model picker tests now use profile selection and the schedule form picker; tests for the removed Paseo picker are retired, and two profile picker gaps are marked as known failures. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. The worktree notice dismissal survives covering overlays, display preference tests use the More menu, and the label failure test expects a toast. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Explorer tab dock tests are retired, split pane tests use the pane menu, and the saved layout recovery test is marked as a known regression. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Context window, workspace setup and launcher tests follow the current loading pulse, menus, script button and settings addresses. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Appearance theme tests scope their alerts and timeouts; two geometry checks are marked for owner review. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Sidebar workspace tests follow the toolbar, icon rail and context menus; one is marked as a known regression. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Browser tests find desktop workspace actions in the pane menu. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Agent skills tests target the installation's first host and read failed saves inline. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Open question tests expect refused answers as toasts. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Command center agent control tests are marked for the missing Mode commands; the composer thinking selector test is retired. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Two workspace standing tests are marked for owner review. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Workspace standing tests follow the current menus, badges and touch actions; two are marked as known regressions. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. The desktop appearance font size check follows one Theme label. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Plugin sidebar item tests follow the toolbar and footer layout; steps for removed sidebar customization are retired. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Usage screen tests open Usage directly; tests for the removed sidebar Usage summary, pins and footer rows are retired. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. The desktop shortcut unassign test timeout is raised. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): merged main into the browser test repair branch; only release notes conflicted and both histories are kept. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): test-only change. Demo compact theme tests use the inline Files card; three phone Changes tests are marked as a known regression. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): test-only change. The desktop Settings memory check follows the single settings page. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): test-only change. Projects settings and chat outline browser tests follow the single settings page and the workspace card column. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): test and CI change. Desktop renderer tests follow the More menu, Explorer and About pane layouts; the workspace title check follows the desktop sidebar; Metro warm-up allows five minutes in CI. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): test-only change. Browser tests choose models through pinned mock profiles, dismiss the worktree setup notice automatically and queue through the composer's default action. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): test-only change. Browser tests reach Changes through the Explorer cards and host settings through Environments tabs. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): test-only change. Browser tests seed a default mock profile, use the New workspace Environment step, open Help from the More menu and check the sidebar toolbar line; three tests for the removed sidebar customization are retired. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-23): CI-only change. Browser test shards upload results after hitting their time limit, and temporarily run without retries with inline failure output for diagnosis. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): Host installs now apply the guarded build's script preloads and build metadata, both web exports run with an 8 GB worker heap, and the Lucide import plugin emits a root-independent path, so shared Metro caches stay valid across builds. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): the shared Lucide test fixture now exports every common icon imported by the deferred plugin-icon adapter. The four affected files collect and all fifteen tests pass with their original assertions and per-test mocks. Production behavior, README overview and onboarding are unchanged.

@@ -16,11 +16,13 @@ test("Changes shortcut reveals the Changes tree in Explorer", async ({ page }) =
 
     await page.keyboard.press(CHANGES_SHORTCUT);
 
-    const explorer = page.getByTestId("workspace-explorer-sidebar").filter({ visible: true });
-    await expect(explorer.getByTestId("workspace-tab-changes_tree")).toBeVisible({
+    // Files and Changes are supporting cards beside the conversation since 60f4899a6, 2e2921f79
+    // and 73be0edc5, so the shortcut reveals the Changes card rather than an Explorer tab.
+    const cards = page.getByTestId("workspace-supporting-cards").filter({ visible: true });
+    await expect(cards.getByTestId("supporting-card-changes_tree")).toBeVisible({
       timeout: 30_000,
     });
-    await expect(explorer.getByTestId("changes-tree-panel")).toBeVisible();
+    await expect(cards.getByTestId("changes-tree-panel")).toBeVisible();
     await expect(page.getByTestId("workspace-tab-working_diff")).toHaveCount(0);
   } finally {
     await workspace.cleanup();

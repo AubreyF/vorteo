@@ -24,8 +24,9 @@ export async function openNewAgentComposer(page: Page): Promise<void> {
  * seeds a workspace/project; zero-project flows need their own assertion.
  */
 export async function waitForSidebarHydration(page: Page, timeout = 60_000): Promise<void> {
+  // The shell keeps a hidden copy of the other layout's sidebar, so wait for a visible row.
   await page
-    .locator('[data-testid^="sidebar-project-row-"]')
+    .locator('[data-testid^="sidebar-project-row-"]:visible')
     .first()
     .waitFor({ state: "visible", timeout });
 }
@@ -88,19 +89,48 @@ export async function waitForWorkspaceInSidebar(
   });
 }
 
+/**
+ * Phones show a workspace header with the workspace title and its project. Desktop has no
+ * workspace header (60f4899a6), so there the selected sidebar row names the workspace under
+ * its project row.
+ */
 export async function expectWorkspaceHeader(
   page: Page,
   input: { title: string; subtitle: string },
 ): Promise<void> {
   const titleLocator = page.getByTestId("workspace-header-title").filter({ visible: true });
   const subtitleLocator = page.getByTestId("workspace-header-subtitle").filter({ visible: true });
+  const routeRow = page
+    .locator('[data-testid^="sidebar-workspace-row-"]')
+    .filter({ visible: true });
 
-  await expect(titleLocator.first()).toHaveText(input.title, {
-    timeout: 30_000,
-  });
-  await expect(subtitleLocator.first()).toHaveText(input.subtitle, {
-    timeout: 30_000,
-  });
+  // Phones show the title header. Desktop has none since 195e1c044, so read the open workspace's
+  // sidebar row, found from the route: status-grouped rows expose no selected state.
+  await expect(titleLocator.or(routeRow).first()).toBeVisible({ timeout: 30_000 });
+  if ((await titleLocator.count()) > 0) {
+    await expect(titleLocator.first()).toHaveText(input.title, { timeout: 30_000 });
+    await expect(subtitleLocator.first()).toHaveText(input.subtitle, { timeout: 30_000 });
+    return;
+  }
+  await expect(page).toHaveURL(/\/h\/[^/]+\/workspace\/[^/?#]+/, { timeout: 30_000 });
+  const match = /\/h\/([^/]+)\/workspace\/([^/?#]+)/.exec(new URL(page.url()).pathname);
+  const row = page
+    .getByTestId(
+      `sidebar-workspace-row-${decodeURIComponent(match![1])}:${decodeURIComponent(match![2])}`,
+    )
+    .filter({ visible: true })
+    .first();
+  await expect(row).toContainText(input.title, { timeout: 30_000 });
+  // Project grouping names the project on its section row. Status grouping shows only the
+  // project's icon in the row, so there is no project name to read.
+  if (await page.getByTestId("sidebar-status-list-scroll").isVisible()) return;
+  await expect(
+    page
+      .locator('[data-testid^="sidebar-project-row-"]')
+      .filter({ visible: true })
+      .filter({ hasText: input.subtitle })
+      .first(),
+  ).toBeVisible();
 }
 
 export async function expectReconnectingToastVisible(
@@ -180,6 +210,26 @@ export async function expectMenuButtonVisible(page: Page): Promise<void> {
   await expect(page.getByTestId("menu-button")).toBeVisible();
 }
 
+/**
+ * The open workspace's title. Phones show it in the screen header; desktop has no title header
+ * since 195e1c044, so the selected sidebar row carries it.
+ */
+export function workspaceTitleLocator(page: Page): Locator {
+  return page
+    .getByTestId("workspace-header-title")
+    .filter({ visible: true })
+    .or(
+      page
+        .locator('[data-testid^="sidebar-workspace-row-"][aria-selected="true"]')
+        .filter({ visible: true }),
+    )
+    .first();
+}
+
+export async function expectWorkspaceTitle(page: Page, title: string): Promise<void> {
+  await expect(workspaceTitleLocator(page)).toContainText(title, { timeout: 30_000 });
+}
+
 export async function expectWorkspaceHeaderAbsent(page: Page): Promise<void> {
   await expect(page.getByTestId("workspace-header-title")).toHaveCount(0);
 }
@@ -198,4 +248,33 @@ export async function seedWorkspaceActivity(page: Page, marker: string): Promise
   await input.fill(marker);
   await input.press("Enter");
   await expect(page).toHaveURL(/\/workspace\//, { timeout: 30_000 });
+}
+
+/**
+ * Opens the workspace's own actions menu. Phones keep it in the title bar; on desktop the
+ * primary pane's menu combines it with pane splitting (195e1c044). Returns the menu content.
+ */
+export async function openWorkspaceActionsMenu(
+  page: Page,
+  options: { tap?: boolean } = {},
+): Promise<Locator> {
+  const title = page.getByTestId("workspace-header-menu-trigger").filter({ visible: true });
+  const pane = page.getByTestId("workspace-split-pane-menu").filter({ visible: true });
+  const trigger = title.or(pane).first();
+  await expect(trigger).toBeVisible({ timeout: 30_000 });
+  const onTitle = (await title.count()) > 0;
+  if (options.tap) await trigger.tap();
+  else await trigger.click();
+  // Phones open the title menu as a sheet, whose scroll content carries the "-content" test ID.
+  const content = (
+    onTitle
+      ? page
+          .getByTestId("workspace-header-menu")
+          .or(page.getByTestId("workspace-header-menu-content"))
+      : page.getByTestId("workspace-split-pane-menu-content")
+  )
+    .filter({ visible: true })
+    .first();
+  await expect(content).toBeVisible();
+  return content;
 }

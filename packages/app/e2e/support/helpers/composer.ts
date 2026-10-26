@@ -71,8 +71,17 @@ export async function typeIntoFocusedComposer(page: Page, text: string): Promise
   await page.keyboard.type(text);
 }
 
+/**
+ * Queue the draft behind a running turn. When queueing is the composer's default action its
+ * submit button reads "Queue message" and Enter queues; otherwise Ctrl+Enter is the alternate
+ * action that queues.
+ */
 export async function sendDraftToQueue(page: Page): Promise<void> {
-  await composerInput(page).press("Control+Enter");
+  const queuesByDefault = await page
+    .getByRole("button", { name: "Queue message", exact: true })
+    .filter({ visible: true })
+    .count();
+  await composerInput(page).press(queuesByDefault > 0 ? "Enter" : "Control+Enter");
 }
 
 export async function expectQueuedMessageButton(page: Page): Promise<void> {

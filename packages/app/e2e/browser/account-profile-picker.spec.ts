@@ -5,6 +5,7 @@ import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
 import { seedWorkspace } from "../support/helpers/seed-client";
 import { waitForSettledPosition } from "../support/helpers/sheet-layout";
 import { expect, test } from "../support/fixtures";
+import { chooseNewTaskForProfile } from "../support/helpers/model-profile";
 import { seedAgentProfiles } from "../support/helpers/agent-profiles";
 import { expectComposerVisible } from "../support/helpers/composer";
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
@@ -166,8 +167,10 @@ test("profile cards use border selection, a separate activation action, and comp
       .toBeGreaterThan(60);
     await page.screenshot({ path: test.info().outputPath("profile-cards-narrow.png") });
     await page.getByTestId("preset-use-profile").click();
-    await expect(page.getByTestId("preset-handoff-modal")).toBeVisible();
-    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await chooseNewTaskForProfile(page);
+    // The switch sheet stays open beneath the handoff modal, so cancel the newest one first.
+    await page.getByRole("button", { name: "Cancel", exact: true }).last().click();
+    await expect(page.getByTestId("preset-handoff-modal")).toHaveCount(0);
     await page.setViewportSize({ width: 1280, height: 720 });
     await expect(page.getByTestId("agent-preset-selector")).toBeVisible();
   } finally {
