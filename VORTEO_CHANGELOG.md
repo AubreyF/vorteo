@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.858 - 2026-10-26
+
+### Maintenance
+
+- Merge registry-only reviewed settings: a reviewed coordinator setting no longer needs a legacy plan field
+
+## 0.11.0-beta.3.vorteo.852 - 2026-10-25
+
+### Maintenance
+
+- Reviewed coordinator settings no longer need a legacy plan field. A setting added after the registry, such as the coordinator telemetry opt-in, changes only through `configurationChanges`. Existing settings keep their legacy fields unchanged, and tests cover a registry-only setting.
+
 ## 0.11.0-beta.3.vorteo.857 - 2026-10-25
 
 ### Maintenance
