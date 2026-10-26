@@ -809,7 +809,7 @@ test("card spacing follows panel width on both sides and compact center layouts"
   }
   await page.screenshot({ path: info.outputPath("spacious-panels.png"), fullPage: true });
   for (const width of [390, 280]) {
-    await page.setViewportSize({ width, height: 900 });
+    await resizeAndSettle(page, { width, height: 900 });
     await expect(card).toBeVisible();
     await expect
       .poll(() =>

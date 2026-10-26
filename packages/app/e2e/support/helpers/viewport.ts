@@ -12,6 +12,15 @@ export async function resizeAndSettle(
   size: { width: number; height: number },
 ): Promise<void> {
   await page.setViewportSize(size);
+  await waitForPaint(page);
+}
+
+/**
+ * Waits until the page paints twice. Use it after an action that re-applies the appearance, such
+ * as a content width or font change: applyAppearance rebuilds the web stylesheet once per theme,
+ * which can block the page past a 10 second assertion on CI (the same known regression).
+ */
+export async function waitForPaint(page: Page): Promise<void> {
   await page.evaluate(
     () =>
       new Promise<void>((resolve) =>

@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.877 - 2026-10-26
+
+### Maintenance
+
+- Make four more browser tests reliable on CI without loosening their checks:
+  - The composer whitespace and demo card spacing tests use the shared wait after resizing across the phone breakpoint.
+  - The content width helpers wait for the page to paint after a width change or reset, which re-applies the appearance and can freeze the page.
+  - The repeated model rows test gets a 120-second budget: 15.6 seconds locally and about 77 on CI, where each of its four page loads took 8 to 14 seconds.
+
 ## 0.11.0-beta.3.vorteo.876 - 2026-10-26
 
 ### Maintenance
