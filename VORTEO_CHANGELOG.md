@@ -4,6 +4,30 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.867 - 2026-10-26
+
+### Maintenance
+
+- Merge command-name check review fixes: too-deep command folders count as unknown, dependency folders are skipped outside command trees, file and dangling symlinks no longer drop all built-ins, and chmod tests skip on Windows
+
+## 0.11.0-beta.3.vorteo.858 - 2026-10-26
+
+### Fixed
+
+- A custom command saved under a commands subfolder named node_modules or .git is no longer skipped by the resume check for Claude's bundled skills, so it can't take a bundled skill's name. Those folders are still skipped elsewhere in plugin folders.
+
+## 0.11.0-beta.3.vorteo.857 - 2026-10-26
+
+### Maintenance
+
+- Skip the three skill policy tests that make a path unreadable with chmod on Windows, where chmod cannot remove read access. They failed main's Windows CI because the fail-closed path never ran there; behaviour is unchanged.
+
+## 0.11.0-beta.3.vorteo.856 - 2026-10-25
+
+### Fixed
+
+- The resume check for Claude's bundled skills no longer drops them all because of a symlink to a file or a dangling symlink inside a skill or plugin folder, and it skips node_modules and .git folders inside plugins. A commands folder nested deeper than the check reads now counts as unknown and keeps no bundled skills, instead of being silently ignored.
+
 ## 0.11.0-beta.3.vorteo.866 - 2026-10-26
 
 ### Maintenance
@@ -530,16 +554,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Merge Claude command-name checks on resume: commands named like built-in skills turn those built-ins off, as skills already did
 
-## 0.11.0-beta.3.vorteo.855 - 2026-10-25
-
-### Fixed
-
-- A custom command named like one of Claude's bundled skills can no longer take its place in a restricted session. Claude lists commands as skills and its allowlist matches them by name, so a resumed session now reads project, home, account and plugin command folders and turns off any bundled name a command uses. This is conservative: a plugin that is present but not loaded for an account can still turn a name off, which on the Host currently drops code-review for account sessions.
-
-### Maintenance
-
-- Skill policy tests use an empty home folder and stop the project folder walk at the test folder, so the developer's own skills, plugins and commands no longer affect them. New tests cover the synced skill layout, unreadable folders inside plugin roots, command claims, and the Claude session passing its own config folder to the resume check.
-
 ## 0.11.0-beta.3.vorteo.860 - 2026-10-26
 
 ### Maintenance
@@ -641,6 +655,16 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Show expanded startup diagnostics and begin automatic checks after ten seconds using one shared delay.
 - Move and shrink the original V mark while the diagnostic content fades and slides into place on the same timeline. Reduced motion settles immediately, with no new downloaded assets or dependencies.
+
+## 0.11.0-beta.3.vorteo.855 - 2026-10-25
+
+### Fixed
+
+- A custom command named like one of Claude's bundled skills can no longer take its place in a restricted session. Claude lists commands as skills and its allowlist matches them by name, so a resumed session now reads project, home, account and plugin command folders and turns off any bundled name a command uses. This is conservative: a plugin that is present but not loaded for an account can still turn a name off, which on the Host currently drops code-review for account sessions.
+
+### Maintenance
+
+- Skill policy tests use an empty home folder and stop the project folder walk at the test folder, so the developer's own skills, plugins and commands no longer affect them. New tests cover the synced skill layout, unreadable folders inside plugin roots, command claims, and the Claude session passing its own config folder to the resume check.
 
 ## 0.11.0-beta.3.vorteo.854 - 2026-10-25
 

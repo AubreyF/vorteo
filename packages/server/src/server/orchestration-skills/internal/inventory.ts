@@ -39,6 +39,9 @@ export class SkillLibraryError extends Error {
 export function missing(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
+function notDirectory(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOTDIR";
+}
 export function digest(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -255,6 +258,8 @@ export async function inventorySkills(
         try {
           await walk(full, depth - 1, root);
         } catch (error) {
+          // A symlink to a file (ENOTDIR) or a dangling one (ENOENT) holds no skill.
+          if (entry.isSymbolicLink() && (missing(error) || notDirectory(error))) continue;
           inventory.roots.push({ path: full, status: "error", error: String(error) });
         }
       }

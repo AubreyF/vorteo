@@ -290,15 +290,26 @@ async function commandNames(roots: SkillRoot[]): Promise<string[] | null> {
     try {
       entries = await readdir(directory, { withFileTypes: true });
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      // ENOTDIR: a symlink to a file, such as a node_modules/.bin link.
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ENOTDIR") return;
       throw error;
     }
     for (const entry of entries) {
       const full = path.join(directory, entry.name);
-      if (inCommands && entry.name.endsWith(".md") && !entry.isDirectory())
+      if (inCommands && entry.name.endsWith(".md") && !entry.isDirectory()) {
         names.push(entry.name.slice(0, -3));
-      else if (depth > 0 && (entry.isDirectory() || entry.isSymbolicLink()))
-        await walk(full, depth - 1, inCommands || entry.name === "commands");
+        continue;
+      }
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+      // Inside a commands tree every folder is a command namespace, whatever its name.
+      if (!inCommands && SKIPPED_FOLDERS.has(entry.name)) continue;
+      // A commands tree deeper than the walk could hold an unseen claim.
+      if (depth <= 0) {
+        if (inCommands) throw new Error(`Commands nested too deeply under ${directory}`);
+        continue;
+      }
+      await walk(full, depth - 1, inCommands || entry.name === "commands");
     }
   }
   try {
@@ -311,6 +322,9 @@ async function commandNames(roots: SkillRoot[]): Promise<string[] | null> {
   }
   return names;
 }
+
+// Dependency and repository folders inside plugin checkouts never hold Claude commands.
+const SKIPPED_FOLDERS = new Set(["node_modules", ".git"]);
 
 /**
  * Names a skill can be enabled by. Inventory records a package it could not fully read

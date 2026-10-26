@@ -22,16 +22,6 @@ Maintenance review (2026-10-25): startup diagnostics share a ten-second reveal a
 
 Startup diagnostics operate before the interface bundle and automatically check installation reachability after 10 seconds, using the same threshold as the expanded display. The existing V mark shrinks and moves from its original position while the diagnostic content fades and slides into place on the same timeline. Reduced motion settles immediately. They use bounded requests, defer offline checks until resume, distinguish completed browser resource timings from unknown in-flight progress, and show only the coordinator's existing public restart-request counts. Counts cannot establish an active component restart, its initiation time, or the cause of a connection failure. The themed app shell dismisses the overlay after local settings load and two paint frames; daemon connection and session readiness remain separate stages. Production exports preload their original entry script with matching security attributes and embed validated source/version metadata. The compact diagnostic reveal uses inline CSS and system fonts, with no additional downloaded assets.
 
-Maintenance review (2026-10-25): resuming a restricted Claude session also reads custom command folders (project, home, account and plugin commands) for claims on bundled skill names, after confirming against Claude 2.1.285 that its skill allowlist matches commands by name. Skill policy tests are isolated from the real home folder. README overview and onboarding are unchanged.
-
-Maintenance review (2026-10-25): on resume, skills the inventory could not fully inspect claim their frontmatter name, read directly from SKILL.md, and an unreadable SKILL.md drops all bundled skills. README overview and onboarding are unchanged.
-
-Maintenance review (2026-10-25): resuming a restricted Claude session inventories the account's own `CLAUDE_CONFIG_DIR` skills and its plugin cache, marketplace and synced folders for claims on bundled skill names, and keeps no bundled skills when a root cannot be read. The package selector check keeps its earlier scope. README overview and onboarding are unchanged.
-
-Maintenance review (2026-10-25): restricted Claude sessions keep the skills Claude labels as built in, read from Claude's skill list at launch and recorded in an optional `builtins` list in the frozen skill snapshot. A name shared with any other skill, including a `plugin:name` suffix, is left out, and a package that later claims a name turns it off. Checked against the real Claude 2.1.285 CLI with a forced exclusion. README overview and onboarding are unchanged.
-
-Maintenance review (2026-10-25): restricted Claude and Codex skill selections leave out provider defaults that have no package on disk, such as Claude's bundled skills, instead of refusing the launch. This fixes Claude launches whenever a personal skill is unshared or excluded. README overview and onboarding are unchanged.
-
 Maintenance review (2026-10-25): repository hygiene only. Accidentally committed test screenshots are removed and their names ignored. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): test-only change. Three appearance browser tests wait for settled settings layout or get a longer budget. Functionality is unchanged. README overview and onboarding are unchanged.
@@ -141,6 +131,22 @@ Maintenance review (2026-10-23): test-only change. Browser tests reach Changes t
 Maintenance review (2026-10-23): test-only change. Browser tests seed a default mock profile, use the New workspace Environment step, open Help from the More menu and check the sidebar toolbar line; three tests for the removed sidebar customization are retired. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-23): CI-only change. Browser test shards upload results after hitting their time limit, and temporarily run without retries with inline failure output for diagnosis. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): the bundled-skill resume check reads every folder inside a commands tree, including ones named node_modules or .git, which Claude treats as command namespaces. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): three chmod-based skill policy tests skip on Windows, where chmod cannot make a path unreadable. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): the bundled-skill resume check skips file and dangling symlinks and dependency folders, and treats too-deep command folders as unknown. Skill inventory no longer reports those symlinks as read errors. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): resuming a restricted Claude session also reads custom command folders (project, home, account and plugin commands) for claims on bundled skill names, after confirming against Claude 2.1.285 that its skill allowlist matches commands by name. Skill policy tests are isolated from the real home folder. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): on resume, skills the inventory could not fully inspect claim their frontmatter name, read directly from SKILL.md, and an unreadable SKILL.md drops all bundled skills. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): resuming a restricted Claude session inventories the account's own `CLAUDE_CONFIG_DIR` skills and its plugin cache, marketplace and synced folders for claims on bundled skill names, and keeps no bundled skills when a root cannot be read. The package selector check keeps its earlier scope. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): restricted Claude sessions keep the skills Claude labels as built in, read from Claude's skill list at launch and recorded in an optional `builtins` list in the frozen skill snapshot. A name shared with any other skill, including a `plugin:name` suffix, is left out, and a package that later claims a name turns it off. Checked against the real Claude 2.1.285 CLI with a forced exclusion. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): restricted Claude and Codex skill selections leave out provider defaults that have no package on disk, such as Claude's bundled skills, instead of refusing the launch. This fixes Claude launches whenever a personal skill is unshared or excluded. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): Host installs now apply the guarded build's script preloads and build metadata, both web exports run with an 8 GB worker heap, and the Lucide import plugin emits a root-independent path, so shared Metro caches stay valid across builds. Not yet installed. README overview and onboarding are unchanged.
 
