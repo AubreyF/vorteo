@@ -12,7 +12,7 @@ import { createSessionHostExecutor } from "./session-host-job.js";
 import { createNativeSessionHostPorts } from "./session-host-job-native.js";
 import {
   inspectBootstrapWritableMountRoots,
-  createBootstrapReconciliationLedger,
+  createHostReconciliationLedger,
 } from "./coordinator-bootstrap-host.js";
 import { loadCoordinatorStartupFence } from "./coordinator-bootstrap-startup.js";
 import { createClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
@@ -143,7 +143,7 @@ function activateSynchronization() {
 const claudeSetup = createClaudeSetupRuntime(config, settings, assertRegistrationReadiness);
 const host = config.public.environments.find((environment) => environment.kind === "host");
 if (!host) throw new Error("Installation Host identity is missing");
-const coordinatorRequests = createBootstrapReconciliationLedger(configFile, host.serverId);
+const coordinatorRequests = createHostReconciliationLedger(config, configFile, host.serverId);
 const claudeSetupTimer = setInterval(() => {
   if (!synchronizing) return;
   void claudeSetup
