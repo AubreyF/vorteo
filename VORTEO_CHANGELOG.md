@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.858 - 2026-10-26
+
+### Fixed
+
+- A custom command saved under a commands subfolder named node_modules or .git is no longer skipped by the resume check for Claude's bundled skills, so it can't take a bundled skill's name. Those folders are still skipped elsewhere in plugin folders.
+
 ## 0.11.0-beta.3.vorteo.857 - 2026-10-26
 
 ### Maintenance

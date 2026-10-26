@@ -455,6 +455,15 @@ it("ignores dependency folders and file symlinks inside plugin roots", async () 
   ]);
 });
 
+it("reads commands inside a commands folder named like a dependency folder", async () => {
+  const { home, config } = await bundledSetup();
+  // Claude lists this as "node_modules:simplify", which the allowlist matches by suffix.
+  const nested = path.join(home, ".claude/commands/node_modules");
+  await mkdir(nested, { recursive: true });
+  await writeFile(path.join(nested, "simplify.md"), "Simplify");
+  expect(await verifySkillSnapshot(config)).toEqual(["example", "claude-api"]);
+});
+
 it("keeps no built-ins when an account skill folder cannot be read", async () => {
   const { config, account } = await bundledSetup();
   await mkdir(account, { recursive: true });

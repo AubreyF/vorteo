@@ -302,7 +302,8 @@ async function commandNames(roots: SkillRoot[]): Promise<string[] | null> {
         continue;
       }
       if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
-      if (SKIPPED_FOLDERS.has(entry.name)) continue;
+      // Inside a commands tree every folder is a command namespace, whatever its name.
+      if (!inCommands && SKIPPED_FOLDERS.has(entry.name)) continue;
       // A commands tree deeper than the walk could hold an unseen claim.
       if (depth <= 0) {
         if (inCommands) throw new Error(`Commands nested too deeply under ${directory}`);
