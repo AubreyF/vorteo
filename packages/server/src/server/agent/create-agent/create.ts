@@ -53,6 +53,7 @@ import {
   type InstallationProfileReader,
 } from "../../execution-installation/profiles/admission.js";
 import type { AgentProfile, MutableDaemonConfig } from "@getpaseo/protocol/messages";
+import { ProviderOverrideSchema } from "@getpaseo/protocol/provider-config";
 
 export interface CreateAgentSessionWorktreeResult {
   sessionConfig: AgentSessionConfig;
@@ -906,7 +907,22 @@ async function captureLaunchPolicy(
     }));
   await captureSkillPolicy(config, provider, {
     installation,
+    codexHome: launchCodexHome(provider, settings, config.provider),
     nativeDefaults: async () => (await readCatalog()).skills,
     providerBuiltins: async () => (await readCatalog()).builtinSkills,
   });
+}
+
+/**
+ * The CODEX_HOME a Codex session's app-server inherits: the account's own, else the daemon's.
+ * Account sessions list skills from that folder, so the skill snapshot must read the same one.
+ */
+function launchCodexHome(
+  provider: string,
+  settings: MutableDaemonConfig | undefined,
+  providerId: string,
+): string | undefined {
+  if (provider !== "codex") return undefined;
+  const parsed = ProviderOverrideSchema.safeParse(settings?.providers?.[providerId]);
+  return (parsed.success ? parsed.data.env?.CODEX_HOME : undefined) ?? process.env.CODEX_HOME;
 }

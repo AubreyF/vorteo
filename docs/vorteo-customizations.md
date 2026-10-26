@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-26): Codex skill snapshots are taken from the session's own `CODEX_HOME` instead of the daemon user's `~/.codex`, so another Codex build re-extracting its bundled skills there cannot block new account agents. A focused policy test covers a diverged shared copy; README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): CI only. The app and relay Cloudflare deploys are skipped in this fork, matching the website deploy. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): the daemon web UI build used by the container image gets the 8 GB export heap, and the upstream website deployment is skipped in this fork. README overview and onboarding are unchanged.

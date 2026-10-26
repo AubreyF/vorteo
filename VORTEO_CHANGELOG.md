@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.864 - 2026-10-26
+
+### Fixed
+
+- New Codex account agents no longer fail with "Provider did not discover selected skill" after another Codex build rewrites the shared `~/.codex` skills. The launch skill snapshot now reads personal, system and plugin Codex skills from the `CODEX_HOME` the session runs with, the same folder its app-server lists. Running tasks also stop depending on `~/.codex`, so a rewrite there can no longer report their skills as changed.
+
 ## 0.11.0-beta.3.vorteo.863 - 2026-10-26
 
 ### Maintenance
