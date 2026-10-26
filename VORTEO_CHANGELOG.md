@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.876 - 2026-10-26
+
+### Maintenance
+
+- The 1133px interface zoom browser test scrolls the slider back into view before each drag attempt. On CI the settings page drifted up to Agent behavior after the Appearance deep link's pin expired, so the drag pressed off screen.
+
 ## 0.11.0-beta.3.vorteo.875 - 2026-10-26
 
 ### Maintenance
