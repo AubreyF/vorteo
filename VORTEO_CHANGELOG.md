@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.864 - 2026-10-26
+
+### Fixed
+
+- Desktop builds run the Electron web export with an 8 GB worker heap. The Desktop Packages workflow ran out of memory at the default limit of about 4 GB on every main commit since at least 67375bccd. Desktop release builds use the same script.
+
+### Maintenance
+
+- Nix Update Hash runs only in the upstream repository. It needs upstream's bot app to commit hash updates to main, which this fork does not have and where only Builds writes main.
+
 ## 0.11.0-beta.3.vorteo.863 - 2026-10-26
 
 ### Maintenance
