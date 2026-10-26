@@ -1,5 +1,9 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-26): build only. The Nix daemon trace leaves out the npm Electron package, which the daemon never loads, so Linux Nix builds stop failing on its musl zip addon. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): build and CI only. The desktop web export gets the 8 GB worker heap, and upstream's Nix hash bot is skipped in this fork. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): CI only. The app and relay Cloudflare deploys are skipped in this fork, matching the website deploy. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): the daemon web UI build used by the container image gets the 8 GB export heap, and the upstream website deployment is skipped in this fork. README overview and onboarding are unchanged.
