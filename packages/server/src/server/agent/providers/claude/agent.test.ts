@@ -1063,6 +1063,10 @@ describe("ClaudeAgentSession features", () => {
         path.join(plugin, "SKILL.md"),
         "---\nname: simplify\ndescription: t\n---\nT",
       );
+      // A plugin command in the same folder claims "claude-api".
+      const commands = path.join(configDir, "plugins/marketplaces/market/plugins/p/commands");
+      await fs.mkdir(commands, { recursive: true });
+      await fs.writeFile(path.join(commands, "claude-api.md"), "Call the API");
       const { queryFactory } = createQueryMock();
       const client = new ClaudeAgentClient({
         logger,
@@ -1077,7 +1081,7 @@ describe("ClaudeAgentSession features", () => {
             capturedAt: "now",
             provider: "claude",
             skills: [],
-            builtins: ["claude-api", "simplify"],
+            builtins: ["claude-api", "dataviz", "simplify"],
           },
         },
         { env: { CLAUDE_CONFIG_DIR: configDir } },
@@ -1085,7 +1089,7 @@ describe("ClaudeAgentSession features", () => {
 
       await session.startTurn("hello");
 
-      expect(queryFactory.mock.calls[0]?.[0].options.skills).toEqual(["claude-api"]);
+      expect(queryFactory.mock.calls[0]?.[0].options.skills).toEqual(["dataviz"]);
       await session.close();
     } finally {
       vi.restoreAllMocks();

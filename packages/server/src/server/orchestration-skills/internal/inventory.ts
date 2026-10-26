@@ -39,6 +39,9 @@ export class SkillLibraryError extends Error {
 export function missing(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
+function notDirectory(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOTDIR";
+}
 export function digest(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -86,13 +89,22 @@ export function skillMetadata(bytes: Buffer) {
     throw new SkillLibraryError("metadata", "SKILL.md needs name and description frontmatter");
   return Metadata.parse(parse(match[1]));
 }
-export async function skillRoots(home: string, cwd?: string): Promise<SkillRoot[]> {
+/**
+ * `codexHome` is the CODEX_HOME the session runs with. Codex lists personal, system and plugin
+ * skills from that folder, so an account session must be inventoried from its own home: the
+ * daemon user's ~/.codex is rewritten by whichever Codex build last ran there.
+ */
+export async function skillRoots(
+  home: string,
+  cwd?: string,
+  codexHome = path.join(home, ".codex"),
+): Promise<SkillRoot[]> {
   const roots: SkillRoot[] = [
     { path: path.join(home, ".agents/skills"), owner: "personal", providers: ["codex"], depth: 2 },
     { path: path.join(home, ".claude/skills"), owner: "personal", providers: ["claude"], depth: 2 },
-    { path: path.join(home, ".codex/skills"), owner: "personal", providers: ["codex"], depth: 2 },
+    { path: path.join(codexHome, "skills"), owner: "personal", providers: ["codex"], depth: 2 },
     {
-      path: path.join(home, ".codex/plugins/cache"),
+      path: path.join(codexHome, "plugins/cache"),
       owner: "plugin",
       providers: ["codex"],
       depth: 7,
@@ -210,10 +222,10 @@ export async function inspectSkill(directory: string, root: SkillRoot): Promise<
   return result;
 }
 export async function inventorySkills(
-  options: { home?: string; cwd?: string; claudeConfigDir?: string } = {},
+  options: { home?: string; cwd?: string; claudeConfigDir?: string; codexHome?: string } = {},
 ): Promise<SkillInventory> {
   const home = options.home ?? os.homedir();
-  const roots = await skillRoots(home, options.cwd);
+  const roots = await skillRoots(home, options.cwd, options.codexHome);
   if (options.claudeConfigDir)
     for (const root of claudeConfigRoots(options.claudeConfigDir))
       if (!roots.some((existing) => existing.path === root.path)) roots.push(root);
@@ -255,6 +267,8 @@ export async function inventorySkills(
         try {
           await walk(full, depth - 1, root);
         } catch (error) {
+          // A symlink to a file (ENOTDIR) or a dangling one (ENOENT) holds no skill.
+          if (entry.isSymbolicLink() && (missing(error) || notDirectory(error))) continue;
           inventory.roots.push({ path: full, status: "error", error: String(error) });
         }
       }

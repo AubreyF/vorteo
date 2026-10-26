@@ -1,8 +1,12 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { SessionHostPlan } from "@getpaseo/protocol/session-host-maintenance";
+import {
+  SessionHostJobSchema,
+  type SessionHostJob,
+  type SessionHostPlan,
+} from "@getpaseo/protocol/session-host-maintenance";
 import { expect, test } from "vitest";
 import net from "node:net";
 import {
@@ -12,6 +16,7 @@ import {
 } from "../session-host/host-files.js";
 import { bootoutJob, LaunchctlError, type CommandRunner } from "../session-host/launchd.js";
 import type { InstallationConfig } from "./config.js";
+import { parseLifecycleJournal } from "./lifecycle-journal.js";
 import {
   FORCED_STOP_AFTER_MS,
   RESTART_ANSWER_DEADLINE_MS,
@@ -500,6 +505,45 @@ test("restart stops the host through launchd, marks the restart for workers and 
   ]);
   expect(fake.state.files.has(PLIST)).toBe(true);
   expect(fake.state.loaded).toMatchObject({ pid: 4343, runs: 2 });
+});
+
+test("a restart whose host answers with provider counts records only what the job schema names", async () => {
+  const fake = fakeInstallation();
+  await installed(fake);
+  fake.state.host!.sessions = 3;
+  // Hosts since the indicator answer with per-provider counts; the live host does.
+  const ports: SessionHostPorts = {
+    ...fake.ports,
+    queryHost: async (paseoHome) => {
+      const answer = await fake.ports.queryHost(paseoHome);
+      return answer && answer !== "refused"
+        ? { ...answer, providers: { claude: answer.sessions } }
+        : answer;
+    },
+  };
+  const restartPlan = await plan(ports, "session-host-restart");
+  const result = await restartSessionHost({ plan: restartPlan, ports, reportStage: () => {} });
+  expect(result.previousHost).toEqual({ pid: 4242, release: "fixture", sessions: 3 });
+  expect(result.host).toEqual({ pid: 4343, release: "fixture" });
+  // The finished job must pass the strict schemas the journal and the interfaces apply.
+  const finished: SessionHostJob = {
+    target: "session-host",
+    operation: "session-host-restart",
+    id: randomUUID(),
+    revision: randomUUID(),
+    requestedBy: "owner",
+    reason: "Move the host to the installed release",
+    createdAt: new Date().toISOString(),
+    plan: restartPlan,
+    planSha256: createHash("sha256").update(JSON.stringify(restartPlan)).digest("hex"),
+    status: "succeeded",
+    stage: "succeeded",
+    detail: result.detail,
+    host: result.host,
+    previousHost: result.previousHost,
+  };
+  expect(SessionHostJobSchema.safeParse(finished).success).toBe(true);
+  expect(parseLifecycleJournal([finished])).toHaveLength(1);
 });
 
 test("a host that ignores the stop is killed once verified, and the restart still completes", async () => {

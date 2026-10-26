@@ -1,6 +1,24 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-26): merge-only change. The CI flake branch takes main fae646ab7. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-26): test-only change. The Vorteo update browser test marks a settings section tracking issue seen on Linux CI. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): a coordinator for a systemd Host starts without the launchd coordinator bootstrap ledger instead of crashing. Coordinator bootstrap and renewal remain macOS launchd only. Not yet installed; the current Host uses launchd and is unaffected. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): build only. The Nix daemon trace leaves out the npm Electron package, which the daemon never loads, so Linux Nix builds stop failing on its musl zip addon. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): build and CI only. The desktop web export gets the 8 GB worker heap, and upstream's Nix hash bot is skipped in this fork. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): the bundled-skill resume check reads every folder inside a commands tree, including ones named node_modules or .git, which Claude treats as command namespaces. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): three chmod-based skill policy tests skip on Windows, where chmod cannot make a path unreadable. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): the bundled-skill resume check skips file and dangling symlinks and dependency folders, and treats too-deep command folders as unknown. Skill inventory no longer reports those symlinks as read errors. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): the session host restart records only the fields its job schema names, and the coordinator's ledger writes a session host record before remembering it, so an invalid record fails its own operation instead of wedging every later request. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): Codex skill snapshots are taken from the session's own `CODEX_HOME` instead of the daemon user's `~/.codex`, so another Codex build re-extracting its bundled skills there cannot block new account agents. A focused policy test covers a diverged shared copy; README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): CI only. The app and relay Cloudflare deploys are skipped in this fork, matching the website deploy. Functionality is unchanged. README overview and onboarding are unchanged.
 

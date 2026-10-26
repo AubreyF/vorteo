@@ -4,11 +4,121 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.874 - 2026-10-26
+
+### Maintenance
+
+- Merge main at fae646ab7 into the CI flake branch, taking main's manifests.
+
 ## 0.11.0-beta.3.vorteo.864 - 2026-10-26
 
 ### Maintenance
 
 - The Vorteo update browser test still requires that the update action without a host stays in Settings and keeps the existing draft. Ending on the Maintenance section becomes a deferred known-issue mark: on Linux CI the settings page can switch to Plugins & integrations while Maintenance is on screen.
+
+## 0.11.0-beta.3.vorteo.873 - 2026-10-26
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.872 - 2026-10-26
+
+### Maintenance
+
+- Merge Codex skill snapshot fix: Codex account agents take their skill snapshot from the account's own Codex home, so another Codex build rewriting the shared folder no longer breaks new agents
+
+## 0.11.0-beta.3.vorteo.864 - 2026-10-26
+
+### Fixed
+
+- New Codex account agents no longer fail with "Provider did not discover selected skill" after another Codex build rewrites the shared `~/.codex` skills. The launch skill snapshot now reads personal, system and plugin Codex skills from the `CODEX_HOME` the session runs with, the same folder its app-server lists. Running tasks also stop depending on `~/.codex`, so a rewrite there can no longer report their skills as changed.
+
+## 0.11.0-beta.3.vorteo.871 - 2026-10-26
+
+### Maintenance
+
+- Merge session host restart record fix: a session host restart records only the fields its job schema names, and the coordinator writes its journal before remembering a session host job, so one rejected record can no longer block every later restart
+
+## 0.11.0-beta.3.vorteo.864 - 2026-10-26
+
+### Fixed
+
+- A session host restart no longer wedges the installation coordinator. The finished restart recorded the stopped host as the host answered, and since the indicator that answer carries per-provider session counts, which the strict job record does not allow; the coordinator kept the invalid record in memory after the journal refused it, so every later journal write failed and every restart request was refused. The restart now records only the fields the job names (process, release, sessions), and the ledger writes a session host record to the journal before remembering it, so a record the journal rejects fails only its own operation and later requests go through.
+
+### Validation
+
+- A restart whose host answers with provider counts produces a record that passes the job schema and the lifecycle journal; a ledger test feeds an outcome with an extra field through dispatch and checks the operation fails on its own, the journal still parses, and the next request succeeds. The isolated end-to-end restart scenario drives launchd directly rather than the coordinator, so it could not have caught this; the coordinator path is covered by the unit tests above.
+
+## 0.11.0-beta.3.vorteo.870 - 2026-10-26
+
+### Maintenance
+
+- Merge systemd coordinator start: a coordinator configured for a systemd Host starts without the launchd-only bootstrap ledger instead of crashing
+
+## 0.11.0-beta.3.vorteo.866 - 2026-10-26
+
+### Fixed
+
+- An installation coordinator configured for a systemd Host no longer crashes at startup. It created the launchd-only coordinator bootstrap ledger unconditionally; it now skips the ledger on systemd Hosts and reports coordinator maintenance as unavailable there, as it already did when the ledger was missing.
+
+## 0.11.0-beta.3.vorteo.869 - 2026-10-26
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.868 - 2026-10-26
+
+### Maintenance
+
+- Merge the CLI provider test update: the Codex model check no longer requires a codex-named model, matching upstream and the current Codex catalog
+
+## 0.11.0-beta.3.vorteo.867 - 2026-10-26
+
+### Maintenance
+
+- Merge command-name check review fixes: too-deep command folders count as unknown, dependency folders are skipped outside command trees, file and dangling symlinks no longer drop all built-ins, and chmod tests skip on Windows
+
+## 0.11.0-beta.3.vorteo.858 - 2026-10-26
+
+### Fixed
+
+- A custom command saved under a commands subfolder named node_modules or .git is no longer skipped by the resume check for Claude's bundled skills, so it can't take a bundled skill's name. Those folders are still skipped elsewhere in plugin folders.
+
+## 0.11.0-beta.3.vorteo.857 - 2026-10-26
+
+### Maintenance
+
+- Skip the three skill policy tests that make a path unreadable with chmod on Windows, where chmod cannot remove read access. They failed main's Windows CI because the fail-closed path never ran there; behaviour is unchanged.
+
+## 0.11.0-beta.3.vorteo.856 - 2026-10-25
+
+### Fixed
+
+- The resume check for Claude's bundled skills no longer drops them all because of a symlink to a file or a dangling symlink inside a skill or plugin folder, and it skips node_modules and .git folders inside plugins. A commands folder nested deeper than the check reads now counts as unknown and keeps no bundled skills, instead of being silently ignored.
+
+## 0.11.0-beta.3.vorteo.866 - 2026-10-26
+
+### Maintenance
+
+- Merge desktop build heap and Nix fixes: the desktop package build gets the 8 GB export heap, upstream's Nix hash bot skips this fork, and the Nix daemon trace leaves out Electron's installer
+
+## 0.11.0-beta.3.vorteo.865 - 2026-10-26
+
+### Fixed
+
+- The Nix package builds again on Linux. The daemon trace followed Playwright's unused Electron launcher into the npm Electron package's installer, so the package shipped its prebuilt zip addons, and auto-patchelf could not find musl for the x64 musl addon. The trace now leaves out the npm Electron package, which drops about 200 installer files from the daemon closure.
+
+## 0.11.0-beta.3.vorteo.864 - 2026-10-26
+
+### Fixed
+
+- Desktop builds run the Electron web export with an 8 GB worker heap. The Desktop Packages workflow ran out of memory at the default limit of about 4 GB on every main commit since at least 67375bccd. Desktop release builds use the same script.
+
+### Maintenance
+
+- Nix Update Hash runs only in the upstream repository. It needs upstream's bot app to commit hash updates to main, which this fork does not have and where only Builds writes main.
 
 ## 0.11.0-beta.3.vorteo.863 - 2026-10-26
 

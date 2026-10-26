@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, mkdir, writeFile, rm, cp, symlink } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, writeFile, rm, cp, symlink, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -125,6 +125,48 @@ it("accepts an identical provider skill copy from an account's own Codex home", 
   await expect(
     codexSkillFilter(snapshot, [{ name: "imagegen", path: changedPath }]),
   ).rejects.toThrow("did not discover");
+});
+
+it("freezes a Codex account's own skill copy so a rewritten ~/.codex cannot break it", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "codex-account-home-"));
+  directories.push(home);
+  const project = path.join(home, "project");
+  await mkdir(path.join(project, ".git"), { recursive: true });
+  const hostCopy = path.join(home, ".codex/skills/.system/openai-docs");
+  const codexHome = path.join(home, "codex-accounts/one");
+  const accountCopy = path.join(codexHome, "skills/.system/openai-docs");
+  await mkdir(accountCopy, { recursive: true });
+  await writeFile(
+    path.join(accountCopy, "SKILL.md"),
+    "---\nname: openai-docs\ndescription: x\n---\n",
+  );
+  // Another Codex build extracted a different version into the shared home.
+  await cp(accountCopy, hostCopy, { recursive: true });
+  await writeFile(path.join(hostCopy, "extra.md"), "Newer build");
+  const skill = (await inventorySkills({ home, codexHome, cwd: project })).skills.find(
+    (item) => item.name === "openai-docs",
+  )!;
+  const config: AgentSessionConfig = {
+    provider: "codex-account-one",
+    cwd: project,
+    profileLaunch: {
+      profile: {
+        id: "docs",
+        name: "Docs",
+        provider: "codex",
+        skillPolicy: { mode: "selected", skills: [skill.identity] },
+      },
+    },
+  };
+  await captureSkillPolicy(config, "codex", { home, codexHome });
+  const snapshot = config.profileLaunch!.skillSnapshot!;
+  expect(snapshot.skills.map((item) => item.path)).toEqual([await realpath(accountCopy)]);
+  const accountPath = path.join(await realpath(accountCopy), "SKILL.md");
+  expect(await codexSkillFilter(snapshot, [{ name: "openai-docs", path: accountPath }])).toEqual([
+    { path: accountPath, enabled: true },
+  ]);
+  await writeFile(path.join(hostCopy, "extra.md"), "Rewritten again");
+  expect(await verifySkillSnapshot(config)).toEqual(["openai-docs"]);
 });
 
 it("does not enable installed packages that the provider disabled by default", async () => {
@@ -348,17 +390,21 @@ it("reads the claimed name of a skill the inventory could not fully inspect", as
   expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
 });
 
-it("keeps no built-ins when a skill's frontmatter cannot be read", async () => {
-  const { config, account } = await bundledSetup();
-  const unreadable = path.join(account, "skills/locked");
-  await writeSkill(unreadable, "other");
-  await chmod(path.join(unreadable, "SKILL.md"), 0o000);
-  try {
-    expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
-  } finally {
-    await chmod(path.join(unreadable, "SKILL.md"), 0o644);
-  }
-});
+// chmod cannot make a path unreadable on Windows, so the fail-closed path never runs there.
+it.skipIf(process.platform === "win32")(
+  "keeps no built-ins when a skill's frontmatter cannot be read",
+  async () => {
+    const { config, account } = await bundledSetup();
+    const unreadable = path.join(account, "skills/locked");
+    await writeSkill(unreadable, "other");
+    await chmod(path.join(unreadable, "SKILL.md"), 0o000);
+    try {
+      expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
+    } finally {
+      await chmod(path.join(unreadable, "SKILL.md"), 0o644);
+    }
+  },
+);
 
 it("turns off built-in names claimed in the account's synced skill layout", async () => {
   const { config, account } = await bundledSetup();
@@ -369,17 +415,21 @@ it("turns off built-in names claimed in the account's synced skill layout", asyn
   ]);
 });
 
-it("keeps no built-ins when a folder inside a plugin root cannot be read", async () => {
-  const { config, account } = await bundledSetup();
-  const locked = path.join(account, "plugins/marketplaces/market/plugins/locked");
-  await mkdir(locked, { recursive: true });
-  await chmod(locked, 0o000);
-  try {
-    expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
-  } finally {
-    await chmod(locked, 0o755);
-  }
-});
+// chmod cannot make a path unreadable on Windows, so the fail-closed path never runs there.
+it.skipIf(process.platform === "win32")(
+  "keeps no built-ins when a folder inside a plugin root cannot be read",
+  async () => {
+    const { config, account } = await bundledSetup();
+    const locked = path.join(account, "plugins/marketplaces/market/plugins/locked");
+    await mkdir(locked, { recursive: true });
+    await chmod(locked, 0o000);
+    try {
+      expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
+    } finally {
+      await chmod(locked, 0o755);
+    }
+  },
+);
 
 it("turns off built-in names claimed by custom commands added after launch", async () => {
   const { home, config, account } = await bundledSetup();
@@ -404,6 +454,56 @@ it("turns off built-in names claimed by commands in the user's home folder", asy
   await mkdir(path.join(userHome, ".claude/commands"), { recursive: true });
   await writeFile(path.join(userHome, ".claude/commands/claude-api.md"), "Call the API");
   expect(await verifySkillSnapshot(config)).toEqual(["example", "simplify"]);
+});
+
+// chmod cannot make a path unreadable on Windows, so the fail-closed path never runs there.
+it.skipIf(process.platform === "win32")(
+  "keeps no built-ins when only a commands folder cannot be read",
+  async () => {
+    const { home, config } = await bundledSetup();
+    const commands = path.join(home, ".claude/commands");
+    await mkdir(commands, { recursive: true });
+    await chmod(commands, 0o000);
+    try {
+      expect(await verifySkillSnapshot(config)).toEqual(["example"]);
+    } finally {
+      await chmod(commands, 0o755);
+    }
+  },
+);
+
+it("keeps no built-ins when commands are nested deeper than the check reads", async () => {
+  const { home, config } = await bundledSetup();
+  const deep = path.join(home, ".claude/commands/a/b/c/d");
+  await mkdir(deep, { recursive: true });
+  await writeFile(path.join(deep, "simplify.md"), "Simplify");
+  expect(await verifySkillSnapshot(config)).toEqual(["example"]);
+});
+
+it("ignores dependency folders and file symlinks inside plugin roots", async () => {
+  const { config, account } = await bundledSetup();
+  const plugin = path.join(account, "plugins/cache/market/tools/1.0.0");
+  const dependency = path.join(plugin, "node_modules/helper/commands");
+  await mkdir(dependency, { recursive: true });
+  await writeFile(path.join(dependency, "simplify.md"), "Not a Claude command");
+  await mkdir(path.join(plugin, "bin"), { recursive: true });
+  await writeFile(path.join(plugin, "bin/tool.js"), "");
+  await symlink(path.join(plugin, "bin/tool.js"), path.join(plugin, "tool"));
+  await symlink(path.join(plugin, "removed"), path.join(plugin, "dangling"));
+  expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual([
+    "example",
+    "claude-api",
+    "simplify",
+  ]);
+});
+
+it("reads commands inside a commands folder named like a dependency folder", async () => {
+  const { home, config } = await bundledSetup();
+  // Claude lists this as "node_modules:simplify", which the allowlist matches by suffix.
+  const nested = path.join(home, ".claude/commands/node_modules");
+  await mkdir(nested, { recursive: true });
+  await writeFile(path.join(nested, "simplify.md"), "Simplify");
+  expect(await verifySkillSnapshot(config)).toEqual(["example", "claude-api"]);
 });
 
 it("keeps no built-ins when an account skill folder cannot be read", async () => {

@@ -115,9 +115,12 @@ const { fileList, warnings } = await nodeFileTrace(entries, {
     // tries to walk into them via index files. Belt and suspenders.
     "**/*.test.js",
     "**/*.e2e.test.js",
-    // The Nix desktop package runs under nixpkgs' Electron. Tracing the npm
-    // package would duplicate the complete Electron distribution in $out.
-    ...(traceDesktop ? ["node_modules/electron/**"] : []),
+    // The npm Electron package is a dev dependency. The daemon reaches it only
+    // through playwright-core's lazy Electron launcher, which it never calls,
+    // and nft would follow its installer into @electron/get and the prebuilt
+    // extract-zip addons, whose musl builds fail autoPatchelf. The Nix desktop
+    // package runs under nixpkgs' Electron, so it needs none of this either.
+    "node_modules/electron/**",
   ],
 });
 
