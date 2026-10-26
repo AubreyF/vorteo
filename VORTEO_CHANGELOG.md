@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.864 - 2026-10-26
+
+### Maintenance
+
+- The Vorteo update browser test still requires that the update action without a host stays in Settings and keeps the existing draft. Ending on the Maintenance section becomes a deferred known-issue mark: on Linux CI the settings page can switch to Plugins & integrations while Maintenance is on screen.
+
 ## 0.11.0-beta.3.vorteo.863 - 2026-10-26
 
 ### Maintenance
