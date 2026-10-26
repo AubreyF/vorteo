@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.857 - 2026-10-26
+
+### Maintenance
+
+- Skip the three skill policy tests that make a path unreadable with chmod on Windows, where chmod cannot remove read access. They failed main's Windows CI because the fail-closed path never ran there; behaviour is unchanged.
+
 ## 0.11.0-beta.3.vorteo.856 - 2026-10-25
 
 ### Fixed

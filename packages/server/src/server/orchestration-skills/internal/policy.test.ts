@@ -348,17 +348,21 @@ it("reads the claimed name of a skill the inventory could not fully inspect", as
   expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
 });
 
-it("keeps no built-ins when a skill's frontmatter cannot be read", async () => {
-  const { config, account } = await bundledSetup();
-  const unreadable = path.join(account, "skills/locked");
-  await writeSkill(unreadable, "other");
-  await chmod(path.join(unreadable, "SKILL.md"), 0o000);
-  try {
-    expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
-  } finally {
-    await chmod(path.join(unreadable, "SKILL.md"), 0o644);
-  }
-});
+// chmod cannot make a path unreadable on Windows, so the fail-closed path never runs there.
+it.skipIf(process.platform === "win32")(
+  "keeps no built-ins when a skill's frontmatter cannot be read",
+  async () => {
+    const { config, account } = await bundledSetup();
+    const unreadable = path.join(account, "skills/locked");
+    await writeSkill(unreadable, "other");
+    await chmod(path.join(unreadable, "SKILL.md"), 0o000);
+    try {
+      expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
+    } finally {
+      await chmod(path.join(unreadable, "SKILL.md"), 0o644);
+    }
+  },
+);
 
 it("turns off built-in names claimed in the account's synced skill layout", async () => {
   const { config, account } = await bundledSetup();
@@ -369,17 +373,21 @@ it("turns off built-in names claimed in the account's synced skill layout", asyn
   ]);
 });
 
-it("keeps no built-ins when a folder inside a plugin root cannot be read", async () => {
-  const { config, account } = await bundledSetup();
-  const locked = path.join(account, "plugins/marketplaces/market/plugins/locked");
-  await mkdir(locked, { recursive: true });
-  await chmod(locked, 0o000);
-  try {
-    expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
-  } finally {
-    await chmod(locked, 0o755);
-  }
-});
+// chmod cannot make a path unreadable on Windows, so the fail-closed path never runs there.
+it.skipIf(process.platform === "win32")(
+  "keeps no built-ins when a folder inside a plugin root cannot be read",
+  async () => {
+    const { config, account } = await bundledSetup();
+    const locked = path.join(account, "plugins/marketplaces/market/plugins/locked");
+    await mkdir(locked, { recursive: true });
+    await chmod(locked, 0o000);
+    try {
+      expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
+    } finally {
+      await chmod(locked, 0o755);
+    }
+  },
+);
 
 it("turns off built-in names claimed by custom commands added after launch", async () => {
   const { home, config, account } = await bundledSetup();
@@ -406,17 +414,21 @@ it("turns off built-in names claimed by commands in the user's home folder", asy
   expect(await verifySkillSnapshot(config)).toEqual(["example", "simplify"]);
 });
 
-it("keeps no built-ins when only a commands folder cannot be read", async () => {
-  const { home, config } = await bundledSetup();
-  const commands = path.join(home, ".claude/commands");
-  await mkdir(commands, { recursive: true });
-  await chmod(commands, 0o000);
-  try {
-    expect(await verifySkillSnapshot(config)).toEqual(["example"]);
-  } finally {
-    await chmod(commands, 0o755);
-  }
-});
+// chmod cannot make a path unreadable on Windows, so the fail-closed path never runs there.
+it.skipIf(process.platform === "win32")(
+  "keeps no built-ins when only a commands folder cannot be read",
+  async () => {
+    const { home, config } = await bundledSetup();
+    const commands = path.join(home, ".claude/commands");
+    await mkdir(commands, { recursive: true });
+    await chmod(commands, 0o000);
+    try {
+      expect(await verifySkillSnapshot(config)).toEqual(["example"]);
+    } finally {
+      await chmod(commands, 0o755);
+    }
+  },
+);
 
 it("keeps no built-ins when commands are nested deeper than the check reads", async () => {
   const { home, config } = await bundledSetup();

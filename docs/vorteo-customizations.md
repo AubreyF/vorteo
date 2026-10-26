@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-26): three chmod-based skill policy tests skip on Windows, where chmod cannot make a path unreadable. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): the bundled-skill resume check skips file and dangling symlinks and dependency folders, and treats too-deep command folders as unknown. Skill inventory no longer reports those symlinks as read errors. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): resuming a restricted Claude session also reads custom command folders (project, home, account and plugin commands) for claims on bundled skill names, after confirming against Claude 2.1.285 that its skill allowlist matches commands by name. Skill policy tests are isolated from the real home folder. README overview and onboarding are unchanged.
