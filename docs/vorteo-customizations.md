@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-26): test-only change. The provider removal browser test waits for its confirmation dialog. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-26): test-only change. Four more browser tests wait for settled layout or get a measured budget. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-26): test-only change. The interface zoom browser test keeps its slider in view before dragging. Functionality is unchanged. README overview and onboarding are unchanged.
