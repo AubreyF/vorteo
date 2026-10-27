@@ -11,7 +11,7 @@ import { createProviderSnapshotManagerStub } from "../../test-utils/session-stub
 import { AgentManager } from "../agent-manager.js";
 import { AgentStorage } from "../agent-storage.js";
 import type { CreatePaseoWorktreeWorkflowResult } from "../../worktree-session.js";
-import { createAgentCommand } from "./create.js";
+import { createAgentCommand, launchCodexHome } from "./create.js";
 import { TaskOwnerEvidenceStore } from "../../authorization/task-owner-evidence.js";
 import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
 import { z } from "zod";
@@ -1145,4 +1145,26 @@ test("account rebinding during authority lookup rejects the task before registra
   } finally {
     await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
   }
+});
+
+test("Codex skill snapshots read the CODEX_HOME the session launches with", () => {
+  const providers = {
+    codex: { env: { CODEX_HOME: "/base" } },
+    "codex-account-own": { extends: "codex", env: { CODEX_HOME: "/account" } },
+    "codex-account-inherits": { extends: "codex" },
+  };
+  const daemon = { CODEX_HOME: "/daemon" };
+  // The account's own home wins, as in the registry's env merge.
+  expect(launchCodexHome("codex", { providers }, "codex-account-own", daemon)).toBe("/account");
+  // Without one, the extended provider's home is inherited before the daemon's.
+  expect(launchCodexHome("codex", { providers }, "codex-account-inherits", daemon)).toBe("/base");
+  const plain = { codex: {}, "codex-account-inherits": { extends: "codex" } };
+  expect(launchCodexHome("codex", { providers: plain }, "codex-account-inherits", daemon)).toBe(
+    "/daemon",
+  );
+  // Undefined lets the inventory use ~/.codex.
+  expect(
+    launchCodexHome("codex", { providers: plain }, "codex-account-inherits", {}),
+  ).toBeUndefined();
+  expect(launchCodexHome("claude", { providers }, "codex-account-own", daemon)).toBeUndefined();
 });

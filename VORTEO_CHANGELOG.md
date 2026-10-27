@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.874 - 2026-10-27
+
+### Fixed
+
+- A Codex account that inherits its `CODEX_HOME` from the provider it extends now has its launch skill snapshot taken from that inherited folder, matching the folder its session runs with. The lookup follows the same order as launch: the account's own setting, then each extended provider's, then the daemon's, then `~/.codex`.
+
 ## 0.11.0-beta.3.vorteo.873 - 2026-10-26
 
 ### Maintenance
