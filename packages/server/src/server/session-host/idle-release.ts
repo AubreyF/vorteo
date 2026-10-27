@@ -37,8 +37,10 @@ export interface IdleRelease {
 
 /**
  * Picks the hosted agents a pending host upgrade may release: idle, with no turn, no pending
- * permission, and quiet for at least idleMs. A running turn or an unanswered permission is never
- * cut; the host waits for them as it always has.
+ * permission, and quiet for at least idleMs. An agent parked in an error, such as a usage-limit
+ * hold, runs nothing either and counts the same way; it resumes on the new host when it next
+ * runs. A running turn or an unanswered permission is never cut; the host waits for them as it
+ * always has.
  */
 export function selectIdleHostedAgents(
   agents: readonly ReleasableAgent[],
@@ -48,7 +50,7 @@ export function selectIdleHostedAgents(
   return agents.filter(
     (agent) =>
       agent.session?.isDurablyHosted?.() === true &&
-      agent.lifecycle === "idle" &&
+      (agent.lifecycle === "idle" || agent.lifecycle === "error") &&
       agent.activeTurnId === null &&
       agent.pendingPermissions.size === 0 &&
       now - agent.updatedAt.getTime() >= idleMs,

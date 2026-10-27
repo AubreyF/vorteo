@@ -23,6 +23,9 @@ function agent(overrides: Partial<ReleasableAgent> & { id: string }): Releasable
 test("only idle, quiet, hosted agents without a turn or a pending permission are released", () => {
   const agents = [
     agent({ id: "idle-hosted" }),
+    // Parked in an error, such as a usage-limit hold: runs nothing, so it is released too.
+    agent({ id: "errored-hosted", lifecycle: "error" }),
+    agent({ id: "errored-permission", lifecycle: "error", pendingPermissions: { size: 1 } }),
     agent({ id: "running", lifecycle: "running", activeTurnId: "turn-1" }),
     agent({ id: "idle-with-turn", activeTurnId: "turn-2" }),
     agent({ id: "permission", pendingPermissions: { size: 1 } }),
@@ -30,7 +33,10 @@ test("only idle, quiet, hosted agents without a turn or a pending permission are
     agent({ id: "local", session: { isDurablyHosted: () => false } }),
     agent({ id: "closed", lifecycle: "closed", session: null }),
   ];
-  expect(selectIdleHostedAgents(agents, NOW, 5 * 60_000).map((a) => a.id)).toEqual(["idle-hosted"]);
+  expect(selectIdleHostedAgents(agents, NOW, 5 * 60_000).map((a) => a.id)).toEqual([
+    "idle-hosted",
+    "errored-hosted",
+  ]);
 });
 
 test("nothing is released unless the host reports a pending upgrade", async () => {

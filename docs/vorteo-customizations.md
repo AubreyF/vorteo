@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-27): while a session host upgrade is pending, a hosted agent parked in an error with no turn and no pending permission is released like an idle one, so a usage-limit hold no longer keeps the old host alive. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-26): a coordinator for a systemd Host starts without the launchd coordinator bootstrap ledger instead of crashing. Coordinator bootstrap and renewal remain macOS launchd only. Not yet installed; the current Host uses launchd and is unaffected. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-26): build only. The Nix daemon trace leaves out the npm Electron package, which the daemon never loads, so Linux Nix builds stop failing on its musl zip addon. Functionality is unchanged. README overview and onboarding are unchanged.
