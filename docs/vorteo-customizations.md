@@ -1334,6 +1334,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 28, 2026: Clear goal uses a trashcan and stays enabled independently of goal editing readiness. Requests retain existing host validation and error feedback. README overview and onboarding are unchanged.
+
 October 22, 2026: New workspaces branch from a freshly fetched `origin/main` when the local branch is only behind, and previews write their launch wrapper to the untracked `paseo.local.json` on daemons that advertise it. The agent guide treats the primary checkout as read-only. The installed preview helper and broker still need reinstalling. README overview and onboarding are unchanged.
 
 October 22, 2026: The coordinator's release-note check now accepts a well-formed heading with no notes, which unblocks Dev updates from current source; malformed headings and edited history are still refused. `restarts.test.ts` has one failure, "new requests cannot join a restart after dispatch starts", that also fails on unmodified `vorteo.753`. README is unchanged.
