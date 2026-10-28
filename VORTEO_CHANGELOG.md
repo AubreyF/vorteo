@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.878 - 2026-10-28
+
+### Fixed
+
+- The daemon releases an agent's provider process, such as a Codex app-server or Claude CLI, after the agent has stayed idle and unchanged for 30 minutes. Previously, reading an agent's timeline, for example during the Nova bridge's startup sweep, kept a process alive for every agent read until the next restart. A released agent reopens on demand.
+- Agents keep their process while a turn, permission, queued or paused message, restart hold, active or usage-limited goal, quota or usage-limit hold, controller custody, owner, or a caller's finish notification still depends on it. Internal agents are never released.
+
 ## 0.11.0-beta.3.vorteo.877 - 2026-10-28
 
 ### Added

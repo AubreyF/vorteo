@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-28): loaded agents that stay idle and unchanged for 30 minutes release their provider process and reopen on demand. Timeline reads, such as the Nova bridge's startup sweep, had kept one Codex app-server per agent read until the next restart. Running turns, pending permissions, queued or paused messages, restart holds, active or usage-limited goals, quota and controller custody, owned agents and watched children keep their session; durably hosted sessions release the same way they do for a host upgrade. See [idle session release](../packages/server/src/server/agent/idle-release.ts). Not yet installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-28): recovery browser checks use the explicit Maintenance route and wait for owner unlock before asserting request controls. Runtime behavior, README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-28): degraded Docker recovery has a separate exact approval, retained paused-Factory baseline, bounded execution and no replay. An explicitly configured native private recovery origin serves the existing authenticated interface without the Docker redirect. Managed supervisors use the selected worker's strict configuration reader. Source validation and installation acceptance are recorded separately; README overview and onboarding are unchanged.
