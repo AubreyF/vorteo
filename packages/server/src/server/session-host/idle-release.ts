@@ -14,8 +14,8 @@ export interface ReleasableAgent {
 
 export interface IdleReleaseManager {
   listAgents(): ReleasableAgent[];
-  /** Closes the agent's session; the agent resumes on demand, in the host again when possible. */
-  closeAgent(agentId: string): Promise<void>;
+  /** Requires host-side idle admission; a refusal retains the live registration. */
+  closeAgent(agentId: string, options: { onlyIfIdle: boolean }): Promise<void>;
 }
 
 export interface IdleReleaseOptions {
@@ -36,7 +36,7 @@ export interface IdleRelease {
 }
 
 /**
- * Picks the hosted agents a pending host upgrade may release: idle, with no turn, no pending
+ * Picks the hosted agents a pending host upgrade may release: idle or errored, with no turn, no pending
  * permission, and quiet for at least idleMs. A running turn or an unanswered permission is never
  * cut; the host waits for them as it always has.
  */
@@ -48,7 +48,7 @@ export function selectIdleHostedAgents(
   return agents.filter(
     (agent) =>
       agent.session?.isDurablyHosted?.() === true &&
-      agent.lifecycle === "idle" &&
+      (agent.lifecycle === "idle" || agent.lifecycle === "error") &&
       agent.activeTurnId === null &&
       agent.pendingPermissions.size === 0 &&
       now - agent.updatedAt.getTime() >= idleMs,
@@ -71,7 +71,7 @@ export function startHostedIdleRelease(options: IdleReleaseOptions): IdleRelease
     const released: string[] = [];
     for (const agent of selectIdleHostedAgents(options.manager.listAgents(), now(), idleMs)) {
       try {
-        await options.manager.closeAgent(agent.id);
+        await options.manager.closeAgent(agent.id, { onlyIfIdle: true });
         released.push(agent.id);
       } catch (error) {
         options.logger.warn(

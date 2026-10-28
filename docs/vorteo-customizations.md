@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-28): automatic upgrade release of idle or errored hosted sessions uses an atomic conditional close at the host. Active turns, blocking permissions and in-flight provider calls prevent closure; refusal retains the registration, and asynchronous thread questions survive reload. A worker requires the host's conditional-close capability and never substitutes explicit close on an older host. Source awaits integration; README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-28): recovery browser checks use the explicit Maintenance route and wait for owner unlock before asserting request controls. Runtime behavior, README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-28): degraded Docker recovery has a separate exact approval, retained paused-Factory baseline, bounded execution and no replay. An explicitly configured native private recovery origin serves the existing authenticated interface without the Docker redirect. Managed supervisors use the selected worker's strict configuration reader. Source validation and installation acceptance are recorded separately; README overview and onboarding are unchanged.

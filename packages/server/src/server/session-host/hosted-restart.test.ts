@@ -341,6 +341,55 @@ test("a turn that finished while no worker was attached is adopted so its last o
   expect([...first.local, ...second.local]).toEqual([]);
 });
 
+test.each(["turn", "permission"])(
+  "stale idle selection preserves a later %s on B while A closes",
+  async (busy) => {
+    const home = scratch("hosted-stale-idle-");
+    const paths = sessionHostPaths(home);
+    const providers: ControlledSession[] = [];
+    await startHost(paths, providers);
+    const worker = startWorker(home, paths);
+    const cwd = scratch("hosted-stale-work-");
+    const a = await runningAgent(worker, cwd);
+    const b = await runningAgent(worker, cwd);
+    providers[0]!.complete();
+    providers[1]!.complete();
+    await expect.poll(() => worker.manager.getAgent(a.id)?.lifecycle).toBe("idle");
+    await expect.poll(() => worker.manager.getAgent(b.id)?.lifecycle).toBe("idle");
+    const release = startHostedIdleRelease({
+      manager: {
+        listAgents: () => worker.manager.listAgents(),
+        closeAgent: async (id, options) => {
+          if (id === a.id) {
+            // B was already selected. Change authoritative provider state before closing B.
+            if (busy === "turn") await providers[1]!.startTurn("new task");
+            else void providers[1]!.requestPermission("blocking-approval");
+          }
+          await worker.manager.closeAgent(id, options);
+        },
+      },
+      connector: { upgradePending: async () => true },
+      logger,
+      idleMs: 0,
+    });
+    cleanups.push(() => release.stop());
+    expect(await release.runOnce()).toEqual([a.id]);
+    expect(worker.manager.getAgent(b.id)?.id).toBe(b.id);
+    expect(providers[1]!.closed).toBe(false);
+    if (busy === "permission") {
+      await expect
+        .poll(() => [...(worker.manager.getAgent(b.id)?.pendingPermissions.keys() ?? [])])
+        .toEqual(["blocking-approval"]);
+    } else {
+      await expect.poll(() => worker.manager.getAgent(b.id)?.activeTurnId).not.toBeNull();
+    }
+    expect(await hostedSessionCount(paths)).toBe(1);
+    // Explicit close retains its existing forceful semantics.
+    await worker.manager.closeAgent(b.id);
+    expect(providers[1]!.closed).toBe(true);
+  },
+);
+
 test("while the host waits to upgrade, the worker releases idle hosted sessions and the agent resumes on demand", async () => {
   const home = scratch("hosted-restart-");
   const paths = sessionHostPaths(home);
@@ -365,6 +414,13 @@ test("while the host waits to upgrade, the worker releases idle hosted sessions 
   expect(await release.runOnce()).toEqual([]);
   expect(await hostedSessionCount(paths)).toBe(1);
 
+  const questions = await worker.manager.mutateQuestions(agent.id, {
+    operation: "ask",
+    id: "04a035e4-a7f7-4ca7-9329-970a6bedb50a",
+    question: "Which follow-up should run next?",
+    why: "The completed turn left an asynchronous choice.",
+    recommendedDefault: "Keep the current choice.",
+  });
   // The host marks an upgrade: the idle session is released and the host has nothing left to run.
   writeFileSync(paths.upgradeMarkerPath, "{}", { mode: 0o600 });
   expect(await release.runOnce()).toEqual([agent.id]);
@@ -372,7 +428,7 @@ test("while the host waits to upgrade, the worker releases idle hosted sessions 
   expect(await hostedSessionCount(paths)).toBe(0);
   // The agent is unloaded, like an idle agent closed at startup, and waits for a prompt.
   expect(worker.manager.getAgent(agent.id)).toBeNull();
-  expect(await worker.storage.get(agent.id)).not.toBeNull();
+  expect((await worker.storage.get(agent.id))?.questions).toEqual(questions);
 
   // A prompt resumes the agent on a fresh session, hosted again.
   await ensureAgentLoaded(agent.id, {
@@ -380,6 +436,7 @@ test("while the host waits to upgrade, the worker releases idle hosted sessions 
     agentStorage: worker.storage,
     logger,
   });
+  expect(worker.manager.getAgent(agent.id)?.questions).toEqual(questions);
   expect(providers).toHaveLength(2);
   expect(worker.local).toEqual([]);
   expect(await hostedSessionCount(paths)).toBe(1);

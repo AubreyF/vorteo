@@ -3531,16 +3531,20 @@ export class AgentManager {
     }
   }
 
-  closeAgent(agentId: string): Promise<void> {
+  closeAgent(agentId: string, options?: { onlyIfIdle: boolean }): Promise<void> {
     const existing = this.inFlightAgentCloses.get(agentId);
     if (existing) {
+      if (options?.onlyIfIdle)
+        return Promise.reject(new Error("An explicit close is already in progress."));
       return existing;
     }
 
     const close = this.runLifecycleMutation(agentId, async () => {
       // A preceding reload or archive may already have closed the durable agent.
-      if (this.agents.has(agentId)) await this.closeAgentRuntime(agentId);
+      if (this.agents.has(agentId)) await this.closeAgentRuntime(agentId, options?.onlyIfIdle);
     });
+    // Automatic refusals must not become the result of an ordinary explicit close.
+    if (options?.onlyIfIdle) return close;
     this.inFlightAgentCloses.set(agentId, close);
     const clearClose = () => {
       if (this.inFlightAgentCloses.get(agentId) === close) {
@@ -3551,7 +3555,7 @@ export class AgentManager {
     return close;
   }
 
-  private async closeAgentRuntime(agentId: string): Promise<void> {
+  private async closeAgentRuntime(agentId: string, onlyIfIdle = false): Promise<void> {
     const agent = this.requireAgent(agentId);
     await this.assertControllerSettled(agent);
     this.logger.trace(
@@ -3569,7 +3573,13 @@ export class AgentManager {
     await this.drainSessionEvents(agentId);
     // Retain ownership until shutdown succeeds. A failed close may still own a
     // native writer, so publishing a resumable closed snapshot would orphan it.
-    await agent.session.close();
+    if (onlyIfIdle) {
+      if (!agent.session.isDurablyHosted?.() || !agent.session.closeIfIdle)
+        throw new Error("Hosted conditional idle close is unavailable.");
+      await agent.session.closeIfIdle();
+    } else {
+      await agent.session.close();
+    }
     this.cancelRunningProviderSubagents(agentId);
     const closedAgent = this.prepareAgentForClosure(agent, "agent closed");
 

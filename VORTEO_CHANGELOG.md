@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.882 - 2026-10-28
+
+### Fixed
+
+- Release idle or errored hosted sessions for pending upgrades only through an atomic host check. Active turns, pending blocking permissions and in-flight provider calls veto automatic closure, including when a previously selected agent becomes busy while another closes. Refusals retain the registration and attachment; asynchronous thread questions survive release and reload.
+- Require the host's advertised conditional-close capability for automatic release. Older hosts keep sessions warm; ordinary explicit close remains unchanged.
+
+### Validation
+
+- Cover stale turn and permission selection, in-flight turn start, closing admission, older-host refusal, provider forwarding and durable question retention in existing focused suites.
+
 ## 0.11.0-beta.3.vorteo.881 - 2026-10-28
 
 ### Changed
