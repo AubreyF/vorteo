@@ -83,6 +83,11 @@ class NativeWorkspacePolicyTests(unittest.TestCase):
             workspace['cwd'] = str(alias)
             with self.assertRaises(OSError):
                 runtime.current('wks_native', 'preview')
+            # A stale symlinked registration must not block other reservations.
+            served = {'workspaceId': 'wks_served', 'cwd': str(root), 'isolation': 'local'}
+            runtime.cli = lambda args: [workspace, served] if args == ['workspace', 'ls'] else [
+                {'scriptName': 'preview', 'type': 'service'}]
+            self.assertEqual(runtime.registered_ports(), {40001})
 
 
 class DaemonIdentityTests(unittest.TestCase):
