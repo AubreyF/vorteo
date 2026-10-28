@@ -119,7 +119,7 @@ vi.mock("./push/index.js", () => ({
 }));
 
 import { z } from "zod";
-import { VoiceAssistantWebSocketServer } from "./websocket-server";
+import { VoiceAssistantWebSocketServer, WS_SHUTDOWN_CLOSE_TIMEOUT_MS } from "./websocket-server";
 import { DAEMON_PERMISSIONS, parseServerInfoStatusPayload } from "./messages.js";
 import type { SpeechReadinessSnapshot } from "./speech/speech-runtime.js";
 
@@ -590,6 +590,40 @@ describe("relay external socket reconnect behavior", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  test("shutdown closes sockets as a server shutdown and drops a peer that never answers", async () => {
+    const server = createServer();
+    class SilentSocket extends MockSocket {
+      closeCalls: Array<[number | undefined, string | undefined]> = [];
+      terminate = vi.fn(() => {
+        this.readyState = 3;
+      });
+      override close(code?: number, reason?: string): void {
+        this.closeCalls.push([code, reason]);
+        this.readyState = 2;
+      }
+    }
+    const answering = new MockSocket();
+    const answeringClose = vi.fn();
+    answering.on("close", answeringClose);
+    const silent = new SilentSocket();
+    await attachRelayAndHello({ server, socket: answering, clientId: "cid-answers-close" });
+    await attachRelayAndHello({ server, socket: silent, clientId: "cid-ignores-close" });
+
+    let closed = false;
+    const closing = server.close().finally(() => {
+      closed = true;
+    });
+    await vi.advanceTimersByTimeAsync(WS_SHUTDOWN_CLOSE_TIMEOUT_MS - 1);
+    expect(closed).toBe(false);
+    expect(answeringClose).toHaveBeenCalledWith(1001, "Server shutting down");
+    expect(silent.closeCalls).toEqual([[1001, "Server shutting down"]]);
+    expect(silent.terminate).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await closing;
+    expect(silent.terminate).toHaveBeenCalledTimes(1);
   });
 
   test("keeps the same session when relay reconnects within grace window", async () => {
