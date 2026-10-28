@@ -169,7 +169,7 @@ import {
   getCurrentProjectRemoveReadiness,
   removeProjectFromHosts,
 } from "@/projects/project-remove";
-import { isNative as platformIsNative, getIsElectron } from "@/constants/platform";
+import { isNative as platformIsNative, isWeb, getIsElectron } from "@/constants/platform";
 import { getDesktopHost } from "@/desktop/host";
 import { OpenInFileManagerMenuItem } from "@/workspace/open-in-file-manager/menu-item";
 import { useLocalDaemonServerId } from "@/hooks/use-is-local-daemon";
@@ -178,12 +178,12 @@ import { useHostBadges } from "@/hosts/use-host-badges";
 import { useSidebarRowItems } from "@/components/sidebar/display-preferences/model";
 import { PullRequestStateIcon } from "@/git/pull-request-state-icon";
 import {
+  placeSidebarEntry,
   reorderSidebarRows,
   useCreateSidebarFolderAction,
   useMoveToSidebarFolderAction,
   useSidebarFoldersSupported,
 } from "@/sidebar-folders/actions";
-import { SidebarFolderDropProvider, useSidebarFolderDrop } from "@/sidebar-folders/drop-context";
 import { SidebarFolderRow } from "@/sidebar-folders/folder-row";
 import { sidebarFolderEntry } from "@getpaseo/protocol/sidebar-folders";
 import {
@@ -193,6 +193,22 @@ import {
 } from "@/components/sidebar/indent";
 import { SidebarSectionRow } from "@/components/sidebar/container-row";
 import { SidebarFocusButton } from "@/sidebar-focus/focus-button";
+import { reorderKeys, useSidebarTreeDrop } from "@/sidebar-drop/tree-drop";
+import {
+  describeRootRow,
+  folderIdOfEntry,
+  projectDropTop,
+  sectionDropTop,
+  sectionWorkspaceDescriber,
+  treeRowExternalDrop,
+  workRowDescriber,
+} from "@/sidebar-drop/rows";
+import type { SidebarDropPlacement, SidebarDropRow } from "@/sidebar-drop/resolve";
+import {
+  dragViewCollapsedProjects,
+  dragViewFolderState,
+  useSidebarDragSession,
+} from "@/sidebar-drop/session";
 import { SidebarFocusBreadcrumb } from "@/sidebar-focus/breadcrumb";
 import {
   SIDEBAR_FOCUS_SCOPE,
@@ -1879,6 +1895,75 @@ function isSectionShown(focus: ProjectBlockFocus | null, section: SidebarFocusSe
   return focus.kind === "section" && focus.section === section;
 }
 
+/** Standing or Factory workspaces, which reorder only within their section. */
+function SectionWorkspaceList({
+  projectKey,
+  section,
+  items,
+  level,
+  externalDrop,
+  renderItem,
+  onReorder,
+  extraData,
+  nestable,
+  parentGestureRef,
+  dragGestureHostActive,
+}: {
+  projectKey: string;
+  section: SidebarFocusSection;
+  items: SidebarWorkspacePlacement[];
+  /** Hierarchy level of the section's workspaces. */
+  level: number;
+  externalDrop: ComponentProps<typeof DraggableList<SidebarWorkspacePlacement>>["externalDrop"];
+  renderItem: (info: DraggableRenderItemInfo<SidebarWorkspacePlacement>) => ReactElement;
+  onReorder: (workspaces: SidebarWorkspacePlacement[]) => void;
+  extraData: string;
+  nestable: boolean;
+  parentGestureRef?: MutableRefObject<GestureType | undefined>;
+  dragGestureHostActive?: boolean;
+}) {
+  const describe = useMemo(
+    () => sectionWorkspaceDescriber(projectKey, section),
+    [projectKey, section],
+  );
+  const top = useMemo(() => sectionDropTop(projectKey, section), [projectKey, section]);
+  const handleDrop = useCallback(
+    (dragged: SidebarDropRow, placement: SidebarDropPlacement) => {
+      const keys = reorderKeys(items.map(workspaceKeyExtractor), dragged.key, placement);
+      const byKey = new Map(items.map((item) => [item.workspaceKey, item]));
+      onReorder(keys.flatMap((key) => byKey.get(key) ?? []));
+    },
+    [items, onReorder],
+  );
+  const treeDrop = useSidebarTreeDrop({
+    items,
+    describe,
+    top,
+    baseLevel: level,
+    focusRootKey: null,
+    outside: "cancel",
+    onDrop: handleDrop,
+  });
+  return (
+    <DraggableList
+      externalDrop={externalDrop}
+      treeDrop={isWeb ? treeDrop : undefined}
+      testID={`sidebar-${section}-list-${projectKey}`}
+      data={items}
+      keyExtractor={workspaceKeyExtractor}
+      renderItem={renderItem}
+      onDragEnd={onReorder}
+      extraData={extraData}
+      scrollEnabled={false}
+      useDragHandle
+      nestable={nestable}
+      simultaneousGestureRef={parentGestureRef}
+      gestureHostPresented={dragGestureHostActive}
+      containerStyle={styles.workspaceListContainer}
+    />
+  );
+}
+
 /** A project's Standing or Factory section: its folder-like heading and its workspaces. */
 function ProjectSection({
   projectKey,
@@ -2022,11 +2107,7 @@ function ProjectBlock({
 }) {
   const externalDrop = useWorkspaceProjectDrop(project.viewKey);
   const folderScope = useMemo(() => projectFolderScope(project.viewKey), [project.viewKey]);
-  const workExternalDrop = useSidebarFolderDrop({
-    scope: folderScope,
-    enabled: folderState !== null,
-    existing: externalDrop,
-  });
+  const workExternalDrop = useMemo(() => treeRowExternalDrop(externalDrop), [externalDrop]);
   const taskSummary = useMemo(
     () => aggregateProjectTasks(project.viewKey, workspaceEntriesByKey),
     [project.viewKey, workspaceEntriesByKey],
@@ -2177,23 +2258,22 @@ function ProjectBlock({
   const selectionKey = activeWorkspaceSelectionKey(activeWorkspaceSelection);
   const renderSectionList = useCallback(
     (section: SidebarFocusSection, items: SidebarWorkspacePlacement[]) => (
-      <DraggableList
+      <SectionWorkspaceList
+        projectKey={project.viewKey}
+        section={section}
+        items={items}
+        level={sectionLevel + 1}
         externalDrop={externalDrop}
-        testID={`sidebar-${section}-list-${project.viewKey}`}
-        data={items}
-        keyExtractor={workspaceKeyExtractor}
         renderItem={renderWorkspace}
-        onDragEnd={handleWorkspaceDragEnd}
+        onReorder={handleWorkspaceDragEnd}
         extraData={selectionKey}
-        scrollEnabled={false}
-        useDragHandle
         nestable={useNestable}
-        simultaneousGestureRef={parentGestureRef}
-        gestureHostPresented={dragGestureHostActive}
-        containerStyle={styles.workspaceListContainer}
+        parentGestureRef={parentGestureRef}
+        dragGestureHostActive={dragGestureHostActive}
       />
     ),
     [
+      sectionLevel,
       externalDrop,
       project.viewKey,
       renderWorkspace,
@@ -2241,6 +2321,42 @@ function ProjectBlock({
     },
     [childLevel, folderScope, renderWorkspaceRow],
   );
+
+  const describeWorkRow = useMemo(() => workRowDescriber(project.viewKey), [project.viewKey]);
+  const workDropTop = useMemo(() => projectDropTop(project.viewKey), [project.viewKey]);
+  const handleWorkDrop = useCallback(
+    (dragged: SidebarDropRow, placement: SidebarDropPlacement) => {
+      if (folderState) {
+        const container = placement.container;
+        placeSidebarEntry({
+          scope: folderScope,
+          entry: dragged.key,
+          targetFolderId:
+            container === null || container === project.viewKey ? null : folderIdOfEntry(container),
+          before: placement.beforeKey,
+          after: placement.afterKey,
+        });
+        return;
+      }
+      const items = treeRowItems(visibleWorkRows);
+      const keys = reorderKeys(items.map(workspaceKeyExtractor), dragged.key, placement);
+      const byKey = new Map(items.map((item) => [item.workspaceKey, item]));
+      onWorkspaceReorder(
+        project.viewKey,
+        keys.flatMap((key) => byKey.get(key) ?? []),
+      );
+    },
+    [folderState, folderScope, project.viewKey, visibleWorkRows, onWorkspaceReorder],
+  );
+  const workTreeDrop = useSidebarTreeDrop({
+    items: visibleWorkRows,
+    describe: describeWorkRow,
+    top: workDropTop,
+    baseLevel: childLevel,
+    focusRootKey: focus?.kind === "folder" ? sidebarFolderEntry(focus.folderId) : null,
+    outside: "cancel",
+    onDrop: handleWorkDrop,
+  });
 
   const handleWorkRowsDragEnd = useCallback(
     (rows: SidebarTreeRow<SidebarWorkspacePlacement>[], movedKey: string) => {
@@ -2320,6 +2436,7 @@ function ProjectBlock({
         <>
           <DraggableList
             externalDrop={workExternalDrop}
+            treeDrop={isWeb ? workTreeDrop : undefined}
             testID={`sidebar-workspace-list-${project.viewKey}`}
             data={visibleWorkRows}
             keyExtractor={treeRowKeyExtractor}
@@ -2380,9 +2497,11 @@ function ProjectBlock({
   }
 
   return (
-    <ProjectDropTarget projectKey={project.viewKey}>
-      <View role="group" accessibilityLabel={displayName} style={undefined}>
-        {showHeader ? (
+    <View role="group" accessibilityLabel={displayName} style={undefined}>
+      {showHeader ? (
+        // Only the header takes workspaces from other projects, so rows between projects
+        // never move a workspace by accident.
+        <ProjectDropTarget projectKey={project.viewKey}>
           <ProjectHeaderRow
             taskSummary={showTaskSummary ? taskSummary : undefined}
             project={project}
@@ -2411,11 +2530,11 @@ function ProjectBlock({
             }
             dragHandleProps={dragHandleProps}
           />
-        ) : null}
+        </ProjectDropTarget>
+      ) : null}
 
-        {projectChildren}
-      </View>
-    </ProjectDropTarget>
+      {projectChildren}
+    </View>
   );
 }
 
@@ -2697,11 +2816,121 @@ function SidebarGroupedModeList({
 function ProjectModeList(props: Parameters<typeof ProjectModeListContent>[0]) {
   return (
     <ProjectMoveProvider projects={props.projects}>
-      <SidebarFolderDropProvider>
-        <ProjectModeListContent {...props} />
-      </SidebarFolderDropProvider>
+      <ProjectModeListContent {...props} />
     </ProjectMoveProvider>
   );
+}
+
+/**
+ * What project mode shows beyond the stored sidebar: the device-local focus and the folding a
+ * drag applies to its own view.
+ */
+function useProjectModeView(input: {
+  projects: SidebarProjectEntry[];
+  workspaceEntriesByKey: ReadonlyMap<string, SidebarWorkspaceEntry>;
+  folderState: SidebarFolderState | null;
+  hideEmptyFolders: boolean;
+  rootFolders: boolean;
+  collapsedProjectKeys: ReadonlySet<string>;
+}) {
+  const {
+    projects,
+    workspaceEntriesByKey,
+    folderState,
+    hideEmptyFolders,
+    rootFolders,
+    collapsedProjectKeys,
+  } = input;
+  const focusHostIds = useMemo(
+    () =>
+      Array.from(
+        new Set(projects.flatMap((project) => project.workspaces.map((entry) => entry.serverId))),
+      ),
+    [projects],
+  );
+  const supportsFactoryByServerId = useHostFeatureMap(focusHostIds, "factoryWorkspaceMembership");
+  const focusWorld = useMemo(
+    () =>
+      buildSidebarFocusWorld({
+        folderState: folderState ?? EMPTY_SIDEBAR_FOLDER_STATE,
+        projects: projects.map((project) => {
+          const groups = splitFactoryWorkspaces(
+            project.workspaces,
+            workspaceEntriesByKey,
+            supportsFactoryByServerId,
+          );
+          const sections: SidebarFocusSection[] = [];
+          if (groups.standing.length > 0) sections.push("standing");
+          if (groups.factory.length > 0) sections.push("factory");
+          return {
+            key: project.viewKey,
+            name: project.projectName,
+            sections,
+            workspaceKeys: project.workspaces.map(workspaceKeyExtractor),
+          };
+        }),
+        hideEmptyFolders,
+      }),
+    [folderState, projects, workspaceEntriesByKey, supportsFactoryByServerId, hideEmptyFolders],
+  );
+  // The compact rail's single-project flyout has no room for a focused view.
+  const focusController = useSidebarFocusController({ world: focusWorld, enabled: rootFolders });
+  const focus = focusController.focus;
+  const { t } = useTranslation();
+  const focusTrail = useMemo(
+    () =>
+      focus
+        ? sidebarFocusTrail({
+            target: focus,
+            world: focusWorld,
+            labels: {
+              allProjects: t("sidebar.focus.allProjects"),
+              standing: "Standing",
+              factory: "Factory",
+            },
+          })
+        : null,
+    [focus, focusWorld, t],
+  );
+  // Focus unfolds the folders on its path in this view only; stored folding never changes.
+  const viewFolderState = useMemo(
+    () =>
+      focus && folderState ? expandSidebarFocusPath(folderState, focus, focusWorld) : folderState,
+    [focus, folderState, focusWorld],
+  );
+  const dragSession = useSidebarDragSession((state) => state.session);
+  // A drag folds the view, never the stored state, so its end restores folding exactly.
+  const listFolderState = useMemo(
+    () => (viewFolderState ? dragViewFolderState(viewFolderState, dragSession) : null),
+    [viewFolderState, dragSession],
+  );
+  const listCollapsedProjectKeys = useMemo(
+    () =>
+      dragViewCollapsedProjects(
+        collapsedProjectKeys,
+        projects.map(projectViewKeyExtractor),
+        dragSession,
+      ),
+    [collapsedProjectKeys, projects, dragSession],
+  );
+  const focusProjectKey = focus ? sidebarFocusProjectKey(focus, focusWorld) : null;
+  const projectBlockFocus = useMemo((): ProjectBlockFocus | null => {
+    if (!focus || focusProjectKey === null) return null;
+    if (focus.kind === "folder") return { kind: "folder", folderId: focus.folderId };
+    if (focus.kind === "section") return { kind: "section", section: focus.section };
+    return { kind: "project" };
+  }, [focus, focusProjectKey]);
+  return {
+    // The compact rail's single-project flyout offers no focus.
+    focusContext: rootFolders ? focusController : null,
+    focus,
+    focusWorld,
+    focusTrail,
+    listFolderState,
+    listCollapsedProjectKeys,
+    focusProjectKey,
+    projectBlockFocus,
+  };
 }
 
 function ProjectModeListContent({
@@ -2772,75 +3001,24 @@ function ProjectModeListContent({
   );
   // A filter narrows what is listed, so folders it leaves empty would be noise.
   const hideEmptyFolders = hasActiveHostFilter || hasActiveProjectFilter || hasActiveLabelFilter;
-  const rootExternalDrop = useSidebarFolderDrop<SidebarProjectEntry>({
-    scope: ROOT_FOLDER_SCOPE,
-    enabled: rootFolderState !== null,
-  });
 
-  const focusHostIds = useMemo(
-    () =>
-      Array.from(
-        new Set(projects.flatMap((project) => project.workspaces.map((entry) => entry.serverId))),
-      ),
-    [projects],
-  );
-  const supportsFactoryByServerId = useHostFeatureMap(focusHostIds, "factoryWorkspaceMembership");
-  const focusWorld = useMemo(
-    () =>
-      buildSidebarFocusWorld({
-        folderState: folderState ?? EMPTY_SIDEBAR_FOLDER_STATE,
-        projects: projects.map((project) => {
-          const groups = splitFactoryWorkspaces(
-            project.workspaces,
-            workspaceEntriesByKey,
-            supportsFactoryByServerId,
-          );
-          const sections: SidebarFocusSection[] = [];
-          if (groups.standing.length > 0) sections.push("standing");
-          if (groups.factory.length > 0) sections.push("factory");
-          return {
-            key: project.viewKey,
-            name: project.projectName,
-            sections,
-            workspaceKeys: project.workspaces.map(workspaceKeyExtractor),
-          };
-        }),
-        hideEmptyFolders,
-      }),
-    [folderState, projects, workspaceEntriesByKey, supportsFactoryByServerId, hideEmptyFolders],
-  );
-  // The compact rail's single-project flyout has no room for a focused view.
-  const focusController = useSidebarFocusController({ world: focusWorld, enabled: rootFolders });
-  const focus = focusController.focus;
-  const { t } = useTranslation();
-  const focusTrail = useMemo(
-    () =>
-      focus
-        ? sidebarFocusTrail({
-            target: focus,
-            world: focusWorld,
-            labels: {
-              allProjects: t("sidebar.focus.allProjects"),
-              standing: "Standing",
-              factory: "Factory",
-            },
-          })
-        : null,
-    [focus, focusWorld, t],
-  );
-  // Focus unfolds the folders on its path in this view only; stored folding never changes.
-  const viewFolderState = useMemo(
-    () =>
-      focus && folderState ? expandSidebarFocusPath(folderState, focus, focusWorld) : folderState,
-    [focus, folderState, focusWorld],
-  );
-  const focusProjectKey = focus ? sidebarFocusProjectKey(focus, focusWorld) : null;
-  const projectBlockFocus = useMemo((): ProjectBlockFocus | null => {
-    if (!focus || focusProjectKey === null) return null;
-    if (focus.kind === "folder") return { kind: "folder", folderId: focus.folderId };
-    if (focus.kind === "section") return { kind: "section", section: focus.section };
-    return { kind: "project" };
-  }, [focus, focusProjectKey]);
+  const {
+    focusContext,
+    focus,
+    focusWorld,
+    focusTrail,
+    listFolderState,
+    listCollapsedProjectKeys,
+    focusProjectKey,
+    projectBlockFocus,
+  } = useProjectModeView({
+    projects,
+    workspaceEntriesByKey,
+    folderState,
+    hideEmptyFolders,
+    rootFolders,
+    collapsedProjectKeys,
+  });
 
   const getProjectOrder = useSidebarOrderStore((state) => state.getProjectOrder);
   const setProjectOrder = useSidebarOrderStore((state) => state.setProjectOrder);
@@ -2923,7 +3101,7 @@ function ProjectModeListContent({
   const rootRows = useMemo(() => {
     // Focus hides Pinned, so pinned chats stay in their projects while focused.
     const rows = buildSidebarTreeRows({
-      state: (rootFolders ? viewFolderState : null) ?? EMPTY_SIDEBAR_FOLDER_STATE,
+      state: (rootFolders ? listFolderState : null) ?? EMPTY_SIDEBAR_FOLDER_STATE,
       scope: ROOT_FOLDER_SCOPE,
       items: focus ? projects : unpinnedProjects,
       getKey: projectViewKeyExtractor,
@@ -2932,7 +3110,7 @@ function ProjectModeListContent({
     return focus ? focusTreeRows(rows, sidebarFocusRootRowKey(focus, focusWorld)) : rows;
   }, [
     rootFolders,
-    viewFolderState,
+    listFolderState,
     focus,
     focusWorld,
     projects,
@@ -2940,13 +3118,8 @@ function ProjectModeListContent({
     hideEmptyFolders,
   ]);
 
-  const handleProjectDragEnd = useCallback(
-    (rows: SidebarTreeRow<SidebarProjectEntry>[], movedKey: string) => {
-      if (rootFolderState) {
-        reorderSidebarRows({ scope: ROOT_FOLDER_SCOPE, rows, movedKey });
-        return;
-      }
-      const reorderedProjectKeys = treeRowItems(rows).map((project) => project.viewKey);
+  const saveProjectOrder = useCallback(
+    (reorderedProjectKeys: string[]) => {
       const currentProjectOrder = getProjectOrder();
       if (
         !hasVisibleOrderChanged({
@@ -2964,8 +3137,47 @@ function ProjectModeListContent({
         }),
       );
     },
-    [getProjectOrder, rootFolderState, setProjectOrder],
+    [getProjectOrder, setProjectOrder],
   );
+
+  const handleProjectDragEnd = useCallback(
+    (rows: SidebarTreeRow<SidebarProjectEntry>[], movedKey: string) => {
+      if (rootFolderState) {
+        reorderSidebarRows({ scope: ROOT_FOLDER_SCOPE, rows, movedKey });
+        return;
+      }
+      saveProjectOrder(treeRowItems(rows).map(projectViewKeyExtractor));
+    },
+    [rootFolderState, saveProjectOrder],
+  );
+
+  const handleRootDrop = useCallback(
+    (dragged: SidebarDropRow, placement: SidebarDropPlacement) => {
+      if (rootFolderState) {
+        placeSidebarEntry({
+          scope: ROOT_FOLDER_SCOPE,
+          entry: dragged.key,
+          targetFolderId:
+            placement.container === null ? null : folderIdOfEntry(placement.container),
+          before: placement.beforeKey,
+          after: placement.afterKey,
+        });
+        return;
+      }
+      const keys = treeRowItems(rootRows).map(projectViewKeyExtractor);
+      saveProjectOrder(reorderKeys(keys, dragged.key, placement));
+    },
+    [rootFolderState, rootRows, saveProjectOrder],
+  );
+  const rootTreeDrop = useSidebarTreeDrop({
+    items: rootRows,
+    describe: describeRootRow,
+    top: null,
+    baseLevel: 0,
+    focusRootKey: focus ? sidebarFocusRootRowKey(focus, focusWorld) : null,
+    outside: "clamp",
+    onDrop: handleRootDrop,
+  });
 
   const handleWorkspaceReorder = useCallback(
     (projectViewKey: string, reorderedWorkspaces: SidebarWorkspacePlacement[]) => {
@@ -3031,7 +3243,7 @@ function ProjectModeListContent({
           key={item.viewKey}
           project={item}
           workspaceEntriesByKey={workspaceEntriesByKey}
-          collapsed={focusProjectKey !== item.viewKey && collapsedProjectKeys.has(item.viewKey)}
+          collapsed={focusProjectKey !== item.viewKey && listCollapsedProjectKeys.has(item.viewKey)}
           displayName={item.projectName}
           iconDataUri={projectIconByProjectViewKey.get(item.viewKey) ?? null}
           selectionEnabled={selectionEnabled}
@@ -3053,18 +3265,18 @@ function ProjectModeListContent({
           supportsMultiplicityByServerId={supportsMultiplicityByServerId}
           supportsPinningByServerId={supportsPinningByServerId}
           onToggleWorkspacePin={onToggleWorkspacePin}
-          folderState={viewFolderState}
+          folderState={listFolderState}
           hideEmptyFolders={hideEmptyFolders}
           focus={focusProjectKey === item.viewKey ? projectBlockFocus : null}
         />
       );
     },
     [
-      viewFolderState,
+      listFolderState,
+      listCollapsedProjectKeys,
       focusProjectKey,
       projectBlockFocus,
       hideEmptyFolders,
-      collapsedProjectKeys,
       activeWorkspaceSelection,
       handleWorktreeCreated,
       handleWorkspaceReorder,
@@ -3162,7 +3374,7 @@ function ProjectModeListContent({
     ) : (
       <DraggableList
         testID="sidebar-project-list"
-        externalDrop={rootExternalDrop}
+        treeDrop={isWeb ? rootTreeDrop : undefined}
         data={rootRows}
         keyExtractor={treeRowKeyExtractor}
         renderItem={renderProject}
@@ -3230,7 +3442,7 @@ function ProjectModeListContent({
   );
 
   return (
-    <SidebarFocusProvider value={rootFolders ? focusController : null}>
+    <SidebarFocusProvider value={focusContext}>
       <View style={styles.container} dataSet={SIDEBAR_FOCUS_SCOPE}>
         {platformIsNative ? (
           <NestableScrollContainer

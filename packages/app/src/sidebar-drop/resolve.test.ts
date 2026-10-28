@@ -112,22 +112,28 @@ describe("projects and root folders", () => {
       index: 0,
       depth: 1,
       beforeKey: null,
+      afterKey: null,
       lineBeforeKey: null,
     });
   });
 
   test("a root folder's top and bottom quarters place beside it", () => {
     const rows = [
-      row("alpha", "project", 0, { expanded: false }),
       row("folder:work", "rootFolder", 0, { expanded: false }),
+      row("alpha", "project", 0, { expanded: false }),
+      row("beta", "project", 0, { expanded: false }),
     ];
-    const above = resolve({
-      rows,
-      dragged: project("alpha"),
-      overKey: "folder:work",
-      overFraction: 0.1,
+    const base = { rows, dragged: project("beta"), overKey: "folder:work" };
+    expect(resolve({ ...base, overFraction: 0.1 })).toMatchObject({
+      mode: "between",
+      container: null,
+      beforeKey: "folder:work",
     });
-    expect(above).toMatchObject({ mode: "between", container: null, beforeKey: "folder:work" });
+    expect(resolve({ ...base, overFraction: 0.9 })).toMatchObject({
+      mode: "between",
+      container: null,
+      beforeKey: "alpha",
+    });
   });
 
   test("horizontal offset leaves a root folder after its last project", () => {
@@ -167,8 +173,24 @@ describe("projects and root folders", () => {
       overKey: "folder:inner",
       overFraction: 0.5,
     });
-    // The folder's own rows are removed while it is dragged, so the pointer is over its slot.
-    expect(placement).toMatchObject({ mode: "between", container: null, beforeKey: "alpha" });
+    // Its own rows are removed while it is dragged, so the pointer is over its own slot.
+    expect(placement).toBeNull();
+  });
+});
+
+describe("dropping in place", () => {
+  test("a row released over its own slot at its own depth does not move", () => {
+    expect(resolve({ rows: projects, dragged: project("beta"), overKey: "beta" })).toBeNull();
+  });
+
+  test("a row released over its own slot further left outdents", () => {
+    const rows = [
+      row("folder:work", "rootFolder", 0),
+      row("alpha", "project", 1, { expanded: false }),
+    ];
+    expect(
+      resolve({ rows, dragged: project("alpha"), overKey: "alpha", pointerX: 0 }),
+    ).toMatchObject({ container: null, depth: 0, afterKey: "folder:work" });
   });
 });
 

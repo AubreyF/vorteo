@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.878 - 2026-10-28
+
+### Fixed
+
+- Dragging a project between top-level projects no longer nests it inside one of them. Projects and root folders land only at the top level or inside a root folder, snapping to the nearest such position; workspaces and project folders stay in their own project unless dropped on another project's header row, which keeps the existing move-to-project confirmation. Standing and Factory workspaces reorder only within their section.
+
+### Changed
+
+- Sidebar drags on web and desktop now drop by position. Rows stay put while an insertion line shows where the dragged row will land, starting at its projected indent, and a folder receiving it is highlighted. On a folder row the top quarter places before it, the middle half drops into it and the bottom quarter places after it; other rows split in halves. Where several depths are possible, such as after a folder's last row, moving the pointer left outdents and right indents, one 24px step per level with a small dead band so the depth does not flicker.
+- While a project or root folder is dragged, every project and every root folder not holding it folds to a single row; a dragged folder folds too. The view returns to its exact previous folding on drop or cancel, and the temporary folding is never written to the shared sidebar state.
+- Only a project's header row accepts workspaces from other projects; previously the whole project block did. Native apps keep their reorder gestures, and touch layouts keep Move to folder in row menus.
+
 ## 0.11.0-beta.3.vorteo.877 - 2026-10-28
 
 ### Maintenance

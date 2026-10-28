@@ -46,7 +46,6 @@ import {
   useSidebarFolderDialog,
 } from "./actions";
 import { useRemoveSidebarFolder } from "./dialogs";
-import { SidebarFolderDropTarget } from "./drop-context";
 import { SidebarFocusButton } from "@/sidebar-focus/focus-button";
 import { useSidebarRowFocus } from "@/sidebar-focus/context";
 import type { SidebarFocusTarget } from "@/sidebar-focus/model";
@@ -223,96 +222,85 @@ export function SidebarFolderRow({
   const countLabel = String(itemCount);
 
   return (
-    <SidebarFolderDropTarget folderId={folder.id} scope={scope}>
-      <ContextMenu open={contextMenuOpen} onOpenChange={setContextMenuOpen}>
-        <View
-          {...dragAttributes}
-          {...dragHandleProps?.listeners}
-          ref={dragHandleProps?.setActivatorNodeRef as unknown as Ref<View>}
-          style={rowStyle}
-          onPointerEnter={handlePointerEnter}
-          onPointerLeave={handlePointerLeave}
+    <ContextMenu open={contextMenuOpen} onOpenChange={setContextMenuOpen}>
+      <View
+        {...dragAttributes}
+        {...dragHandleProps?.listeners}
+        ref={dragHandleProps?.setActivatorNodeRef as unknown as Ref<View>}
+        style={rowStyle}
+        onPointerEnter={handlePointerEnter}
+        onPointerLeave={handlePointerLeave}
+      >
+        <ContextMenuTrigger
+          enabledOnMobile={false}
+          accessibilityRole="button"
+          accessibilityLabel={folder.name}
+          accessibilityState={accessibilityState}
+          style={sidebarContainerRowStyles.main}
+          onPressIn={interaction.handlePressIn}
+          onTouchMove={interaction.handleTouchMove}
+          onPressOut={interaction.handlePressOut}
+          onPress={toggle}
+          testID={`sidebar-folder-row-${folder.id}`}
         >
-          <ContextMenuTrigger
-            enabledOnMobile={false}
-            accessibilityRole="button"
-            accessibilityLabel={folder.name}
-            accessibilityState={accessibilityState}
-            style={sidebarContainerRowStyles.main}
-            onPressIn={interaction.handlePressIn}
-            onTouchMove={interaction.handleTouchMove}
-            onPressOut={interaction.handlePressOut}
-            onPress={toggle}
-            testID={`sidebar-folder-row-${folder.id}`}
+          <SidebarLeadingSlot
+            chevron={folderChevron(rowFocus.isRoot, collapsed)}
+            revealChevron={isHovered || touch}
+            testID={`sidebar-folder-leading-${folder.id}`}
           >
-            <SidebarLeadingSlot
-              chevron={folderChevron(rowFocus.isRoot, collapsed)}
-              revealChevron={isHovered || touch}
-              testID={`sidebar-folder-leading-${folder.id}`}
-            >
-              <SidebarFolderIcon />
-            </SidebarLeadingSlot>
-            <Text style={sidebarContainerRowStyles.title} numberOfLines={1}>
-              {folder.name}
-            </Text>
-            {collapsed ? (
-              <SidebarCountBadge
-                label={countLabel}
-                accessibilityLabel={`${folder.name}: ${countLabel}`}
-                testID={`sidebar-folder-count-${folder.id}`}
-              />
-            ) : null}
-          </ContextMenuTrigger>
-          {rowFocus.buttonAction ? (
-            <SidebarFocusButton
-              name={folder.name}
-              onPress={rowFocus.buttonAction}
-              testID={`sidebar-folder-focus-${folder.id}`}
+            <SidebarFolderIcon />
+          </SidebarLeadingSlot>
+          <Text style={sidebarContainerRowStyles.title} numberOfLines={1}>
+            {folder.name}
+          </Text>
+          {collapsed ? (
+            <SidebarCountBadge
+              label={countLabel}
+              accessibilityLabel={`${folder.name}: ${countLabel}`}
+              testID={`sidebar-folder-count-${folder.id}`}
             />
           ) : null}
-          <View
-            style={showActions ? undefined : styles.hidden}
-            pointerEvents={showActions ? "auto" : "none"}
-          >
-            <DropdownMenu compactMode="sheet" open={menuOpen} onOpenChange={setMenuOpen}>
-              <DropdownMenuTrigger
-                hitSlop={8}
-                style={kebabStyle}
-                accessibilityRole="button"
-                accessibilityLabel={t("sidebar.folders.actions.menu")}
-                testID={`sidebar-folder-kebab-${folder.id}`}
-              >
-                {renderKebabIcon}
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                width={220}
-                sheetTitle={t("sidebar.folders.actions.menu")}
-              >
-                <FolderMenuItems
-                  surface="dropdown"
-                  row={row}
-                  scope={scope}
-                  onFocus={rowFocus.menuAction}
-                />
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </View>
-        </View>
-        <ContextMenuContent
-          align="start"
-          width={220}
-          testID={`sidebar-folder-context-${folder.id}`}
-        >
-          <FolderMenuItems
-            surface="context"
-            row={row}
-            scope={scope}
-            onFocus={rowFocus.menuAction}
+        </ContextMenuTrigger>
+        {rowFocus.buttonAction ? (
+          <SidebarFocusButton
+            name={folder.name}
+            onPress={rowFocus.buttonAction}
+            testID={`sidebar-folder-focus-${folder.id}`}
           />
-        </ContextMenuContent>
-      </ContextMenu>
-    </SidebarFolderDropTarget>
+        ) : null}
+        <View
+          style={showActions ? undefined : styles.hidden}
+          pointerEvents={showActions ? "auto" : "none"}
+        >
+          <DropdownMenu compactMode="sheet" open={menuOpen} onOpenChange={setMenuOpen}>
+            <DropdownMenuTrigger
+              hitSlop={8}
+              style={kebabStyle}
+              accessibilityRole="button"
+              accessibilityLabel={t("sidebar.folders.actions.menu")}
+              testID={`sidebar-folder-kebab-${folder.id}`}
+            >
+              {renderKebabIcon}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              width={220}
+              sheetTitle={t("sidebar.folders.actions.menu")}
+            >
+              <FolderMenuItems
+                surface="dropdown"
+                row={row}
+                scope={scope}
+                onFocus={rowFocus.menuAction}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </View>
+      </View>
+      <ContextMenuContent align="start" width={220} testID={`sidebar-folder-context-${folder.id}`}>
+        <FolderMenuItems surface="context" row={row} scope={scope} onFocus={rowFocus.menuAction} />
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 

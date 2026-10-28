@@ -41,8 +41,13 @@ export interface SidebarDropPlacement {
   index: number;
   /** Depth of the dropped row, which also places the insertion line. */
   depth: number;
-  /** The sibling the row lands before, or null for the end of the container. */
+  /** The listed sibling the row lands before, or null at the end of the listed siblings. */
   beforeKey: string | null;
+  /**
+   * The listed sibling the row lands after, or null at the start. With `beforeKey` null it
+   * places the row among siblings a filter or focus does not list.
+   */
+  afterKey: string | null;
   /** Between drops: the row the insertion line sits above, or null for below the last row. */
   lineBeforeKey: string | null;
 }
@@ -117,12 +122,13 @@ function canContain(input: {
 function withoutDragged(
   rows: readonly SidebarDropRow[],
   draggedKey: string,
-): { rows: SidebarDropRow[]; origin: number } {
+): { rows: SidebarDropRow[]; origin: number; originDepth: number | null } {
   const start = rows.findIndex((row) => row.key === draggedKey);
-  if (start < 0) return { rows: [...rows], origin: rows.length };
+  if (start < 0) return { rows: [...rows], origin: rows.length, originDepth: null };
+  const originDepth = rows[start]!.depth;
   let end = start + 1;
-  while (end < rows.length && rows[end]!.depth > rows[start]!.depth) end += 1;
-  return { rows: [...rows.slice(0, start), ...rows.slice(end)], origin: start };
+  while (end < rows.length && rows[end]!.depth > originDepth) end += 1;
+  return { rows: [...rows.slice(0, start), ...rows.slice(end)], origin: start, originDepth };
 }
 
 /** The container a row at `depth` would join when inserted at `gap`. */
@@ -198,10 +204,13 @@ function betweenPlacement(input: {
   const container = parentAt({ rows, gap, depth, top }) ?? null;
   const next = rows[gap];
   let index = 0;
+  let afterKey: string | null = null;
   for (let position = gap - 1; position >= 0; position -= 1) {
     const row = rows[position]!;
     if (row.depth < depth) break;
-    if (row.depth === depth) index += 1;
+    if (row.depth !== depth) continue;
+    afterKey ??= row.key;
+    index += 1;
   }
   return {
     mode: "between",
@@ -209,6 +218,7 @@ function betweenPlacement(input: {
     index,
     depth,
     beforeKey: next?.depth === depth ? next.key : null,
+    afterKey,
     lineBeforeKey: next?.key ?? null,
   };
 }
@@ -219,10 +229,13 @@ function intoPlacement(
 ): SidebarDropPlacement {
   const start = rows.indexOf(target);
   let index = 0;
+  let afterKey: string | null = null;
   for (let position = start + 1; position < rows.length; position += 1) {
     const row = rows[position]!;
     if (row.depth <= target.depth) break;
-    if (row.depth === target.depth + 1) index += 1;
+    if (row.depth !== target.depth + 1) continue;
+    afterKey = row.key;
+    index += 1;
   }
   return {
     mode: "into",
@@ -230,6 +243,7 @@ function intoPlacement(
     index,
     depth: target.depth + 1,
     beforeKey: null,
+    afterKey,
     lineBeforeKey: null,
   };
 }
@@ -274,7 +288,7 @@ function nearestLegalGap(input: {
  */
 export function resolveSidebarDrop(input: SidebarDropInput): SidebarDropPlacement | null {
   const { top, dragged } = input;
-  const { rows, origin } = withoutDragged(input.rows, dragged.key);
+  const { rows, origin, originDepth } = withoutDragged(input.rows, dragged.key);
   const overIndex = rows.findIndex((row) => row.key === input.overKey);
   const target = rows[overIndex];
   let gap: number;
@@ -305,5 +319,7 @@ export function resolveSidebarDrop(input: SidebarDropInput): SidebarDropPlacemen
     rowContentStartX: input.rowContentStartX,
     previousDepth: input.previousDepth,
   });
+  // Back in its own slot at its own depth: nothing moves.
+  if (gap === origin && depth === originDepth) return null;
   return betweenPlacement({ rows, gap, depth, top });
 }

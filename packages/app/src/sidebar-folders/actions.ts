@@ -81,6 +81,26 @@ export function moveSidebarEntry(input: {
   if (patch) commitSidebarPatch(patch);
 }
 
+/** Places an entry where a sidebar drop resolved it, keeping siblings a filter hides in order. */
+export function placeSidebarEntry(input: {
+  scope: SidebarFolderScope;
+  entry: string;
+  targetFolderId: string | null;
+  before: string | null;
+  after: string | null;
+}): void {
+  const patch = moveSidebarEntryPatch({
+    state: useSidebarFolderStore.getState(),
+    scope: input.scope,
+    entry: input.entry,
+    targetFolderId: input.targetFolderId,
+    before: input.before,
+    after: input.after,
+    keys: scopeKeys(input.scope),
+  });
+  if (patch) commitSidebarPatch(patch);
+}
+
 export function reorderSidebarRows<T>(input: {
   scope: SidebarFolderScope;
   rows: readonly SidebarTreeRow<T>[];
