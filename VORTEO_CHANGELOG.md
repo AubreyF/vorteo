@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.882 - 2026-10-28
+
+### Changed
+
+- Use a trashcan for Clear goal and keep the action available while retaining shared error handling and backend serialization.
+
 ## 0.11.0-beta.3.vorteo.881 - 2026-10-28
 
 ### Maintenance
@@ -112,6 +118,8 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Sidebar folders, Standing and Factory now start with a folder icon sized and placed like a workspace icon, and show their expand arrow in that slot only on hover, as projects already did. The always-visible chevrons on the left edge are gone; touch layouts show the arrow, as they do for projects.
 - Every sidebar hierarchy level now steps in by one 24px unit: root folders, projects, project folders with Standing and Factory, then workspaces. Workspaces inside a project folder, Standing or Factory sit one level deeper than the project's own workspaces. The unit lives in `components/sidebar/indent.ts`.
+
+- Use a trashcan for Clear goal and keep the action enabled during goal activity, pending requests and errors.
 
 ## 0.11.0-beta.3.vorteo.873 - 2026-10-26
 
