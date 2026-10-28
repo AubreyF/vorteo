@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.891 - 2026-10-28
+
+### Fixed
+
+- Integrate reviewed Codex account home inheritance and explicit empty-home handling for launch skill capture. Empty overrides select the native default without inheriting a parent or daemon value; literal whitespace remains unchanged. Preserve the accepted project home-boundary fix and all other runtime source.
+
+### Maintenance
+
+- Retain both Accounts source commits and the accepted Host aggregate in merge ancestry. Combined create-agent and policy checks cover the prepared source; installation remains separate.
+
 ## 0.11.0-beta.3.vorteo.890 - 2026-10-28
 
 ### Maintenance
@@ -211,11 +221,19 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Threads whose provider is unavailable offer the standard account and profile picker in the load error. Recovery reads the previous account's saved history without running a turn, keeps the original thread and workspace, and retains its checklist, journal and questions. Failed recovery leaves the original account binding intact and offers a visible retry. The existing recent-message context bound still applies.
 - Add disabled and removed account recovery tests, stale-source and failed-replacement checks, and a browser journey covering unreadable history, retry and reload.
 
+## 0.11.0-beta.3.vorteo.875 - 2026-10-28
+
+### Fixed
+
+- An explicit empty Codex home stops provider inheritance and selects the native default home for launch skill capture. It no longer inventories a populated parent or daemon home. Literal whitespace paths remain unchanged; focused regressions cover policy capture, multiple inheritance levels, cycles and malformed or missing entries.
+
 ## 0.11.0-beta.3.vorteo.874 - 2026-10-27
 
 ### Fixed
 
 - A hosted agent parked in an error, such as a usage-limit hold, no longer keeps the old session host alive through an upgrade. The release of idle hosted sessions only considered agents whose lifecycle was idle, so an errored agent that ran no turn and had no pending permission held the host for as long as its hold lasted; on the live installation one such agent, with a weekly limit resetting hours later, kept the host on the previous release for a day. Such an agent is now released like an idle one and resumes on the new host when it next runs. A running turn or an unanswered permission still holds the host.
+
+- A Codex account that inherits its `CODEX_HOME` from the provider it extends now has its launch skill snapshot taken from that inherited folder, matching the folder its session runs with. The lookup follows the same order as launch: the account's own setting, then each extended provider's, then the daemon's, then `~/.codex`.
 
 ### Validation
 
