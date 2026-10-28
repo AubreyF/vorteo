@@ -1030,3 +1030,77 @@ test("an overdue delegated request returns to the owner with an explanation", ()
   const { delegationOverdue: _late, ...owned } = job;
   expect(delegationOverdueNote(owned)).toBeNull();
 });
+
+test("full delegation retains saved authority on errors and rejects stale refreshes", async () => {
+  const initial = { available: true, revision: null, enabled: false, activatedAt: null };
+  let failSave = false;
+  let saves = 0;
+  let suspendRead = false;
+  const readStarted = Promise.withResolvers<void>();
+  const releaseRead = Promise.withResolvers<void>();
+  const model = new InstallationPanelModel({
+    restartSummary: async () => null,
+    restoreSession: async () => false,
+    lock: async () => {},
+    passwordFile: null,
+    sessionsSupported: false,
+    profileSharingStatus: async () => null,
+    resolveProfileConflict: async () => {},
+    unlock: async () => {},
+    listHelpers: async () => [],
+    decideHelper: async () => {
+      throw new Error("Unexpected helper operation");
+    },
+    listRestarts: async () => [],
+    decide: async () => {
+      throw new Error("Unexpected restart");
+    },
+    maintenanceDelegation: async () => {
+      if (suspendRead) {
+        readStarted.resolve();
+        await releaseRead.promise;
+      }
+      return initial;
+    },
+    changeMaintenanceDelegation: async (_preference, enabled) => {
+      saves++;
+      if (failSave) throw new Error("Preference could not be saved");
+      return {
+        revision: "a".repeat(64),
+        enabled,
+        activatedAt: "2026-10-12T00:00:00.000Z",
+        available: true,
+      };
+    },
+  });
+  await model.changeMaintenanceDelegation(true);
+  expect(saves).toBe(0);
+  model.setPassword("owner-password");
+  await model.unlock();
+  await model.changeMaintenanceDelegation(true);
+  expect(model.getState()).toMatchObject({
+    maintenanceDelegation: { enabled: true },
+    busy: false,
+    notice: "Maintenance delegation saved. Existing service permissions are retained.",
+  });
+  failSave = true;
+  await model.changeMaintenanceDelegation(false);
+  expect(model.getState()).toMatchObject({
+    maintenanceDelegation: { enabled: true },
+    busy: false,
+    daemonAutomationError: "Preference could not be saved",
+  });
+  await model.refresh();
+  expect(model.getState().daemonAutomationError).toBe("Preference could not be saved");
+  suspendRead = true;
+  const staleRefresh = model.refresh();
+  await readStarted.promise;
+  failSave = false;
+  await model.changeMaintenanceDelegation(true);
+  releaseRead.resolve();
+  await staleRefresh;
+  expect(model.getState().maintenanceDelegation?.enabled).toBe(true);
+  await model.lock();
+  expect(model.getState().maintenanceDelegation).toBeNull();
+  expect(model.getState().daemonAutomationError).toBeNull();
+});

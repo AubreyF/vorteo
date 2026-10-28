@@ -3,9 +3,7 @@ import {
   DEFAULT_SHARED_TARGET_MESSAGE,
   RESTART_OPERATIONS,
   automaticPermitted,
-  automaticPolicy,
   namesOperation,
-  operationFor,
   planBound,
   type RestartPlanField,
   type ReviewedRestartOperation,
@@ -98,6 +96,22 @@ export interface RestartStartupOptions {
   dispatchDeadlineMs?: number;
 }
 
+type NativeMaintenanceJob = NativeHelperJob | PreviewMonitorJob | SessionHostJob;
+const DELEGATED_NATIVE_OPERATIONS: ReadonlySet<NativeMaintenanceJob["operation"]> = new Set([
+  "native-helper-install",
+  "native-helper-rollback",
+  "preview-monitor-replace",
+  "session-host-install",
+  "session-host-remove",
+  "session-host-restart",
+]);
+
+/** Approval evidence is journal-private; old clients keep their original wire shape. */
+function publicNativeJob<T extends NativeMaintenanceJob>(job: T): Omit<T, "delegatedApproval"> {
+  const { delegatedApproval: _approval, ...publicJob } = job;
+  return structuredClone(publicJob);
+}
+
 export interface RestartApprovalPolicy {
   serviceAuthority?: (
     job: MaintenanceServiceJob,
@@ -111,6 +125,8 @@ export interface RestartApprovalPolicy {
   authority?: () => string;
   cancellationDelayMs?: number;
   hostRequestsAfter?: string;
+  /** Separate protected owner grant, rechecked before every automatic dispatch. */
+  maintenanceRequestsAfter?: () => string | null;
   // Undefined retains legacy Host-only policy; null explicitly disables automation.
   daemonRequestsAfter?: (target: RestartJob["target"]) => string | null | undefined;
   /** Controller authority never inherits a daemon or legacy Host grant. */
@@ -539,7 +555,7 @@ export class InstallationRestarts {
   }
 
   listMonitors(): PreviewMonitorJob[] {
-    return structuredClone(this.monitors);
+    return this.monitors.map(publicNativeJob);
   }
 
   private replaceMonitor(next: PreviewMonitorJob): void {
@@ -575,7 +591,7 @@ export class InstallationRestarts {
         existing.reason !== prepared.reason
       )
         throw new RestartRequestError("Request identity belongs to different work");
-      return structuredClone(existing);
+      return publicNativeJob(existing);
     }
     const job: PreviewMonitorJob = {
       ...prepared,
@@ -650,6 +666,7 @@ export class InstallationRestarts {
   }
 
   private async dispatchMonitor(job: PreviewMonitorJob): Promise<void> {
+    if (!this.delegatedNativeReady(job)) return;
     try {
       if (
         !this.executor.validateMonitorPlan ||
@@ -662,6 +679,7 @@ export class InstallationRestarts {
       await this.executor.validateMonitorPlan(structuredClone(job.plan));
       const current = this.monitors.find((item) => item.id === job.id);
       if (current?.status !== "approved" || current.revision !== job.revision) return;
+      if (!this.delegatedNativeReady(current)) return;
       const dispatched: PreviewMonitorJob = {
         ...current,
         status: "running",
@@ -692,11 +710,11 @@ export class InstallationRestarts {
   }
 
   listHelpers(): NativeHelperJob[] {
-    return structuredClone(this.helpers);
+    return this.helpers.map(publicNativeJob);
   }
 
   listSessionHosts(): SessionHostJob[] {
-    return structuredClone(this.sessionHosts);
+    return this.sessionHosts.map(publicNativeJob);
   }
 
   sessionHostAvailable(): boolean {
@@ -723,7 +741,7 @@ export class InstallationRestarts {
         existing.reason !== request.reason
       )
         throw new RestartRequestError("Request identity already belongs to different work");
-      return structuredClone(existing);
+      return publicNativeJob(existing);
     }
     const open = () =>
       this.sessionHosts.some((job) => ["pending", "approved", "running"].includes(job.status));
@@ -751,7 +769,7 @@ export class InstallationRestarts {
       detail: SESSION_HOST_REQUEST_DETAILS[request.operation],
     };
     this.replaceSessionHost(job);
-    return structuredClone(job);
+    return publicNativeJob(job);
   }
 
   /** The owner's decision; it must name the operation and the exact plan it reviewed. */
@@ -782,7 +800,7 @@ export class InstallationRestarts {
           "Approved. The operation starts after pending restarts and other lifecycle work finish.",
       });
     }
-    return structuredClone(this.sessionHosts.find((item) => item.id === job.id)!);
+    return publicNativeJob(this.sessionHosts.find((item) => item.id === job.id)!);
   }
 
   private assertSessionHostPlanUnchanged(job: SessionHostJob): void {
@@ -806,6 +824,7 @@ export class InstallationRestarts {
 
   /** Runs one approved operation after recomputing its plan; any difference changes nothing. */
   private async dispatchSessionHost(job: SessionHostJob): Promise<void> {
+    if (!this.delegatedNativeReady(job)) return;
     if (!this.executor.sessionHostPlan || !this.executor.applySessionHost) return;
     const owns = (candidate: SessionHostJob | undefined, status: SessionHostJob["status"]) =>
       candidate?.status === status && candidate.revision === job.revision;
@@ -823,6 +842,7 @@ export class InstallationRestarts {
         )
       )
         return;
+      if (!this.delegatedNativeReady(job)) return;
       const running: SessionHostJob = {
         ...job,
         status: "running",
@@ -883,7 +903,7 @@ export class InstallationRestarts {
         existing.reason !== prepared.reason
       )
         throw new RestartRequestError("Request identity already belongs to different work");
-      return structuredClone(existing);
+      return publicNativeJob(existing);
     }
     const job: NativeHelperJob = {
       ...prepared,
@@ -916,7 +936,7 @@ export class InstallationRestarts {
           detail: "Helper preparation failed. Inspect the artifact and prepare a new request.",
         });
     }
-    return structuredClone(this.helpers.find((item) => item.id === job.id)!);
+    return publicNativeJob(this.helpers.find((item) => item.id === job.id)!);
   }
 
   decideHelper(input: unknown): NativeHelperJob {
@@ -945,7 +965,7 @@ export class InstallationRestarts {
         detail: "Helper installation approved",
       });
     }
-    return structuredClone(this.helpers.find((item) => item.id === job.id)!);
+    return publicNativeJob(this.helpers.find((item) => item.id === job.id)!);
   }
 
   /** Owner-authenticated read-only recovery; never dispatches another install. */
@@ -1006,7 +1026,7 @@ export class InstallationRestarts {
           return item;
         }),
       );
-      return structuredClone(this.helpers.find((item) => item.id === job.id)!);
+      return publicNativeJob(this.helpers.find((item) => item.id === job.id)!);
     } finally {
       this.running = false;
     }
@@ -1075,6 +1095,7 @@ export class InstallationRestarts {
   }
 
   private async dispatchHelper(job: NativeHelperJob): Promise<void> {
+    if (!this.delegatedNativeReady(job)) return;
     if (!this.executor.validateHelperPlan || !this.executor.installHelper) return;
     try {
       this.assertHelperPlanUnchanged(job);
@@ -1097,6 +1118,7 @@ export class InstallationRestarts {
       await this.executor.validateHelperPlan(structuredClone(job.plan));
       const current = this.helpers.find((item) => item.id === job.id);
       if (current?.status !== "approved" || current.revision !== job.revision) return;
+      if (!this.delegatedNativeReady(current)) return;
       const dispatched: NativeHelperJob = {
         ...job,
         status: "running",
@@ -1971,6 +1993,7 @@ export class InstallationRestarts {
     job: RestartJob,
     policyActivatedAt?: string,
     standing?: Omit<StandingRestartDecision, "requestRevision"> | null,
+    interruption: "finish" | "immediate" = "finish",
   ): RestartJob {
     if (!["pending", "approved"].includes(job.status))
       throw new RestartRequestError("Restart request is already dispatched or decided");
@@ -1982,6 +2005,12 @@ export class InstallationRestarts {
     )
       throw new RestartRequestError("Update the coordinator to support finishing current turns");
     const revision = randomUUID();
+    let detail = policyActivatedAt
+      ? "Automatically approved by installation policy. Finishing current turns before restart; cancellation remains available."
+      : "Holding new work while current turns finish. You can cancel before restart.";
+    if (interruption === "immediate")
+      detail =
+        "Approved under explicit maintenance delegation. Work interruption is unknown; cancellation remains available before recovery.";
     const next: RestartJob = {
       ...job,
       revision,
@@ -2006,11 +2035,9 @@ export class InstallationRestarts {
         : undefined,
       status: "approved",
       approvedAt: new Date(this.now()).toISOString(),
-      whenIdle: true,
-      finishCurrentTurns: true,
-      detail: policyActivatedAt
-        ? "Automatically approved by installation policy. Finishing current turns before restart; cancellation remains available."
-        : "Holding new work while current turns finish. You can cancel before restart.",
+      whenIdle: interruption === "finish",
+      finishCurrentTurns: interruption === "finish",
+      detail,
     };
     this.replace(next);
     return { ...next };
@@ -2202,13 +2229,7 @@ export class InstallationRestarts {
   }
 
   private approveTrustedHostRequests(): void {
-    if (
-      !this.executor.inspect ||
-      !this.executor.holdCurrentTurns ||
-      !this.executor.releaseCurrentTurns ||
-      !this.executor.restartWhenIdle
-    )
-      return;
+    if (!supportsAutomaticMaintenance(this.executor)) return;
     for (const job of this.jobs) {
       if (!this.automaticApprovalCandidate(job) || !this.lifecycleAdmitted(job)) continue;
       const standing = this.approvalPolicy.standingDecision?.(job);
@@ -2236,18 +2257,17 @@ export class InstallationRestarts {
       }
       try {
         this.validateDecision(job, "approve", job.update?.sha256);
-        this.validateOperationDecision(
-          operationFor("supervisorPlanSha256"),
-          job,
-          "approve",
-          job.supervisorPlanSha256,
-        );
+        for (const operation of RESTART_OPERATIONS)
+          this.validateOperationDecision(operation, job, "approve", job[operation.field]);
       } catch (error) {
         if (error instanceof RestartRequestError) continue;
         throw error;
       }
-      // Use the normal durable approval and hold path, never an immediate restart.
-      this.approveFinish(job, enabledAfter, standing);
+      // Keep the normal durable decision path, including the exact recovery interruption mode.
+      const immediate = RESTART_OPERATIONS.some(
+        (operation) => job[operation.field] && operation.immediateOnly,
+      );
+      this.approveFinish(job, enabledAfter, standing, immediate ? "immediate" : "finish");
     }
   }
 
@@ -2267,6 +2287,8 @@ export class InstallationRestarts {
   private automaticActivation(job: RestartJob): string | null | undefined {
     const standing = this.approvalPolicy.standingDecision?.(job);
     if (standing !== undefined) return standing?.policyActivatedAt ?? null;
+    const maintenance = this.approvalPolicy.maintenanceRequestsAfter?.();
+    if (maintenance) return maintenance;
     if (job.supervisorPlanSha256) return this.approvalPolicy.supervisorRequestsAfter?.() ?? null;
     const activation = this.approvalPolicy.daemonRequestsAfter?.(job.target);
     return activation === undefined ? this.approvalPolicy.hostRequestsAfter : activation;
@@ -2302,7 +2324,12 @@ export class InstallationRestarts {
       job.status === "pending" &&
       !job.workerLaunchRequest &&
       // Each reviewed plan's own policy: never, only under a standing decision, or allowed.
-      automaticPermitted(job, standing != null) &&
+      automaticPermitted(
+        job,
+        standing != null,
+        RESTART_OPERATIONS,
+        Boolean(this.approvalPolicy.maintenanceRequestsAfter?.()),
+      ) &&
       this.automaticHostOrigin(job) &&
       !job.requireOwnerApproval &&
       (standing != null ||
@@ -2326,8 +2353,10 @@ export class InstallationRestarts {
       const enabledAfter = this.automaticActivation(job);
       const policyChanged = job.automaticApproval.policyActivatedAt !== enabledAfter;
       const credentialsChanged = authority !== undefined && job.automaticAuthority !== authority;
-      const planChanged =
-        job.supervisorPlanSha256 && job.supervisorPlanSha256 !== this.executor.supervisorPlan?.();
+      const planChanged = RESTART_OPERATIONS.some(
+        (operation) =>
+          job[operation.field] && job[operation.field] !== operation.plan(this.executor),
+      );
       if (
         !standingChanged &&
         !policyChanged &&
@@ -2434,6 +2463,7 @@ export class InstallationRestarts {
       // Release completed holds above, but never start another lifecycle operation
       // while the installed helper selection remains ambiguous.
       if (this.monitorRecoveryRequired()) return;
+      this.approveDelegatedNativeRequests();
       if (this.helperRecoveryRequired()) {
         const blocked = this.helpers.filter(
           (job) => job.stage === "recovery_required" || job.status === "running",
@@ -2464,6 +2494,83 @@ export class InstallationRestarts {
   }
 
   /** Helper and session host operations, which run only while no restart holds turns. */
+  private replaceDelegatedNativeJob(
+    job: NativeHelperJob | PreviewMonitorJob | SessionHostJob,
+  ): void {
+    switch (job.target) {
+      case "native-helper":
+        this.replaceHelper(job);
+        break;
+      case "preview-monitor":
+        this.replaceMonitor(job);
+        break;
+      case "session-host":
+        this.replaceSessionHost(job);
+        break;
+    }
+  }
+
+  private delegatedNativeReady(job: NativeHelperJob | PreviewMonitorJob | SessionHostJob): boolean {
+    const approval = job.delegatedApproval;
+    if (!approval) return true;
+    const activation = this.approvalPolicy.maintenanceRequestsAfter?.();
+    const authority = this.approvalPolicy.authority?.();
+    if (
+      !DELEGATED_NATIVE_OPERATIONS.has(job.operation) ||
+      activation !== approval.policyActivatedAt ||
+      authority !== approval.authoritySha256 ||
+      job.revision !== approval.requestRevision ||
+      job.planSha256 !== approval.planSha256
+    ) {
+      this.replaceDelegatedNativeJob({
+        ...job,
+        status: "rejected",
+        detail: "Delegated approval changed before dispatch. No operation started.",
+      });
+      return false;
+    }
+    return this.now() >= Date.parse(approval.dispatchAfter);
+  }
+
+  private approveDelegatedNativeRequests(): void {
+    const activation = this.approvalPolicy.maintenanceRequestsAfter?.();
+    const authority = this.approvalPolicy.authority?.();
+    for (const job of [...this.helpers, ...this.monitors, ...this.sessionHosts]) {
+      if (job.status === "approved") {
+        this.delegatedNativeReady(job);
+        continue;
+      }
+      if (
+        !activation ||
+        !authority ||
+        !DELEGATED_NATIVE_OPERATIONS.has(job.operation) ||
+        job.status !== "pending" ||
+        job.stage !== "prepared" ||
+        job.requestedBy !== "host-agent" ||
+        Date.parse(job.createdAt) < Date.parse(activation)
+      )
+        continue;
+      const revision = randomUUID();
+      const dispatchAfter = new Date(
+        this.now() + (this.approvalPolicy.cancellationDelayMs ?? 30_000),
+      ).toISOString();
+      this.replaceDelegatedNativeJob({
+        ...job,
+        revision,
+        status: "approved",
+        approvedAt: new Date(this.now()).toISOString(),
+        delegatedApproval: {
+          policyActivatedAt: activation,
+          authoritySha256: authority,
+          requestRevision: revision,
+          planSha256: job.planSha256,
+          dispatchAfter,
+        },
+        detail: `Approved under owner maintenance delegation. Cancellation remains available before ${dispatchAfter}.`,
+      });
+    }
+  }
+
   private async dispatchApprovedNativeWork(): Promise<void> {
     for (const job of this.helpers.filter((candidate) => candidate.status === "approved")) {
       if (this.helperRecoveryRequired()) break;
@@ -2878,7 +2985,13 @@ export class InstallationRestarts {
     if (!operation) return null;
     const run = operation.run(this.executor);
     if (
-      (automaticPolicy(operation) === "never" && job.automaticApproval) ||
+      (job.automaticApproval &&
+        !automaticPermitted(
+          job,
+          Boolean(job.standingDecision),
+          RESTART_OPERATIONS,
+          Boolean(this.approvalPolicy.maintenanceRequestsAfter?.()),
+        )) ||
       !run ||
       job[operation.field] !== operation.plan(this.executor)
     )

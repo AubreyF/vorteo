@@ -14,7 +14,7 @@ import type { CoordinatorBootstrapRequest } from "@getpaseo/protocol/coordinator
 import { MaintenanceServiceJobSchema } from "@getpaseo/protocol/maintenance-service";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { InstallationEnrollmentStatusSchema } from "@getpaseo/protocol/installation-enrollment";
-import { DaemonAutomation } from "./daemon-automation.js";
+import { DaemonAutomation, coordinatorAutomaticAuthority } from "./daemon-automation.js";
 import {
   coordinatorPlanDigest,
   type BootstrapReconciliationLedger,
@@ -4227,4 +4227,98 @@ test("native recovery origin serves the interface and authenticated controls ind
     403,
   );
   expect(calls).toEqual([]);
+});
+
+test("full maintenance delegation requires owner origin and credential and supports exact revocation", async () => {
+  const f = await fixture();
+  const query = "/api/installation/owner/maintenance-delegation/query";
+  const change = "/api/installation/owner/maintenance-delegation/change";
+  for (const token of ["guest-agent-test-token", "host-agent-test-token"])
+    expect((await f.request(change, token, { expectedRevision: null, enabled: true })).status).toBe(
+      401,
+    );
+  expect(
+    (
+      await f.request(
+        change,
+        "owner-test-password",
+        { expectedRevision: null, enabled: true },
+        "https://foreign.example.test",
+      )
+    ).status,
+  ).toBe(403);
+  const initial = await (await f.request(query, "owner-test-password", {})).json();
+  expect(initial).toEqual({ available: true, revision: null, enabled: false, activatedAt: null });
+  const response = await f.request(change, "owner-test-password", {
+    expectedRevision: initial.revision,
+    enabled: true,
+  });
+  expect(response.status).toBe(200);
+  const saved = await response.json();
+  expect(saved.enabled).toBe(true);
+  expect(
+    (await f.request(change, "owner-test-password", { expectedRevision: null, enabled: false }))
+      .status,
+  ).toBe(409);
+  const caps = await (
+    await f.request("/api/installation/capabilities", "host-agent-test-token")
+  ).json();
+  expect(caps.maintenanceDelegation).toEqual({ available: true, enabled: true });
+  expect(caps.sessionHostJob.ownerApprovalRequired).toBe(false);
+  const revoked = await f.request(change, "owner-test-password", {
+    expectedRevision: saved.revision,
+    enabled: false,
+  });
+  expect(revoked.status).toBe(200);
+  const after = await (
+    await f.request("/api/installation/capabilities", "host-agent-test-token")
+  ).json();
+  expect(after.maintenanceDelegation.enabled).toBe(false);
+  expect(after.sessionHostJob.ownerApprovalRequired).toBe(true);
+  expect(f.calls).toEqual([]);
+});
+
+test("retained broad delegation cannot bypass enrolled maintenance admission", async () => {
+  let retained: InstallationConfig | undefined;
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    (config) => {
+      retained = config;
+      writeFileSync(
+        path.join(config.stateDir, "owner-delegation.json"),
+        JSON.stringify({
+          version: 1,
+          delegatedRequesterPrefixes: [],
+          hostUpdateServiceRestart: false,
+          maintenanceApprovedAfter: "2026-01-01T00:00:00.000Z",
+        }),
+        { mode: 0o600 },
+      );
+      enrollDashboardFixture(config);
+    },
+  );
+  if (!retained) throw new Error("Missing fixture config");
+  expect(coordinatorAutomaticAuthority(retained)).toBeNull();
+  const caps = await (
+    await f.request("/api/installation/capabilities", "host-agent-test-token")
+  ).json();
+  expect(caps.maintenanceDelegation).toEqual({ available: false, enabled: false });
+  expect(caps.sessionHostJob.ownerApprovalRequired).toBe(true);
+  expect(
+    (
+      await f.request(
+        "/api/installation/owner/maintenance-delegation/change",
+        "owner-test-password",
+        { expectedRevision: null, enabled: true },
+      )
+    ).status,
+  ).toBe(409);
+  expect(f.calls).toEqual([]);
 });

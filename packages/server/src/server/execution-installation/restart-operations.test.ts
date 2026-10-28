@@ -9,7 +9,7 @@ import {
 } from "@getpaseo/protocol/coordinator-configuration-settings";
 import type { InstallationConfig } from "./config.js";
 import { createInstallationRestartExecutor, hostLauncherTarget } from "./daemon.js";
-import { RESTART_OPERATIONS } from "./restart-operations.js";
+import { automaticPermitted, RESTART_OPERATIONS } from "./restart-operations.js";
 
 /** Supervisor maintenance is configured through Dev registration, not a reviewed setting. */
 const UNREGISTERED_OPERATIONS = ["supervisorMaintenance"];
@@ -139,4 +139,20 @@ test("supervisor maintenance is the only restart operation without a registered 
     (capability) => !Object.hasOwn(REVIEWED_CONFIGURATION_SETTINGS, capability),
   );
   expect(unregistered).toEqual(UNREGISTERED_OPERATIONS);
+});
+
+test("full owner delegation permits only explicitly delegable exact maintenance plans", () => {
+  for (const operation of RESTART_OPERATIONS) {
+    const job = { [operation.field]: "a".repeat(64) };
+    expect(automaticPermitted(job, false, RESTART_OPERATIONS, true)).toBe(true);
+    if (operation.automatic !== "allowed") expect(automaticPermitted(job, false)).toBe(false);
+    expect(
+      automaticPermitted(
+        job,
+        false,
+        [{ ...operation, automatic: "never", delegable: false }],
+        true,
+      ),
+    ).toBe(false);
+  }
 });

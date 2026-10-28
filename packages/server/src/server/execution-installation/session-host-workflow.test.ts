@@ -23,7 +23,12 @@ import { hashDaemonPassword } from "../auth.js";
 import type { InstallationConfig } from "./config.js";
 import { coordinatorLifecycleWork } from "./coordinator-bootstrap.js";
 import { parseLifecycleJournal, type LifecycleJob } from "./lifecycle-journal.js";
-import { InstallationRestarts, type RestartExecutor, type RestartJournal } from "./restarts.js";
+import {
+  InstallationRestarts,
+  type RestartExecutor,
+  type RestartJournal,
+  type RestartApprovalPolicy,
+} from "./restarts.js";
 import { createInstallationServer } from "./server.js";
 import { SessionHostJobError } from "./session-host-job.js";
 
@@ -47,7 +52,7 @@ function plan(operation: SessionHostOperation, pathValue = "/usr/bin:/bin"): Ses
   };
 }
 
-function fixture(extras: Partial<RestartExecutor> = {}) {
+function fixture(extras: Partial<RestartExecutor> = {}, policy: RestartApprovalPolicy = {}) {
   let records: LifecycleJob[] = [];
   const journal: RestartJournal = {
     read: () => structuredClone(records),
@@ -75,6 +80,7 @@ function fixture(extras: Partial<RestartExecutor> = {}) {
   // The trusted Host policy approves Host restart requests automatically; never this job.
   const queue = new InstallationRestarts(journal, executor, Date.now, {
     hostRequestsAfter: "2026-01-01T00:00:00.000Z",
+    ...policy,
   });
   return {
     queue,
@@ -830,3 +836,43 @@ test("owner status is null, not an error, when the job cannot be inspected", asy
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("delegated session host maintenance retains a cancellable grant and revocation prevents dispatch", async () => {
+  let activation: string | null = "2026-01-01T00:00:00.000Z";
+  const f = fixture(
+    {},
+    {
+      maintenanceRequestsAfter: () => activation,
+      authority: () => "a".repeat(64),
+      cancellationDelayMs: 30_000,
+    },
+  );
+  await f.request();
+  await f.queue.drain();
+  expect(f.queue.listSessionHosts()[0]?.status).toBe("approved");
+  expect(f.queue.listSessionHosts()[0]).not.toHaveProperty("delegatedApproval");
+  expect(f.journal.read()[0]).toHaveProperty("delegatedApproval.policyActivatedAt", activation);
+  expect(f.apply).not.toHaveBeenCalled();
+  activation = null;
+  await f.queue.drain();
+  expect(f.queue.listSessionHosts()[0]?.status).toBe("rejected");
+  expect(f.apply).not.toHaveBeenCalled();
+});
+
+test.each(["session-host-install", "session-host-remove", "session-host-restart"] as const)(
+  "delegated %s dispatches only the freshly checked plan",
+  async (operation) => {
+    const f = fixture(
+      {},
+      {
+        maintenanceRequestsAfter: () => "2026-01-01T00:00:00.000Z",
+        authority: () => "a".repeat(64),
+        cancellationDelayMs: 0,
+      },
+    );
+    await f.request(operation);
+    await f.queue.drain();
+    expect(f.apply).toHaveBeenCalledTimes(1);
+    expect(f.queue.listSessionHosts()[0]?.status).toBe("succeeded");
+  },
+);

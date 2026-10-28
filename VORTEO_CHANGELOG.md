@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.877 - 2026-10-28
+
+### Added
+
+- Explicit owner delegation for authenticated Host maintenance, including exact coordinator configuration changes, Factory adoption, Docker recovery, launcher updates, native helpers and the session host. Existing plan checks, cancellation windows, revocation and recovery fences remain enforced.
+- Installation controls show the full grant and let the owner enable or revoke it through protected APIs with stale-revision checks. Enrolled installations keep their existing scoped admission workflow; agent credentials cannot edit the grant.
+
 ## 0.11.0-beta.3.vorteo.876 - 2026-10-28
 
 ### Maintenance

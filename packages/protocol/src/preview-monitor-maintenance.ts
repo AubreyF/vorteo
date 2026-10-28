@@ -1,3 +1,4 @@
+import { DelegatedMaintenanceApprovalSchema } from "./maintenance-approval.js";
 import { z } from "zod";
 
 const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
@@ -59,6 +60,7 @@ export const PreviewMonitorJobSchema = z.strictObject({
   reason: z.string().min(1).max(2000),
   createdAt: z.string().datetime(),
   approvedAt: z.string().datetime().optional(),
+  delegatedApproval: DelegatedMaintenanceApprovalSchema.optional(),
   plan: PreviewMonitorPlanSchema,
   planSha256: DigestSchema,
   status: z.enum(["pending", "approved", "running", "succeeded", "failed", "rejected"]),
