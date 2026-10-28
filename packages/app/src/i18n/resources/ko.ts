@@ -1192,6 +1192,12 @@ export const ko: TranslationResources = {
         "새 워크트리가 의존성을 설치하고 자동으로 준비될 수 있도록 설정 명령을 추가하세요.",
       openProjectSettings: "프로젝트 설정 열기",
     },
+    focus: {
+      focusItem: "{{name}}에 집중",
+      menuItem: "집중",
+      allProjects: "모든 프로젝트",
+      breadcrumb: "사이드바 집중 경로",
+    },
     folders: {
       actions: {
         menu: "폴더 작업",

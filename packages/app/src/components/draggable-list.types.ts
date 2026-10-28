@@ -31,9 +31,52 @@ export interface DraggableListExternalDrop<T> {
   onTargetChange: (targetId: string | null, item?: T) => void;
 }
 
-export interface DraggableListProps<T> {
+/** What a tree drop needs to draw its indicator; resolvers may return more. */
+export interface DraggableTreePlacement {
+  mode: "between" | "into";
+  depth: number;
+  /** Into drops: the receiving row's key, highlighted when it is in this list. */
+  container: string | null;
+  /** Between drops: the row the insertion line sits above, or null below the last row. */
+  lineBeforeKey: string | null;
+}
+
+export interface DraggableTreeDropInput {
+  activeKey: string;
+  /** The row under the pointer; the dragged row's key while over its own slot. */
+  overKey: string;
+  overFraction: number;
+  /** The dragged row's leading edge, which follows the pointer horizontally. */
+  pointerX: number;
+  /** Where depth-0 content starts, in the same coordinates. */
+  rowContentStartX: number;
+  previousDepth: number | null;
+}
+
+/**
+ * Web and Electron: the list drops by position instead of reordering. Rows stay in place while
+ * an insertion line or container highlight shows where the dragged row will land.
+ */
+export interface DraggableListTreeDrop<T, P extends DraggableTreePlacement> {
+  /** Pixels per depth step. */
+  indentUnit: number;
+  /** Where depth-0 content starts, measured from the list's left edge. */
+  baseInset: number;
+  depthOf: (item: T) => number;
+  /** "cancel" ends drops released above or below the list without moving anything. */
+  outside: "clamp" | "cancel";
+  resolve: (input: DraggableTreeDropInput) => P | null;
+  onDrop: (activeKey: string, placement: P) => void;
+  onDragStart: (activeKey: string) => void;
+  /** Called after a drop or a cancel. */
+  onDragEnd: () => void;
+}
+
+export interface DraggableListProps<T, P extends DraggableTreePlacement = DraggableTreePlacement> {
   /** Web and Electron: registered targets outside this sortable list. */
   externalDrop?: DraggableListExternalDrop<T>;
+  /** Web and Electron: drop by position in a tree. Native keeps `onDragEnd` reordering. */
+  treeDrop?: DraggableListTreeDrop<T, P>;
   data: T[];
   keyExtractor: (item: T, index: number) => string;
   renderItem: (info: DraggableRenderItemInfo<T>) => ReactElement;

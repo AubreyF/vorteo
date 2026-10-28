@@ -45,7 +45,9 @@ async function quickDragFirstRowAfterSecond(
   const page = rows.page();
   // Start on the row inset, away from branch popovers and trailing actions.
   const source = { x: sourceBox.x + 12, y: sourceBox.y + sourceBox.height / 2 };
-  const target = { x: targetBox.x + 12, y: targetBox.y + targetBox.height / 2 };
+  // The new position resolver splits rows into before/after zones. Land inside
+  // the lower zone rather than exactly on its fractional-pixel midpoint.
+  const target = { x: targetBox.x + 12, y: targetBox.y + targetBox.height * 0.85 };
 
   await page.mouse.move(source.x, source.y);
   await pressRow(rows);

@@ -1211,6 +1211,12 @@ export const ptBR: TranslationResources = {
         "Adicione comandos de configuração para que novos worktrees instalem dependências e se preparem automaticamente.",
       openProjectSettings: "Abrir configurações do projeto",
     },
+    focus: {
+      focusItem: "Focar em {{name}}",
+      menuItem: "Focar",
+      allProjects: "Todos os projetos",
+      breadcrumb: "Caminho de foco da barra lateral",
+    },
     folders: {
       actions: {
         menu: "Ações da pasta",

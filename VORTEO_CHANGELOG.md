@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.879 - 2026-10-28
+
+### Changed
+
+- Integrate sidebar icons, consistent indentation, focused views and typed drag placement with the maintenance controls source.
+
+### Fixed
+
+- Preserve all project and workspace ordering keys when placing entries into sidebar folders, and keep focused breadcrumbs usable on touch screens.
+- Update Standing browser selectors for the separate toggle and Focus controls without weakening touch-size or lifecycle assertions.
+
 ## 0.11.0-beta.3.vorteo.877 - 2026-10-28
 
 ### Added
@@ -16,6 +27,31 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.878 - 2026-10-28
+
+### Fixed
+
+- Dragging a project between top-level projects no longer nests it inside one of them. Projects and root folders land only at the top level or inside a root folder, snapping to the nearest such position; workspaces and project folders stay in their own project unless dropped on another project's header row, which keeps the existing move-to-project confirmation. Standing and Factory workspaces reorder only within their section.
+
+### Changed
+
+- Sidebar drags on web and desktop now drop by position. Rows stay put while an insertion line shows where the dragged row will land, starting at its projected indent, and a folder receiving it is highlighted. On a folder row the top quarter places before it, the middle half drops into it and the bottom quarter places after it; other rows split in halves. Where several depths are possible, such as after a folder's last row, moving the pointer left outdents and right indents, one 24px step per level with a small dead band so the depth does not flicker.
+- While a project or root folder is dragged, every project and every root folder not holding it folds to a single row; a dragged folder folds too. The view returns to its exact previous folding on drop or cancel, and the temporary folding is never written to the shared sidebar state.
+- Only a project's header row accepts workspaces from other projects; previously the whole project block did. Native apps keep their reorder gestures, and touch layouts keep Move to folder in row menus.
+
+## 0.11.0-beta.3.vorteo.877 - 2026-10-28
+
+### Maintenance
+
+- Add the sidebar drop resolver, a pure module not yet used by the drag lists. It applies the type rules (projects and root folders stay at the top level or in root folders; workspaces and project folders stay in their project unless dropped on another project's header), the quarter and half row zones, and horizontal depth projection with hysteresis at boundaries, and reports the receiving container, index and depth.
+
+## 0.11.0-beta.3.vorteo.876 - 2026-10-28
+
+### Added
+
+- Focus the sidebar on one project, folder, Standing or Factory section. Hovering a project or folder row shows a double-arrow Focus button just left of its ⋮ menu; touch layouts get a Focus item in project and folder menus instead, and Standing and Factory keep the button visible. The focused item becomes the top level with its contents beneath, and a breadcrumb at the top of the list leads from All projects through its root folders, project and project folders. Every segment but the last focuses that level; All projects leaves focus, and there is no back button. Escape leaves focus while keyboard focus is in the sidebar, and web and desktop show an Esc hint.
+- Focus is remembered on this device across reloads and is never synced through the shared sidebar state. If the focused item is deleted, archived or filtered away, the sidebar falls back to its nearest remaining ancestor, or to all projects. While focused, Pinned is hidden and pinned chats stay in their project; status grouping ignores focus; filters and search keep working inside it.
 
 ## 0.11.0-beta.3.vorteo.875 - 2026-10-28
 
@@ -33,6 +69,15 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Separately approved degraded Docker recovery with pinned executable and container identities, retained paused-Factory evidence, a shared command deadline and no automatic replay.
 - An optional native private recovery origin that serves the existing interface and authenticated installation controls without redirecting through Docker.
+
+- Add the sidebar focus model and its device-local store, not yet wired into the sidebar. It resolves the focused project, folder, Standing or Factory section, builds the breadcrumb from root folders through the project and project folders, and falls back to the nearest listed ancestor when the focused item is deleted, archived or filtered away. Focus strings are translated in every supported language.
+
+## 0.11.0-beta.3.vorteo.874 - 2026-10-28
+
+### Changed
+
+- Sidebar folders, Standing and Factory now start with a folder icon sized and placed like a workspace icon, and show their expand arrow in that slot only on hover, as projects already did. The always-visible chevrons on the left edge are gone; touch layouts show the arrow, as they do for projects.
+- Every sidebar hierarchy level now steps in by one 24px unit: root folders, projects, project folders with Standing and Factory, then workspaces. Workspaces inside a project folder, Standing or Factory sit one level deeper than the project's own workspaces. The unit lives in `components/sidebar/indent.ts`.
 
 ## 0.11.0-beta.3.vorteo.873 - 2026-10-26
 

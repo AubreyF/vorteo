@@ -1,3 +1,4 @@
+import { sidebarIndentStyle } from "./indent";
 import { useSidebarRowDensity } from "@/components/sidebar/use-sidebar-row-density";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -31,11 +32,14 @@ export function SidebarGroupToggleRow({
   expanded,
   onPress,
   indented = false,
+  level = 1,
   testID,
 }: {
   expanded: boolean;
   onPress: () => void;
   indented?: boolean;
+  /** Project-mode hierarchy level of the rows this toggle extends. */
+  level?: number;
   testID: string;
 }) {
   const density = useSidebarRowDensity();
@@ -47,12 +51,12 @@ export function SidebarGroupToggleRow({
     ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.row,
       density,
-      !indented && sidebarWorkspaceRowStyles.projectIndented,
+      !indented && sidebarIndentStyle(level),
       indented && sidebarWorkspaceRowStyles.rowIndented,
       hovered && !pressed && styles.rowHovered,
       pressed && styles.rowPressed,
     ],
-    [indented, density],
+    [indented, level, density],
   );
 
   return (

@@ -1203,6 +1203,12 @@ export const ru: TranslationResources = {
         "Добавьте команды настройки для автоматической установки зависимостей и подготовки новых worktree.",
       openProjectSettings: "Открыть настройки проекта",
     },
+    focus: {
+      focusItem: "Сфокусироваться на {{name}}",
+      menuItem: "Фокус",
+      allProjects: "Все проекты",
+      breadcrumb: "Путь фокуса боковой панели",
+    },
     folders: {
       actions: {
         menu: "Действия с папкой",

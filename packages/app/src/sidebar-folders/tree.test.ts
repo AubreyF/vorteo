@@ -129,6 +129,21 @@ describe("sidebar folder tree", () => {
     expect(stored.itemFolder).toEqual({ q: "a" });
   });
 
+  test("placing after a listed sibling keeps a hidden sibling after it in order", () => {
+    // A filter lists p and r but not q; dropping s after p must not jump past q.
+    const state = folderState([], { childOrder: { root: ["p", "q", "r", "s"] } });
+    const patch = moveSidebarEntryPatch({
+      state,
+      scope: ROOT,
+      entry: "s",
+      targetFolderId: null,
+      before: null,
+      after: "p",
+      keys: ["p", "q", "r", "s"],
+    });
+    expect(patch?.childOrder).toEqual({ root: ["p", "s", "q", "r"] });
+  });
+
   test("moving to the top level removes the folder assignment", () => {
     const state = folderState([folder("a", null)], { itemFolder: { q: "a" } });
     const patch = moveSidebarEntryPatch({
