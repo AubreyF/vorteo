@@ -917,7 +917,8 @@ async function captureLaunchPolicy(
  * The CODEX_HOME a Codex session's app-server inherits. The provider registry merges each
  * provider's env over the one it extends, so the nearest CODEX_HOME along that chain wins,
  * then the daemon's own. Account sessions list skills from that folder, so the skill
- * snapshot must read the same one. Undefined means the default ~/.codex.
+ * snapshot must read the same one. Codex treats an explicit empty value as its default
+ * ~/.codex, so it stops inheritance too; undefined selects that default in the inventory.
  */
 export function launchCodexHome(
   provider: string,
@@ -932,8 +933,8 @@ export function launchCodexHome(
     const parsed = ProviderOverrideSchema.safeParse(settings?.providers?.[current]);
     if (!parsed.success) break;
     const home = parsed.data.env?.CODEX_HOME;
-    if (home) return home;
+    if (home !== undefined) return home || undefined;
     current = parsed.data.extends;
   }
-  return daemonEnv.CODEX_HOME;
+  return daemonEnv.CODEX_HOME || undefined;
 }

@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-28): an explicit empty `CODEX_HOME` terminates inheritance and selects the native default home during skill capture, while whitespace remains a literal path. Focused tests cover the real policy inventory boundary, multi-level inheritance, cycles and invalid entries. This source correction awaits later integration and retains project home-boundary discovery as a complementary fix; README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-27): the Codex skill snapshot's `CODEX_HOME` lookup now follows provider inheritance like the launch settings merge. A focused agent-creation test covers the lookup order; README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-26): a coordinator for a systemd Host starts without the launchd coordinator bootstrap ledger instead of crashing. Coordinator bootstrap and renewal remain macOS launchd only. Not yet installed; the current Host uses launchd and is unaffected. README overview and onboarding are unchanged.
