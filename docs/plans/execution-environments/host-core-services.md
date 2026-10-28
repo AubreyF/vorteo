@@ -59,7 +59,7 @@ Two to three days, prepared side by side. Cutover is one owner-approved window.
 1. **Native edge.** Implemented as the [native gateway](../../private-domain.md#run-the-gateway-natively); see its cutover and rollback steps. Install Caddy with the Cloudflare DNS plugin as a pinned, digest-verified binary under the installation's private directory, supervised by launchd (systemd on Linux). Install a second `tailscaled` in userspace networking mode with its own state and socket, so the gateway keeps its own tailnet name and address. Migrate the existing gateway node's state at cutover so DNS records do not change.
 2. **Hosted web apps.** Serve other trusted web applications from a built release on the Host, not from a development checkout or the Dev container. Each app gets its own launchd job, state directory and loopback port behind the native edge.
 3. **Interface availability.** The edge proxies the custom domain straight to the coordinator on loopback and holds requests while the coordinator restarts. The coordinator already keeps the interface loading through Host daemon restarts.
-4. **Previews through the Host.** Route Dev previews through the Host's native preview broker to Dev's published ports. Dev then needs no Tailscale node or `NET_ADMIN` capability.
+4. **Previews through the Host (deferred).** Dev previews already use a Host-side broker, but it publishes them on Dev's own Tailscale node through `docker exec`. Publishing them on the Host's node instead needs three changes: recreate Dev with its preview range (32768 to 32799) published on Host loopback, add a broker runtime that verifies the listener inside Dev and serves the published port from the Host's node, and move Dev's daemon route to the Host's existing forward. Dev would then need no Tailscale node or `NET_ADMIN` capability. Previews still stop when Docker does, so the availability gain is small; the main gain is removing a privileged network service from Dev. Schedule it with the next planned Dev recreation, not as a standalone restart.
 
 Rollback for each step starts the previous containers again. Removal leaves state and credentials for diagnosis.
 
@@ -91,7 +91,11 @@ Lab setup on a second Mac:
 3. Add the lab's Host daemon to the production interface as a connected host, so Vorteo workspaces can run there.
 4. Point Builds' lab delivery at the lab coordinator. Production delivery waits for a promotion.
 
-The repository instructions currently tell Builds to install each integrated change on production. Changing that policy is a separate instruction change, reviewed with Builds when the lab is ready.
+The repository instructions currently tell Builds to install each integrated change on production. Changing that policy is a separate instruction change, reviewed with Builds when the lab is ready. Proposed replacement for the Level 4 delivery rule:
+
+> Builds integrates each task branch into `main` and installs it on the lab. Production Host and Dev upgrade only when the owner promotes a lab-verified revision, which installs exactly that revision through the tracked source-update workflow. Interface publication to production follows the same promotion. Until a lab exists, Builds batches production installs into owner-scheduled windows.
+
+Each promotion records the revision, its lab acceptance and the production receipt, so production always equals a known lab-tested build.
 
 Acceptance: a week of Vorteo deliveries causes no production restart except the owner's promotions.
 

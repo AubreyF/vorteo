@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.882 - 2026-10-28
+
+### Maintenance
+
+- The core-services plan defers moving Dev previews onto the Host's Tailscale node to the next planned Dev recreation, and drafts the lab-first, owner-promoted delivery rule for review with Builds.
+
 ## 0.11.0-beta.3.vorteo.881 - 2026-10-28
 
 ### Fixed
