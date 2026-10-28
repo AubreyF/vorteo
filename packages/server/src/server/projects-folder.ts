@@ -32,6 +32,11 @@ const ProjectsFolderSettingsSchema = z
      * binding compares by string. Paths below them still map.
      */
     keepPaths: z.array(z.string().min(1)).optional(),
+    /**
+     * Checkouts that moved, such as a renamed project directory. Startup rewrites registry
+     * and agent records under `from` to the same place under `to`.
+     */
+    movedPaths: z.array(z.object({ from: z.string().min(1), to: z.string().min(1) })).optional(),
   })
   .passthrough();
 
@@ -46,6 +51,13 @@ export interface ProjectsFolderConfig {
   allowOutside: string[];
   /** Exact recorded paths that are never rewritten to the logical root. */
   keepPaths?: string[];
+  /** Moved checkouts whose recorded paths startup rewrites from `from` to `to`. */
+  movedPaths?: MovedPath[];
+}
+
+export interface MovedPath {
+  from: string;
+  to: string;
 }
 
 export type ProjectsFolderRejection = "outside_projects_folder" | "projects_folder_root";
@@ -90,11 +102,17 @@ export function resolveProjectsFolderConfig(
     ...(physicalRoot === root ? [] : [physicalRoot]),
   ];
   const keepPaths = absoluteList(settings.keepPaths);
+  const movedPaths = (settings.movedPaths ?? []).flatMap((move) => {
+    const from = recordedPath(move.from);
+    const to = recordedPath(move.to);
+    return from && to && from !== to ? [{ from, to }] : [];
+  });
   return {
     root,
     aliases: [...new Set(aliases)],
     allowOutside: absoluteList(settings.allowOutside).map(canonicalPathSync),
     ...(keepPaths.length > 0 ? { keepPaths } : {}),
+    ...(movedPaths.length > 0 ? { movedPaths } : {}),
   };
 }
 

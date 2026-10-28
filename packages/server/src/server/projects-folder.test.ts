@@ -167,6 +167,25 @@ describe("Projects folder", () => {
       );
     });
 
+    it("reads moved checkouts and drops entries that move nowhere", async () => {
+      const home = path.join(temp, "moved-home");
+      await mkdir(home);
+      await writeFile(
+        path.join(home, "projects-folder.json"),
+        JSON.stringify({
+          root: "/Users/vtn/dev",
+          movedPaths: [
+            { from: "/Users/vtn/dev/paseo/", to: "/Users/vtn/dev/vorteo" },
+            { from: "/Users/vtn/dev/same", to: "/Users/vtn/dev/same" },
+            { from: "relative", to: "/Users/vtn/dev/x" },
+          ],
+        }),
+      );
+      expect(resolveProjectsFolderConfig({ paseoHome: home, env: {} })?.movedPaths).toEqual([
+        { from: "/Users/vtn/dev/paseo", to: "/Users/vtn/dev/vorteo" },
+      ]);
+    });
+
     it("leaves exact kept paths alone while paths below them still map", () => {
       const folder = {
         root: "/Users/vtn/dev",

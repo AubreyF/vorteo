@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.887 - 2026-10-28
+
+### Fixed
+
+- Integrate native preview registration repairs and backed-up workspace path migration, including refusal of conflicting targets and invalid registry entries before writes.
+
 ## 0.11.0-beta.3.vorteo.886 - 2026-10-28
 
 ### Fixed
@@ -52,11 +58,27 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Combine 1 source contributions; retain their release notes below
 
+## 0.11.0-beta.3.vorteo.882 - 2026-10-28
+
+### Fixed
+
+- The moved-path migration never overwrites an agent file. A different record already at the target, or two records for one target, refuses the migration before any registry or agent file changes. A target holding exactly the planned record, left by a run interrupted before removing its source, resumes by removing the source without rewriting the target.
+- A registry entry that is not a record refuses the migration instead of being dropped from the rewritten list.
+
+## 0.11.0-beta.3.vorteo.881 - 2026-10-28
+
+### Added
+
+- A `movedPaths` Projects folder setting relocates records for a renamed checkout at the next daemon start. Workspaces, membership keys, local project roots and agents, including their resume metadata, move from the old path to the new one. Agent files move to the matching storage folder, and every changed file is backed up first.
+- Sibling directories that only share the old path's prefix are untouched. An archived project whose new root already belongs to another project keeps its recorded root.
+
 ## 0.11.0-beta.3.vorteo.880 - 2026-10-28
 
 ### Fixed
 
 - Stop project skill discovery before the user's home so git-less working directories cannot import personal Codex bundled skills into an account launch. Preserve explicit personal and account roots and Git project boundaries, with focused inventory regressions.
+- Native previews start again when a workspace is still registered under a symlinked path, such as the former `~/dev/paseo` alias. The broker skips unsafe workspace paths while collecting reserved ports instead of failing every new reservation.
+- A preview service declared only in the untracked `paseo.local.json` now starts, including when the pinned CLI is too old to report local configuration support.
 
 ## 0.11.0-beta.3.vorteo.879 - 2026-10-28
 
