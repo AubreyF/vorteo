@@ -1339,6 +1339,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 28, 2026: The moved-path migration now refuses, before writing anything, when a different agent record already holds a target path or a registry entry is not a record. An interrupted run that wrote a target but kept its source resumes by removing the source without rewriting the target. Regression tests cover all three cases; a rehearsal on a copy of the Host state still moved 23 workspaces and 18 agents. README overview and onboarding are unchanged.
+
 October 28, 2026: Added `movedPaths` to the Projects folder settings. Startup rewrites workspace, project and agent records for a renamed checkout before agent storage and the registries load, moves agent files to the matching storage directory and backs up every change. A rehearsal on a copy of the Host state moved 23 workspaces and 18 agents from the former `~/dev/paseo` path and left 412 sibling-directory records unchanged; a second run changed nothing. README overview and onboarding are unchanged.
 
 October 28, 2026: The native preview broker skips workspaces whose registered path is unsafe when it collects reserved ports, so a stale symlinked registration no longer fails every new reservation. The client also wraps services declared only in `paseo.local.json`, and infers local configuration support from that listing when an older pinned CLI cannot report it. Focused broker and client tests cover both. README overview and onboarding are unchanged.

@@ -67,7 +67,9 @@ async function readList(file: string): Promise<RegistryRecord[] | null> {
   }
   const parsed: unknown = JSON.parse(raw);
   if (!Array.isArray(parsed)) throw new Error(`${file} does not hold a registry list`);
-  return parsed.filter(isRecord);
+  // Rewriting the list must not drop entries it cannot read, so refuse instead.
+  if (!parsed.every(isRecord)) throw new Error(`${file} holds an entry that is not a record`);
+  return parsed;
 }
 
 function rewriteWorkspace(record: RegistryRecord, moves: readonly MovedPath[]) {
@@ -112,6 +114,9 @@ interface AgentMove {
   from: string;
   to: string;
   record: RegistryRecord;
+  content: string;
+  /** An interrupted earlier run already wrote exactly this content to `to`. */
+  targetWritten: boolean;
 }
 
 async function planAgentMoves(
@@ -160,8 +165,38 @@ async function planAgentMoves(
         from: file,
         to: path.join(agentStoragePath, projectDirNameFromCwd(cwd), name),
         record: next,
+        content: JSON.stringify(next, null, 2),
+        targetWritten: false,
       });
     }
+  }
+  return checkAgentTargets(planned);
+}
+
+async function readIfExists(file: string): Promise<string | null> {
+  try {
+    return await fs.readFile(file, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+// Never overwrite an agent file. A target holding exactly the planned content is the
+// write of an interrupted earlier run, which resumes by removing the source. Any other
+// existing target, or two sources for one target, refuses the whole migration before
+// anything is written.
+async function checkAgentTargets(planned: AgentMove[]): Promise<AgentMove[]> {
+  const targets = new Set<string>();
+  for (const agent of planned) {
+    if (targets.has(agent.to)) throw new Error(`Two agent records would move to ${agent.to}`);
+    targets.add(agent.to);
+    if (agent.to === agent.from) continue;
+    const existing = await readIfExists(agent.to);
+    if (existing === null) continue;
+    if (existing !== agent.content)
+      throw new Error(`A different agent record already exists at ${agent.to}`);
+    agent.targetWritten = true;
   }
   return planned;
 }
@@ -172,6 +207,8 @@ interface PlannedWrite {
   backup: string;
   target: string;
   content: string;
+  /** The target already holds `content`; only the source remains to remove. */
+  targetWritten?: boolean;
 }
 
 function normalizeMoves(moves: readonly MovedPath[]): MovedPath[] {
@@ -188,8 +225,10 @@ async function applyWrites(writes: readonly PlannedWrite[], backupDirectory: str
     await fs.copyFile(write.source, backup);
   }
   for (const write of writes) {
-    await fs.mkdir(path.dirname(write.target), { recursive: true });
-    await writeFileAtomic(write.target, write.content);
+    if (!write.targetWritten) {
+      await fs.mkdir(path.dirname(write.target), { recursive: true });
+      await writeFileAtomic(write.target, write.content);
+    }
     if (write.target !== write.source) await fs.rm(write.source, { force: true });
   }
 }
@@ -242,7 +281,8 @@ export async function migrateMovedPaths(
       source: agent.from,
       backup: path.join("agents", path.relative(input.agentStoragePath, agent.from)),
       target: agent.to,
-      content: JSON.stringify(agent.record, null, 2),
+      content: agent.content,
+      targetWritten: agent.targetWritten,
     });
   }
   result.agents = agents.length;

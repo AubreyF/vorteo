@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -158,5 +158,63 @@ describe("Moved checkout record migration", () => {
       backupDirectory: null,
     });
     expect(await read("projects/workspaces.json")).toEqual(before);
+  });
+
+  // Every file the migration could touch, byte for byte, plus whether backups exist.
+  const snapshot = async () => {
+    const files = [
+      "projects/projects.json",
+      "projects/workspaces.json",
+      "agents/Users-owner-dev-paseo/a1.json",
+      "agents/Users-owner-dev-vorteo/a1.json",
+    ];
+    const bytes = await Promise.all(
+      files.map((file) => readFile(path.join(home, file), "utf8").catch(() => null)),
+    );
+    const backups = await readdir(path.join(home, "backups")).catch(() => []);
+    return { bytes, backups };
+  };
+
+  it("refuses a different existing target without writing any registry or agent file", async () => {
+    await mkdir(path.join(agents, "Users-owner-dev-vorteo"), { recursive: true });
+    await writeFile(
+      path.join(agents, "Users-owner-dev-vorteo", "a1.json"),
+      JSON.stringify({ id: "a1", cwd: TO, title: "newer record" }),
+    );
+    const before = await snapshot();
+    await expect(run()).rejects.toThrow(/different agent record already exists/);
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it("resumes a run interrupted after the target write and before the source removal", async () => {
+    const first = await run();
+    const target = path.join(agents, "Users-owner-dev-vorteo", "a1.json");
+    const written = await readFile(target, "utf8");
+    const identity = (await stat(target)).ino;
+    // Put the source back from the backup, as a crash before its removal would leave it.
+    await writeFile(
+      path.join(agents, "Users-owner-dev-paseo", "a1.json"),
+      await readFile(
+        path.join(first.backupDirectory!, "agents", "Users-owner-dev-paseo", "a1.json"),
+      ),
+    );
+
+    const resumed = await run();
+
+    expect(resumed).toMatchObject({ workspaces: 0, agents: 1 });
+    expect(await readFile(target, "utf8")).toBe(written);
+    // Resuming removes the source without rewriting the target.
+    expect((await stat(target)).ino).toBe(identity);
+    expect(await readdir(path.join(agents, "Users-owner-dev-paseo"))).toEqual([]);
+    expect(await run()).toMatchObject({ agents: 0, backupDirectory: null });
+  });
+
+  it("refuses a registry entry it cannot read instead of dropping it", async () => {
+    const file = path.join(home, "projects", "workspaces.json");
+    const workspaces = JSON.parse(await readFile(file, "utf8"));
+    await writeFile(file, JSON.stringify([...workspaces, null, "stray"]));
+    const before = await snapshot();
+    await expect(run()).rejects.toThrow(/not a record/);
+    expect(await snapshot()).toEqual(before);
   });
 });

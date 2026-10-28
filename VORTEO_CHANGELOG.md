@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.882 - 2026-10-28
+
+### Fixed
+
+- The moved-path migration never overwrites an agent file. A different record already at the target, or two records for one target, refuses the migration before any registry or agent file changes. A target holding exactly the planned record, left by a run interrupted before removing its source, resumes by removing the source without rewriting the target.
+- A registry entry that is not a record refuses the migration instead of being dropped from the rewritten list.
+
 ## 0.11.0-beta.3.vorteo.881 - 2026-10-28
 
 ### Added
