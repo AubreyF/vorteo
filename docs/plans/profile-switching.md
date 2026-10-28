@@ -39,6 +39,12 @@ The `profile_switch` item, the request and the feature flag are all additions. T
 
 Choosing a profile on another account for an existing thread now offers **Switch in this thread** by default, with a warning that switching uses extra tokens and loses tool results. The existing reviewed successor remains available as **New task instead**. The timeline shows a compaction-style marker naming the previous and new account and model.
 
+### Unavailable accounts
+
+The load error offers the standard account and profile picker when the daemon advertises `agentProviderRecovery`. Recovery stays in the original thread and environment. It reads the original account's saved transcript with a history-only session, even when that account is disabled or marked removed. It never asks the old account to produce a summary or run a turn. The account definition stays disabled or removed.
+
+Recovery uses the same recent-message context bound and retained-history format as an ordinary switch. It merges saved goal submissions and accepted queued messages into the recovered history. The original thread record must still match when the switch acquires its lifecycle lock; concurrent edits require a retry. A missing account definition, unreadable transcript or failed replacement leaves the original account binding intact and shows an error in the switch dialog. Restore the missing local configuration or transcript and retry. Provider-private state still cannot transfer.
+
 ### Limitations
 
 - Tool results, attachments and provider-private reasoning do not carry over. The new model may re-read files it had already seen.

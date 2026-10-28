@@ -252,6 +252,9 @@ export const ko: TranslationResources = {
   },
   agentPanel: {
     states: {
+      providerUnavailable: en.agentPanel.states.providerUnavailable,
+      providerRecovery: en.agentPanel.states.providerRecovery,
+      loadingProviders: en.agentPanel.states.loadingProviders,
       notFound: "에이전트를 찾을 수 없습니다",
       failedToLoad: "에이전트를 불러오지 못했습니다",
       reconnecting: "호스트에 다시 연결하는 중",

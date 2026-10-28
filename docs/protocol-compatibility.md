@@ -225,3 +225,7 @@ Clients treat a project root inside a Projects folder that two daemons advertise
 ## Project policies
 
 Installation settings gain optional `projectPolicies`. Older coordinators, owner clients and daemon admission readers parse settings strictly, so the coordinator includes the field only for owner requests with `X-Vorteo-Project-Policies: 1` and admission reads with `projectPolicies=1`. Owner clients read its presence as the capability. Daemon config gains optional `installationProjectPolicies`, with a loose policy schema so newer fields never break older clients, and `features.installationProjectPolicies`. The coordinator projects the copy only to daemons whose config reports the key.
+
+## Unavailable-provider thread recovery
+
+The optional `agentProviderRecovery` feature advertises recovery through the existing `agent.profile.switch.request`. The client shows recovery in the load error only with this capability; older hosts retain Retry. The request shape and switch marker are unchanged, and the existing `profile_switch_timeline` client gate still applies. Older clients ignore the optional feature and continue using ordinary switching.

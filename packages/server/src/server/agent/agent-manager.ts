@@ -191,6 +191,8 @@ export interface AgentProfileSwitchInput {
   config: AgentSessionConfig;
   reason: ProfileSwitchTimelineItem["reason"];
   carriedContextChars: number;
+  /** Captured without resuming the unavailable source account. Rechecked under the lifecycle lock. */
+  storedSource?: { record: StoredAgentRecord; rows: AgentTimelineRow[] };
 }
 
 function describeProfileEndpoint(
@@ -3353,6 +3355,31 @@ export class AgentManager {
     }
   }
 
+  async readStoredSwitchHistory(
+    record: StoredAgentRecord,
+    history: AsyncIterable<AgentStreamEvent>,
+  ): Promise<AgentTimelineRow[]> {
+    const events: AgentStreamEvent[] = [];
+    for await (const event of history) events.push(event);
+    if (record.persistence && !events.some((event) => event.type === "timeline"))
+      throw new ProfileSwitchError(
+        "The original transcript could not be read. Restore access to the original account and retry; this thread has not changed.",
+      );
+    const rows: AgentTimelineRow[] = [];
+    for await (const rawEvent of this.streamHistoryWithSubmissions(record, events)) {
+      const event = limitAgentStreamEventContent(rawEvent);
+      if (event.type !== "timeline") continue;
+      if (event.item.type === "user_message" && isSystemInjectedEnvelope(event.item.text)) continue;
+      rows.push({
+        seq: rows.length + 1,
+        timestamp: event.timestamp ?? record.createdAt,
+        item: event.item,
+        ...(event.turnId ? { turnId: event.turnId } : {}),
+      });
+    }
+    return rows;
+  }
+
   /** Recorded text that a profile switch carries into the next session. */
   async readSwitchContext(agentId: string): Promise<string> {
     const agent = this.requireSessionAgent(agentId);
@@ -3376,15 +3403,11 @@ export class AgentManager {
     input: AgentProfileSwitchInput,
   ): Promise<ManagedAgent> {
     this.assertAcceptingAgentRegistrations();
-    const existing = this.requireSessionAgent(agentId);
-    const isBusy = this.hasInFlightRun(agentId) || existing.pendingPermissions.size > 0;
-    if (isBusy)
-      throw new ProfileSwitchError(
-        "Wait for the current turn and any permission requests to finish before switching.",
-      );
-    if (existing.internal || existing.config.controllerExecutionId)
-      throw new ProfileSwitchError("This thread is managed by Vorteo and cannot switch accounts.");
-    await this.hydrateTimelineFromLegacyProviderHistory(existing);
+    const {
+      existing,
+      source,
+      rows: sourceRows,
+    } = await this.resolveProfileSwitchSource(agentId, input.storedSource);
 
     this.requireEnabledProvider(input.config.provider);
     const client = await this.requireAvailableClient({ provider: input.config.provider });
@@ -3400,7 +3423,7 @@ export class AgentManager {
       storedConfig.cwd,
       paseoToolPolicy,
       undefined,
-      { reason: "create", purpose: "interactive", workspaceId: existing.workspaceId },
+      { reason: "create", purpose: "interactive", workspaceId: source.workspaceId },
     );
     const providerLaunchConfig = this.resolveProviderLaunchConfig(launchConfig, launchContext);
 
@@ -3411,8 +3434,8 @@ export class AgentManager {
         switchId: randomUUID(),
         reason: input.reason,
         from: describeProfileEndpoint(
-          existing.config,
-          existing.runtimeInfo?.model ?? existing.config.model,
+          source.config,
+          source.runtimeInfo?.model ?? source.config.model,
         ),
         to: describeProfileEndpoint(storedConfig, storedConfig.model),
         carriedContextChars: input.carriedContextChars,
@@ -3421,18 +3444,20 @@ export class AgentManager {
     // The record only references this history once registration commits the switch.
     await this.requireRegistry().writeSwitchHistory(
       agentId,
-      buildSwitchHistory(this.timelineStore.getRows(agentId), record),
+      buildSwitchHistory(sourceRows, record),
     );
 
     let session: AgentSession | undefined;
     let closedExisting: ManagedAgentClosed | undefined;
     let handedToRegistration = false;
     try {
-      await this.closeReloadedSession(existing.session, agentId);
-      await this.drainSessionEvents(agentId);
-      this.cancelRunningProviderSubagents(agentId);
-      closedExisting = this.prepareAgentForClosure(existing, "agent switched profile");
-      await this.persistSnapshot(closedExisting);
+      if (existing) {
+        await this.closeReloadedSession(existing.session, agentId);
+        await this.drainSessionEvents(agentId);
+        this.cancelRunningProviderSubagents(agentId);
+        closedExisting = this.prepareAgentForClosure(existing, "agent switched profile");
+        await this.persistSnapshot(closedExisting);
+      }
       this.assertAcceptingAgentRegistrations();
 
       this.paseoToolPolicies.set(agentId, paseoToolPolicy);
@@ -3442,16 +3467,17 @@ export class AgentManager {
 
       handedToRegistration = true;
       await this.registerSession(session, storedConfig, agentId, {
-        labels: existing.labels,
-        workspaceId: existing.workspaceId,
-        owner: existing.owner,
-        createdAt: existing.createdAt,
-        updatedAt: existing.updatedAt,
-        lastUserMessageAt: existing.lastUserMessageAt,
+        labels: source.labels,
+        workspaceId: source.workspaceId,
+        owner: source.owner,
+        createdAt: source.createdAt,
+        updatedAt: source.updatedAt,
+        lastUserMessageAt: source.lastUserMessageAt,
         historyPrimed: true,
-        attention: existing.attention,
+        ...(input.storedSource ? { timelineRows: sourceRows } : {}),
+        attention: source.attention,
         restoring: true,
-        profileSwitches: [...(existing.profileSwitches ?? []), record],
+        profileSwitches: [...(source.profileSwitches ?? []), record],
       });
     } catch (error) {
       if (closedExisting) {
@@ -3476,6 +3502,51 @@ export class AgentManager {
       "agent.profile.switched",
     );
     return this.requireAgent(agentId);
+  }
+
+  private async resolveProfileSwitchSource(
+    agentId: string,
+    storedSource: AgentProfileSwitchInput["storedSource"],
+  ) {
+    const existing = this.agents.get(agentId);
+    const stored = await this.requireRegistry().get(agentId);
+    if (stored?.archivedAt)
+      throw new ProfileSwitchError("Restore this thread before switching accounts.");
+    if (!existing && !storedSource)
+      throw new ProfileSwitchError("Reload this thread before switching accounts.");
+    if (storedSource && !isDeepStrictEqual(stored, storedSource.record))
+      throw new ProfileSwitchError(
+        "The thread changed during recovery. Retry to read its latest state.",
+      );
+    const source = existing ?? this.profileSwitchSource(storedSource?.record);
+    const isBusy = this.hasInFlightRun(agentId) || (existing?.pendingPermissions.size ?? 0) > 0;
+    if (isBusy)
+      throw new ProfileSwitchError(
+        "Wait for the current turn and any permission requests to finish before switching.",
+      );
+    if (source.internal || source.config.controllerExecutionId)
+      throw new ProfileSwitchError("This thread is managed by Vorteo and cannot switch accounts.");
+    if (existing) await this.hydrateTimelineFromLegacyProviderHistory(existing);
+    const rows = storedSource?.rows ?? this.timelineStore.getRows(agentId);
+
+    return { existing, source, rows };
+  }
+
+  private profileSwitchSource(record: StoredAgentRecord | undefined) {
+    if (!record) throw new ProfileSwitchError("The source thread is missing. Reload and retry.");
+    return {
+      config: { ...buildStoredAgentConfig(record), title: record.title ?? undefined },
+      runtimeInfo: undefined,
+      internal: record.internal,
+      workspaceId: record.workspaceId,
+      owner: record.owner,
+      labels: record.labels,
+      createdAt: new Date(record.createdAt),
+      updatedAt: new Date(record.updatedAt),
+      lastUserMessageAt: record.lastUserMessageAt ? new Date(record.lastUserMessageAt) : null,
+      attention: extractAttention(record),
+      profileSwitches: record.profileSwitches,
+    };
   }
 
   private async closeReloadedSession(session: AgentSession, agentId: string): Promise<void> {
@@ -6447,10 +6518,8 @@ export class AgentManager {
   }
 
   private async *streamHistoryWithSubmissions(
-    agent: ActiveManagedAgent,
-    history:
-      | AsyncIterable<AgentStreamEvent>
-      | Iterable<AgentStreamEvent> = agent.session.streamHistory(),
+    agent: Pick<ActiveManagedAgent, "id" | "provider" | "profileSwitches" | "goalSubmissions">,
+    history: AsyncIterable<AgentStreamEvent> | Iterable<AgentStreamEvent>,
   ): AsyncGenerator<AgentStreamEvent> {
     history = prependSwitchHistory(await this.readSwitchHistory(agent), agent.provider, history);
     if (!agent.goalSubmissions?.length && !this.messageQueueControl) {
@@ -6465,7 +6534,7 @@ export class AgentManager {
     yield* mergeQueueHistory(withGoals, queued, agent.provider);
   }
 
-  private async readSwitchHistory(agent: ActiveManagedAgent) {
+  private async readSwitchHistory(agent: Pick<ActiveManagedAgent, "id" | "profileSwitches">) {
     const latest = agent.profileSwitches?.at(-1);
     if (!latest || !this.registry) return null;
     try {
@@ -6514,7 +6583,10 @@ export class AgentManager {
   ): Promise<void> {
     const historyEvents: Extract<AgentStreamEvent, { type: "timeline" }>[] = [];
     const providerSubagentEvents: Extract<AgentStreamEvent, { type: "provider_subagent" }>[] = [];
-    for await (const rawEvent of this.streamHistoryWithSubmissions(agent)) {
+    for await (const rawEvent of this.streamHistoryWithSubmissions(
+      agent,
+      agent.session.streamHistory(),
+    )) {
       const event = limitAgentStreamEventContent(rawEvent);
       if (event.type === "timeline") {
         if (event.item.type === "user_message" && isSystemInjectedEnvelope(event.item.text)) {

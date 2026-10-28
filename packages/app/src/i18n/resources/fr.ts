@@ -256,6 +256,9 @@ export const fr: TranslationResources = {
   },
   agentPanel: {
     states: {
+      providerUnavailable: en.agentPanel.states.providerUnavailable,
+      providerRecovery: en.agentPanel.states.providerRecovery,
+      loadingProviders: en.agentPanel.states.loadingProviders,
       notFound: "Agentintrouvable",
       failedToLoad: "Échec du chargement de l'agent",
       reconnecting: "Reconnexion à l’hôte",

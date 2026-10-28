@@ -251,6 +251,9 @@ export const zhCN: TranslationResources = {
   },
   agentPanel: {
     states: {
+      providerUnavailable: en.agentPanel.states.providerUnavailable,
+      providerRecovery: en.agentPanel.states.providerRecovery,
+      loadingProviders: en.agentPanel.states.loadingProviders,
       notFound: "未找到 Agent",
       failedToLoad: "加载 Agent 失败",
       reconnecting: "正在重新连接主机",

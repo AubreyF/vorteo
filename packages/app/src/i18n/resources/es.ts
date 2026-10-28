@@ -255,6 +255,9 @@ export const es: TranslationResources = {
   },
   agentPanel: {
     states: {
+      providerUnavailable: en.agentPanel.states.providerUnavailable,
+      providerRecovery: en.agentPanel.states.providerRecovery,
+      loadingProviders: en.agentPanel.states.loadingProviders,
       notFound: "Agentno encontrado",
       failedToLoad: "No se pudo cargar el agente",
       reconnecting: "Reconectando al host",

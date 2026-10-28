@@ -253,6 +253,9 @@ export const ptBR: TranslationResources = {
   },
   agentPanel: {
     states: {
+      providerUnavailable: en.agentPanel.states.providerUnavailable,
+      providerRecovery: en.agentPanel.states.providerRecovery,
+      loadingProviders: en.agentPanel.states.loadingProviders,
       notFound: "Agente não encontrado",
       failedToLoad: "Falha ao carregar agente",
       reconnecting: "Reconectando ao host",
