@@ -71,6 +71,7 @@ Each linked document owns a separately deliverable project with its own acceptan
 
 | Project                                                        | Outcome                                                                                         |
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| [Core services on the Host](host-core-services.md)             | Keep the interface and domains up through Docker and daemon restarts; lab and promotion channel |
 | [Task containers through Docker](docker-task-containers.md)    | Create and supervise isolated task environments using the Docker installation already available |
 | [Apple Container backend](apple-container.md)                  | Optional macOS backend for new Linux task containers                                            |
 | [Linux Host](linux-host.md)                                    | Run the Host half on Linux as `systemd --user` services with equivalent trust anchors           |

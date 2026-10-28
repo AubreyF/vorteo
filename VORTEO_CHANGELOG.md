@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.878 - 2026-10-28
+
+### Added
+
+- Native custom-domain gateway: stages Caddy and a dedicated userspace Tailscale node as Host login jobs, verifies binary digests before each start and keeps the DNS token out of arguments and job files. Requests can be held while a loopback upstream restarts. Cutover from the Docker gateway is documented and has not run.
+- Dev scratch reaper: reports stale top-level scratch entries in a container, keeping anything recently modified, in use by a process or holding uncommitted or unpushed Git work. Deletion requires `--delete` and rechecks each entry.
+
+### Maintenance
+
+- Plan for moving core services to the Host, with findings, phases, release channels and a lab installation. Multiple containers and other platforms are documented for discussion only.
+
 ## 0.11.0-beta.3.vorteo.877 - 2026-10-28
 
 ### Added

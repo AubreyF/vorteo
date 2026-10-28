@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-28): adds a [plan for core services on the Host](plans/execution-environments/host-core-services.md), a staged [native custom-domain gateway](private-domain.md#run-the-gateway-natively) and a dry-run-first Dev scratch reaper. Neither tool is installed or scheduled; the Docker gateway still serves the custom domains. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-28): recovery browser checks use the explicit Maintenance route and wait for owner unlock before asserting request controls. Runtime behavior, README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-28): degraded Docker recovery has a separate exact approval, retained paused-Factory baseline, bounded execution and no replay. An explicitly configured native private recovery origin serves the existing authenticated interface without the Docker redirect. Managed supervisors use the selected worker's strict configuration reader. Source validation and installation acceptance are recorded separately; README overview and onboarding are unchanged.

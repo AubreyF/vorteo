@@ -95,4 +95,55 @@ For gateway maintenance, coordinate downtime, back up its private state, rebuild
 
 To remove the gateway, restore the original bookmark, remove only its custom DNS records, and run `docker compose down` from the gateway directory. Retain volumes for rollback. Remove the custom application origin through its normal maintenance flow, revoke the gateway's DNS token and retire its Tailscale node when rollback is no longer needed. Leave the application and unrelated gateways running.
 
+## Run the gateway natively
+
+The Docker gateway stops when Docker Desktop does, even while the application stays healthy. The [native gateway](../docker/private-domain/native/native_gateway.py) runs the same Caddy build and a dedicated Tailscale node as login jobs on the Host. It needs no Docker, system extension or administrator rights. The node uses userspace networking with its own state and socket, so the Host's own Tailscale and its Serve routes stay untouched. Linux and Windows service definitions are not implemented yet.
+
+Build the pinned binaries with Go. Use the versions in the gateway [Dockerfile](../docker/private-domain/Dockerfile) and a Tailscale release matching the Host's client:
+
+```sh
+GOBIN="$PWD/bin" go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.7
+bin/xcaddy build v2.11.4 --with github.com/caddy-dns/cloudflare@v0.2.4 --output bin/caddy
+GOBIN="$PWD/bin" go install tailscale.com/cmd/tailscaled@<version> tailscale.com/cmd/tailscale@<version>
+```
+
+Write a private `gateway.json` outside the checkout. Each site either redirects or proxies. Plain HTTP upstreams must be loopback; others use verified HTTPS. `holdSeconds` makes Caddy hold requests while a loopback upstream restarts, up to 120 seconds, instead of failing the page load. Point the protected interface directly at the Host daemon's loopback port; the tailnet round trip through the Host's own Serve route is unnecessary on the same machine.
+
+```json
+{
+  "nodeName": "example-gateway",
+  "sites": [
+    { "hostname": "old.example.com", "redirect": "https://app.example.com" },
+    {
+      "hostname": "app.example.com",
+      "upstream": "http://127.0.0.1:<host-daemon-port>",
+      "holdSeconds": 30
+    },
+    { "hostname": "site.example.com", "upstream": "https://<preview-host>.ts.net:<port>" }
+  ]
+}
+```
+
+Stage the gateway. `prepare` copies the binaries into the deployment, records their digests, writes the Caddyfile and stages the login jobs without loading them. Then save the DNS token in `secrets/cloudflare_dns_token` with a private editor.
+
+```sh
+python3 docker/private-domain/native/native_gateway.py prepare --deployment "$HOME/<gateway-native>" \
+  --config gateway.json --caddy bin/caddy --tailscaled bin/tailscaled --tailscale bin/tailscale
+python3 "$HOME/<gateway-native>/native_gateway.py" status --deployment "$HOME/<gateway-native>"
+```
+
+The jobs verify each binary's digest before starting it. Caddy receives the token only through its environment, never through arguments, the Caddyfile or the job definition.
+
+### Cut over from Docker
+
+Cutover moves the existing node identity and certificates, so DNS records do not change and no certificate is reissued. Both gateways would claim the same node key, so never run them at the same time. Schedule a short custom-domain interruption; the application's tailnet address is unaffected.
+
+1. Back up the gateway deployment directory and both Docker volumes.
+2. Stop the Docker gateway with `docker compose stop` from its deployment directory. Do not remove its containers or volumes.
+3. Copy its state: `docker cp <tailscale-container>:/var/lib/tailscale/. "$HOME/<gateway-native>/tailscale-state/"` and `docker cp <caddy-container>:/data/. "$HOME/<gateway-native>/caddy-data/"`. Keep the copies private.
+4. Run `native_gateway.py activate --deployment "$HOME/<gateway-native>"` from the deployment directory. It refuses to start without the token and the copied node state. Use `--allow-login` only for a new node, then log in with `bin/tailscale --socket "$HOME/<gateway-native>/tailscaled.sock" up --hostname <node-name>` and run `activate` again.
+5. Verify each hostname with `curl --resolve` as above, then from an intended device.
+
+To roll back, run `native_gateway.py deactivate --deployment "$HOME/<gateway-native>"`, then `docker compose start` in the Docker gateway directory. Deactivation keeps state, certificates and the token. Remove the Docker gateway only after the native one has renewed a certificate.
+
 References: [Tailscale containers](https://tailscale.com/docs/features/containers/docker), [Caddy DNS validation](https://caddyserver.com/docs/automatic-https#dns-challenge), [Cloudflare Caddy plugin](https://github.com/caddy-dns/cloudflare), [Cloudflare DNS-only records](https://developers.cloudflare.com/dns/proxy-status/).
