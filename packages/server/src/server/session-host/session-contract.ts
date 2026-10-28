@@ -116,6 +116,7 @@ export const SessionCallSchema = z.discriminatedUnion("method", [
    */
   z.object({ method: z.literal("outOfBand"), prompt: z.string().max(100_000) }).strict(),
   z.object({ method: z.literal("close") }).strict(),
+  z.object({ method: z.literal("closeIfIdle") }).strict(),
 ]);
 export type SessionHostCall = z.infer<typeof SessionCallSchema>;
 export type SessionHostMethod = SessionHostCall["method"];
@@ -176,6 +177,7 @@ export const SessionCallResultSchemas = {
     })
     .strict(),
   close: z.null(),
+  closeIfIdle: z.null(),
 } satisfies Record<SessionHostMethod, z.ZodType>;
 
 export type SessionCallResult<M extends SessionHostMethod> = z.infer<

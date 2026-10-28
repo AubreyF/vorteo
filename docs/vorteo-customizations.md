@@ -1,6 +1,7 @@
 # Vorteo customizations beyond Paseo
 
 Maintenance review (2026-10-28): project skill traversal stops before the user's home, preserving explicit personal and account roots without importing the personal Codex bundle as a project scope from git-less working directories. Inventory regressions cover distinct homes, explicit personal roots and Git directory and file boundaries. Source only, awaiting integration; README overview and onboarding are unchanged.
+Maintenance review (2026-10-28): automatic upgrade release of idle or errored hosted sessions uses an atomic conditional close at the host. Active turns, blocking permissions and in-flight provider calls prevent closure; refusal retains the registration, and asynchronous thread questions survive reload. A worker requires the host's conditional-close capability and never substitutes explicit close on an older host. Source awaits integration; README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-28): recovery browser checks use the explicit Maintenance route and wait for owner unlock before asserting request controls. Runtime behavior, README overview and onboarding are unchanged.
 
@@ -1351,6 +1352,8 @@ Reviewed on October 7, 2026 against integrated Paseo commit `c062280429c2aa894d9
 No complete replacement of these custom workflows was established in this review. Future upstream merges must reassess behavior and tests, narrow the inventory to remaining differences, and update the roadmap under the [maintenance rules](writing.md#maintain-the-vorteo-customizations-inventory).
 
 ## Maintenance review
+
+October 28, 2026: Integrated the reviewed conditional hosted-session closure with provider recovery and workspace migration. Idle-or-error selection retains its quiet and upgrade gates; authoritative host checks protect active work and approvals. README overview and onboarding are unchanged.
 
 October 28, 2026: Integrated the reviewed preview and renamed-checkout migration corrections. README overview and onboarding are unchanged.
 
