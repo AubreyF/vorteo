@@ -1838,3 +1838,5 @@ Maintenance review: sidebar integration preserves complete project and workspace
 Maintenance review: sidebar delivery includes the installed Host maintenance status isolation and accepted incident source. Runtime and interface delivery remain separately verified.
 
 Maintenance review: integrated the Clear goal trashcan and always-enabled action with the sidebar delivery. Desktop and compact goal screenshots were inspected; the retained geometry retry skipped on unrelated subagent spacing and is not a full geometry pass.
+
+Maintenance review: sidebar tree dragging retains a focusable keyboard handle, arrow reordering, Space or Enter drop, Escape cancellation and focus return. The browser regression covers project and workspace ordering and persistence after reload; pointer placement rules are unchanged. Source awaits independent review and publication. README overview and onboarding are unchanged.

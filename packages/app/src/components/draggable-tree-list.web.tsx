@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEventHandler,
   type ReactElement,
 } from "react";
 import { View } from "react-native";
@@ -26,8 +27,9 @@ import {
   type DragOverEvent,
   type DragStartEvent,
   type Modifier,
+  type KeyboardCoordinateGetter,
 } from "@dnd-kit/core";
-import { getEventCoordinates } from "@dnd-kit/utilities";
+import { getEventCoordinates, isKeyboardEvent } from "@dnd-kit/utilities";
 import { getDragActivationConstraints } from "./drag-reorder";
 import { useShallowStableRecord, useStableListenerRecord } from "./drag-reorder/stable-records";
 import type {
@@ -54,6 +56,7 @@ type TreeIndicator =
 
 interface TreeGesture<P> {
   activeKey: string;
+  keyboardKey: string | null;
   startX: number;
   activeDepth: number;
   startOffsetTop: number;
@@ -179,9 +182,10 @@ function TreeItemInner<T>({
   const ref = useCallback(
     (node: HTMLDivElement | null) => {
       setNodeRef(node);
+      setActivatorNodeRef(node);
       registerNode(id, node);
     },
-    [setNodeRef, registerNode, id],
+    [setNodeRef, setActivatorNodeRef, registerNode, id],
   );
   // Rows above may fold when the drag starts; the shift keeps this row under the pointer.
   const y = isActive && transform ? transform.y + layoutShift : 0;
@@ -204,12 +208,18 @@ function TreeItemInner<T>({
         ? {
             attributes: stableAttributes,
             listeners: stableListeners,
-            setActivatorNodeRef: setActivatorNodeRef as unknown as (node: unknown) => void,
           }
         : undefined,
-    [setActivatorNodeRef, stableAttributes, stableListeners, useDragHandle],
+    [stableAttributes, stableListeners, useDragHandle],
   );
-  const wrapperProps = useDragHandle ? { ref } : { ref, ...attributes, ...listeners };
+  const handleKeyDown = useCallback<KeyboardEventHandler<HTMLDivElement>>(
+    (event) => listeners?.onKeyDown?.(event),
+    [listeners],
+  );
+  // The row owns pointer activation; the wrapper is the keyboard handle and focus return target.
+  const wrapperProps = useDragHandle
+    ? { ref, ...attributes, onKeyDown: handleKeyDown }
+    : { ref, ...attributes, ...listeners };
   return (
     <div {...wrapperProps} style={style}>
       {renderItem({ item, index, drag: noop, isActive, dragHandleProps })}
@@ -272,11 +282,6 @@ export function DraggableTreeList<T, P extends DraggableTreePlacement>({
   const activation = getDragActivationConstraints(
     useDragHandle && touchActivation === "hold",
     DRAG_ACTIVATION_CONFIG,
-  );
-  const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: activation.mouse }),
-    useSensor(TouchSensor, { activationConstraint: activation.touch }),
-    useSensor(KeyboardSensor),
   );
   const keys = useMemo(
     () => data.map((item, index) => keyExtractor(item, index)),
@@ -387,10 +392,16 @@ export function DraggableTreeList<T, P extends DraggableTreePlacement>({
     (event: DragStartEvent) => {
       const activeKey = String(event.active.id);
       const item = itemFor(activeKey);
-      const start = getEventCoordinates(event.activatorEvent);
+      const keyboard = isKeyboardEvent(event.activatorEvent);
+      const rect = nodes.current.get(activeKey)?.getBoundingClientRect();
+      const start =
+        keyboard && rect
+          ? { x: rect.left, y: rect.top + rect.height / 2 }
+          : getEventCoordinates(event.activatorEvent);
       if (item === undefined || !start) return;
       const gesture: TreeGesture<P> = {
         activeKey,
+        keyboardKey: keyboard ? activeKey : null,
         startX: start.x,
         activeDepth: latest.current.treeDrop.depthOf(item),
         startOffsetTop: nodes.current.get(activeKey)?.offsetTop ?? 0,
@@ -402,6 +413,7 @@ export function DraggableTreeList<T, P extends DraggableTreePlacement>({
       };
       gestureRef.current = gesture;
       const track = (pointer: PointerEvent) => {
+        if (gesture.keyboardKey !== null) return;
         gesture.pointerX = pointer.clientX;
         gesture.pointerY = pointer.clientY;
         schedule();
@@ -415,6 +427,38 @@ export function DraggableTreeList<T, P extends DraggableTreePlacement>({
     [itemFor, onDragBegin, schedule],
   );
 
+  const keyboardCoordinates = useCallback<KeyboardCoordinateGetter>(
+    (event, { currentCoordinates }) => {
+      const gesture = gestureRef.current;
+      if (!gesture || gesture.keyboardKey === null) return;
+      if (event.code !== "ArrowDown" && event.code !== "ArrowUp") return;
+      event.preventDefault();
+      const direction = event.code === "ArrowDown" ? 1 : -1;
+      const currentKeys = latest.current.keys;
+      const nextKey = currentKeys[currentKeys.indexOf(gesture.keyboardKey) + direction];
+      const node = nextKey === undefined ? undefined : nodes.current.get(nextKey);
+      const container = containerRef.current;
+      if (!node || nextKey === undefined || !container) return;
+      node.scrollIntoView({ block: "nearest", inline: "nearest" });
+      // Use layout offsets so returning to the active row ignores its drag transform.
+      const top = container.getBoundingClientRect().top + node.offsetTop;
+      // Arrow moves reorder before/after a row, outside its pointer-only "into" zone.
+      const fraction = direction > 0 ? 0.875 : 0.125;
+      const nextY = top + node.offsetHeight * fraction;
+      const deltaY = nextY - gesture.pointerY;
+      gesture.keyboardKey = nextKey;
+      gesture.pointerY = nextY;
+      update();
+      return { x: currentCoordinates.x, y: currentCoordinates.y + deltaY };
+    },
+    [update],
+  );
+
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: activation.mouse }),
+    useSensor(TouchSensor, { activationConstraint: activation.touch }),
+    useSensor(KeyboardSensor, { coordinateGetter: keyboardCoordinates }),
+  );
   const externalIds = useMemo(
     () => new Set(externalDrop?.targets.map((target) => target.id)),
     [externalDrop?.targets],
