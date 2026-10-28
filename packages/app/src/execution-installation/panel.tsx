@@ -1612,19 +1612,30 @@ export function RestartActions({
               Restart when idle
             </RestartActionButton>
           ) : null}
-          <RestartActionButton
-            variant="outline"
-            disabledReason={restartActionDisabledReason(
-              job,
-              "finish",
-              busy,
-              Boolean(installation?.gracefulRestarts && job.impact?.gracefulRestartSupported),
-            )}
-            onPress={finish}
-            testID={`restart-finish-${job.id}`}
-          >
-            {finishLabel(job)}
-          </RestartActionButton>
+          {job.engineRecoveryPlanSha256 ? (
+            <RestartActionButton
+              variant="destructive"
+              disabledReason={busy ? "Request in progress" : null}
+              onPress={install}
+              testID={`restart-recover-${job.id}`}
+            >
+              Recover Docker now, interrupt unknown work
+            </RestartActionButton>
+          ) : (
+            <RestartActionButton
+              variant="outline"
+              disabledReason={restartActionDisabledReason(
+                job,
+                "finish",
+                busy,
+                Boolean(installation?.gracefulRestarts && job.impact?.gracefulRestartSupported),
+              )}
+              onPress={finish}
+              testID={`restart-finish-${job.id}`}
+            >
+              {finishLabel(job)}
+            </RestartActionButton>
+          )}
           {plainHostRestart ? <ForceRestartButton job={job} model={model} busy={busy} /> : null}
           <Button variant="ghost" disabled={busy} onPress={cancel}>
             Cancel

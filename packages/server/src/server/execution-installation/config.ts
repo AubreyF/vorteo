@@ -5,6 +5,8 @@ import { readFileSync } from "node:fs";
 import { z } from "zod";
 import {
   EngineRestartConfigurationSchema,
+  EngineRecoveryConfigurationSchema,
+  RecoveryOriginSchema,
   ExecutionInstallationSchema,
   FactoryGateConfigurationSchema,
   HostLauncherUpdateConfigurationSchema,
@@ -83,6 +85,7 @@ export const InstallationConfigSchema = z.strictObject({
       }, "Redirect origins must be exact HTTPS origins"),
     )
     .optional(),
+  recoveryOrigin: RecoveryOriginSchema.optional(),
   listenPort: z.number().int().min(1024).max(65535),
   webDistDir: z.string().min(1),
   stateDir: z.string().min(1),
@@ -101,6 +104,7 @@ export const InstallationConfigSchema = z.strictObject({
     persistentRegistration: DevRegistrationReferenceSchema.optional(),
     factoryRuntimeAdoption: FactoryRuntimeAdoptionConfigurationSchema.optional(),
     engineRestart: EngineRestartConfigurationSchema.optional(),
+    engineRecovery: EngineRecoveryConfigurationSchema.optional(),
     factoryGate: FactoryGateConfigurationSchema.optional(),
     supervisorMaintenance: z
       .strictObject({

@@ -7,6 +7,7 @@ export type RestartPlanField =
   | "supervisorPlanSha256"
   | "factoryRuntimePlanSha256"
   | "engineRestartPlanSha256"
+  | "engineRecoveryPlanSha256"
   | "hostLauncherPlanSha256";
 
 /**
@@ -21,6 +22,8 @@ export interface RestartOperationExecutor {
   restartSupervisor?(job: RestartJob): Promise<string>;
   factoryRuntimePlan?(): string | undefined;
   adoptFactoryRuntime?(job: RestartJob): Promise<string>;
+  engineRecoveryPlan?(): string | undefined;
+  recoverEngine?(job: RestartJob): Promise<string>;
   engineRestartPlan?(): string | undefined;
   restartEngine?(job: RestartJob): Promise<string>;
   hostLauncherPlan?(): string | undefined;
@@ -35,6 +38,8 @@ export interface ReviewedRestartOperation {
   /** Names the plan in refusals: "<planLabel> is unavailable or changed". */
   planLabel: string;
   automatic?: RestartOperationAutomatic;
+  /** Unavailable work cannot be drained. Requires exact immediate interruption approval. */
+  immediateOnly?: boolean;
   /** A worker launch request may accompany it. Omitted means refused. */
   allowsWorkerLaunch?: boolean;
   /** Factory recovery-of may accompany it. Omitted means refused. */
@@ -127,6 +132,26 @@ export const RESTART_OPERATIONS: readonly ReviewedRestartOperation[] = [
     legacyReply: {
       reason: "Docker restart for Dev. Reload Vorteo to review the exact operation.",
       detail: "Reload to review the Docker restart. Cancellation remains available.",
+    },
+  },
+  {
+    field: "engineRecoveryPlanSha256",
+    target: "container-daemon",
+    label: "Degraded Docker recovery",
+    planLabel: "Degraded Docker recovery plan",
+    automatic: "never",
+    immediateOnly: true,
+    refusesRedundantOwnerApproval: true,
+    reviewMessage:
+      "Review the exact degraded recovery plan and unknown work interruption before approval",
+    idleMessage: "Degraded recovery requires explicit immediate interruption approval",
+    plan: (executor) => executor.engineRecoveryPlan?.(),
+    run: (executor) => executor.recoverEngine?.bind(executor),
+    capability: "engineRecovery",
+    // COMPAT(engineRecovery): added 2026-10-28; old clients can cancel but cannot approve.
+    legacyReply: {
+      reason: "Degraded Docker recovery. Reload to review unknown work interruption.",
+      detail: "Reload to review this recovery. Cancellation remains available.",
     },
   },
   {

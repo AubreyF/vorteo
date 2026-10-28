@@ -2776,7 +2776,7 @@ test("Host CLI source contributions carry the advertised owner-review requiremen
     expect(calls).toEqual([
       "GET /api/installation/capabilities",
       "GET /api/installation/update-source",
-      "POST /api/installation/source-update-requests?target=host&sourceBatches=1&requireOwnerApproval=1&engineRestart=1&hostLauncherUpdate=1",
+      "POST /api/installation/source-update-requests?target=host&sourceBatches=1&requireOwnerApproval=1&engineRestart=1&engineRecovery=1&hostLauncherUpdate=1",
     ]);
     expect(metadata).toMatchObject({
       request: { target: "host", requireOwnerApproval: true },
@@ -4133,4 +4133,98 @@ test("missing independent Dev readiness disables ordinary capabilities without b
   expect(await refused.json()).toMatchObject({ error: expect.stringContaining("registration") });
   expect(new FileBootstrapRequestJournal(f.root).readLifecycle()).toEqual([pending]);
   expect(f.calls).toEqual([]);
+});
+
+test("native recovery origin serves the interface and authenticated controls independently of Dev", async () => {
+  const origin = "https://previous.example.test";
+  const { url, calls } = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    (config) => {
+      config.recoveryOrigin = origin;
+    },
+  );
+  const request = (
+    route: string,
+    token?: string,
+    body?: unknown,
+    requestOrigin = origin,
+    host = "previous.example.test",
+  ) =>
+    new Promise<Response>((resolve, reject) => {
+      const outgoing = httpRequest(
+        url + route,
+        {
+          method: body === undefined ? "GET" : "POST",
+          headers: {
+            Host: host,
+            Origin: requestOrigin,
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        },
+        (incoming) => {
+          const chunks: Buffer[] = [];
+          incoming.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+          incoming.on("end", () =>
+            resolve(
+              new Response(Buffer.concat(chunks).toString(), { status: incoming.statusCode }),
+            ),
+          );
+          incoming.on("error", reject);
+        },
+      );
+      outgoing.on("error", reject);
+      outgoing.end(body === undefined ? undefined : JSON.stringify(body));
+    });
+  const page = await request("/");
+  expect(page.status).toBe(200);
+  const html = await page.text();
+  expect(html).toContain(origin);
+  expect(html).toContain("host-id");
+  expect(html).toContain("guest-id");
+  for (const secret of [
+    "owner-test-password",
+    "host-daemon-test-password",
+    "guest-daemon-test-password",
+    "host-agent-test-token",
+  ])
+    expect(html).not.toContain(secret);
+  expect((await request("/api/installation/owner/unlock", undefined, {})).status).toBe(401);
+  expect(
+    (await request("/api/installation/owner/unlock", "guest-agent-test-token", {})).status,
+  ).toBe(401);
+  expect(
+    (
+      await request(
+        "/api/installation/owner/unlock",
+        "owner-test-password",
+        {},
+        "https://evil.example",
+      )
+    ).status,
+  ).toBe(403);
+  expect(
+    (
+      await request(
+        "/api/installation/owner/unlock",
+        "owner-test-password",
+        {},
+        "https://owner.example.test",
+      )
+    ).status,
+  ).toBe(403);
+  expect((await request("/api/installation/owner/unlock", "owner-test-password", {})).status).toBe(
+    200,
+  );
+  expect((await request("/", undefined, undefined, origin, "unknown.example.test")).status).toBe(
+    403,
+  );
+  expect(calls).toEqual([]);
 });
