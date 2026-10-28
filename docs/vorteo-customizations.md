@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-28): documentation only. The core-services plan adds the Vorton Host release requirements. Functionality, README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-28): documentation only. The core-services plan records the deferred Dev preview move and a proposed promotion rule. Functionality, README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-28): the session host runs its tool bridge from a pinned private copy, so release cleanup can no longer remove the bridge from under hosted sessions that keep an older session host alive. Not yet installed. README overview and onboarding are unchanged.
