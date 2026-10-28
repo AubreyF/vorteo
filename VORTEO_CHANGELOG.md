@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.877 - 2026-10-28
+
+### Maintenance
+
+- Add the sidebar drop resolver, a pure module not yet used by the drag lists. It applies the type rules (projects and root folders stay at the top level or in root folders; workspaces and project folders stay in their project unless dropped on another project's header), the quarter and half row zones, and horizontal depth projection with hysteresis at boundaries, and reports the receiving container, index and depth.
+
 ## 0.11.0-beta.3.vorteo.876 - 2026-10-28
 
 ### Added
