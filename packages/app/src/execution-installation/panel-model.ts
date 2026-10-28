@@ -50,6 +50,7 @@ interface InstallationPanelState {
   devRepair: { available: boolean; preparingIds: string[] };
   daemonAutomation: DaemonAutomationPreference | null;
   maintenanceDelegation: MaintenanceDelegationStatus | null;
+  maintenanceDelegationError: string | null;
   maintenanceStatus: InstallationMaintenanceStatus | null;
   daemonAutomationError: string | null;
   restartSummary: RestartSummary | null;
@@ -91,6 +92,7 @@ export class InstallationPanelModel {
     devRepair: { available: false, preparingIds: [] },
     daemonAutomation: null,
     maintenanceDelegation: null,
+    maintenanceDelegationError: null,
     maintenanceStatus: null,
     daemonAutomationError: null,
     restartSummary: null,
@@ -212,6 +214,7 @@ export class InstallationPanelModel {
         profileSharing: null,
         daemonAutomation: null,
         maintenanceDelegation: null,
+        maintenanceDelegationError: null,
         maintenanceStatus: null,
         recoveryAccess: null,
         recoveryAccessError: null,
@@ -296,7 +299,29 @@ export class InstallationPanelModel {
         this.client.listHelpers(),
         this.client.listMonitors?.() ?? Promise.resolve([]),
         this.client.daemonAutomation?.() ?? Promise.resolve(null),
-        this.client.maintenanceDelegation?.() ?? Promise.resolve(null),
+        (this.client.maintenanceDelegation?.() ?? Promise.resolve(null))
+          .then((delegation) => {
+            if (
+              generation === this.accessGeneration &&
+              automationGeneration === this.automationGeneration
+            )
+              this.publish({ maintenanceDelegationError: null });
+            return delegation;
+          })
+          .catch((error: unknown) => {
+            if (error instanceof OwnerAccessExpired) throw error;
+            if (
+              generation === this.accessGeneration &&
+              automationGeneration === this.automationGeneration
+            )
+              this.publish({
+                maintenanceDelegationError: failureMessage(
+                  error,
+                  "Maintenance delegation is unavailable",
+                ),
+              });
+            return this.state.maintenanceDelegation;
+          }),
         this.client.devRepairStatus?.() ?? Promise.resolve({ available: false, preparingIds: [] }),
         this.client.maintenanceStatus?.() ?? Promise.resolve(null),
         // Neither of these cards blocks the rest of Installation controls: a coordinator that answers
@@ -494,6 +519,7 @@ export class InstallationPanelModel {
       this.state.busy ||
       !this.state.unlocked ||
       !preference?.available ||
+      Boolean(this.state.maintenanceDelegationError) ||
       !this.client.changeMaintenanceDelegation
     )
       return;
@@ -805,6 +831,7 @@ export class InstallationPanelModel {
         profileSharing: null,
         daemonAutomation: null,
         maintenanceDelegation: null,
+        maintenanceDelegationError: null,
         maintenanceStatus: null,
         daemonAutomationError: null,
         recoveryAccess: null,

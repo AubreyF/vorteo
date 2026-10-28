@@ -631,7 +631,7 @@ function FullMaintenanceDelegation({
       </Text>
       <Button
         size="md"
-        disabled={state.busy}
+        disabled={state.busy || Boolean(state.maintenanceDelegationError)}
         onPress={change}
         testID="maintenance-delegation-change"
       >
@@ -726,6 +726,11 @@ export function DaemonAutomationControl({
         </Text>
       ) : null}
       <RequestReadiness status={state.maintenanceStatus} />
+      {state.maintenanceDelegationError ? (
+        <Text accessibilityRole="alert" style={styles.error}>
+          {state.maintenanceDelegationError}
+        </Text>
+      ) : null}
       {state.daemonAutomationError ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {state.daemonAutomationError}
