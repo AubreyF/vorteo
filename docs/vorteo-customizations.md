@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-28): project skill traversal stops before the user's home, preserving explicit personal and account roots without importing the personal Codex bundle as a project scope from git-less working directories. Inventory regressions cover distinct homes, explicit personal roots and Git directory and file boundaries. Source only, awaiting integration; README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-28): recovery browser checks use the explicit Maintenance route and wait for owner unlock before asserting request controls. Runtime behavior, README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-28): degraded Docker recovery has a separate exact approval, retained paused-Factory baseline, bounded execution and no replay. An explicitly configured native private recovery origin serves the existing authenticated interface without the Docker redirect. Managed supervisors use the selected worker's strict configuration reader. Source validation and installation acceptance are recorded separately; README overview and onboarding are unchanged.
@@ -1846,3 +1848,5 @@ Maintenance review: Clear goal is integrated on the installed Host source for st
 Maintenance review: the keyboard-corrected sidebar retains the published Clear goal source. Its keyboard browser regressions and pointer resolver tests passed; native screen-reader validation remains separate.
 
 Maintenance review: unavailable-provider recovery is integrated with the published interface. Retained server, confirmation and browser checks passed; independent review records untested shutdown and later persistence-failure cases.
+
+Maintenance review: integrated the home-boundary inventory correction after independent source review and sixteen passing inventory tests. The provider recovery and published interface remain included.
