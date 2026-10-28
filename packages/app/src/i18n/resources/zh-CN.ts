@@ -1175,6 +1175,12 @@ export const zhCN: TranslationResources = {
       description: "添加 setup 命令，让新的 worktree 自动安装依赖并完成准备。",
       openProjectSettings: "打开 project 设置",
     },
+    focus: {
+      focusItem: "聚焦 {{name}}",
+      menuItem: "聚焦",
+      allProjects: "所有项目",
+      breadcrumb: "侧边栏聚焦路径",
+    },
     folders: {
       actions: {
         menu: "文件夹操作",

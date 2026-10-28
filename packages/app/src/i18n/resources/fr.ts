@@ -1221,6 +1221,12 @@ export const fr: TranslationResources = {
         "Ajoutez des commandes de configuration pour que les nouveaux arbres de travail puissent installer des dépendances et se préparer automatiquement.",
       openProjectSettings: "Ouvrir les paramètres du projet",
     },
+    focus: {
+      focusItem: "Se concentrer sur {{name}}",
+      menuItem: "Se concentrer",
+      allProjects: "Tous les projets",
+      breadcrumb: "Chemin de focus de la barre latérale",
+    },
     folders: {
       actions: {
         menu: "Actions du dossier",

@@ -1230,6 +1230,12 @@ export const en = {
         "Add setup commands so new worktrees can install dependencies and prepare themselves automatically.",
       openProjectSettings: "Open project settings",
     },
+    focus: {
+      focusItem: "Focus {{name}}",
+      menuItem: "Focus",
+      allProjects: "All projects",
+      breadcrumb: "Sidebar focus path",
+    },
     folders: {
       actions: {
         menu: "Folder actions",

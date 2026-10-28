@@ -1199,6 +1199,12 @@ export const ja: TranslationResources = {
         "新しいワークツリーが依存関係をインストールして自動的に準備できるようにセットアップコマンドを追加してください。",
       openProjectSettings: "プロジェクト設定を開く",
     },
+    focus: {
+      focusItem: "{{name}} にフォーカス",
+      menuItem: "フォーカス",
+      allProjects: "すべてのプロジェクト",
+      breadcrumb: "サイドバーのフォーカス経路",
+    },
     folders: {
       actions: {
         menu: "フォルダの操作",

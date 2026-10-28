@@ -1185,6 +1185,12 @@ export const ar: TranslationResources = {
         "أضف أوامر الإعداد حتى تتمكن أشجار العمل الجديدة من تثبيت التبعيات وإعداد نفسها تلقائيًا.",
       openProjectSettings: "افتح إعدادات المشروع",
     },
+    focus: {
+      focusItem: "التركيز على {{name}}",
+      menuItem: "تركيز",
+      allProjects: "كل المشاريع",
+      breadcrumb: "مسار التركيز في الشريط الجانبي",
+    },
     folders: {
       actions: {
         menu: "إجراءات المجلد",

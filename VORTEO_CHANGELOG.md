@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.875 - 2026-10-28
+
+### Maintenance
+
+- Add the sidebar focus model and its device-local store, not yet wired into the sidebar. It resolves the focused project, folder, Standing or Factory section, builds the breadcrumb from root folders through the project and project folders, and falls back to the nearest listed ancestor when the focused item is deleted, archived or filtered away. Focus strings are translated in every supported language.
+
 ## 0.11.0-beta.3.vorteo.874 - 2026-10-28
 
 ### Changed
