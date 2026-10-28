@@ -46,6 +46,62 @@ function previewId(result: SkillLibraryResult) {
   if (result.kind !== "preview") throw new Error("Expected preview");
   return result.preview.id;
 }
+it("keeps account and personal roots distinct from git-less project ancestors", async () => {
+  const { home } = await harness();
+  const cwd = path.join(home, "acceptance/workspace");
+  const codexHome = path.join(home, "accounts/one");
+  const account = path.join(codexHome, "skills/.system/openai-docs");
+  const personal = path.join(home, ".codex/skills/.system/openai-docs");
+  const shared = path.join(home, ".agents/skills/shared");
+  const claude = path.join(home, ".claude/skills/personal");
+  const project = path.join(cwd, ".codex/skills/project");
+  const ancestor = path.join(home, "acceptance/.agents/skills/ancestor");
+  for (const directory of [account, personal, shared, claude, project, ancestor]) {
+    await mkdir(directory, { recursive: true });
+    await writeFile(
+      path.join(directory, "SKILL.md"),
+      `---\nname: ${path.basename(directory)}\ndescription: ${directory}\n---\n`,
+    );
+  }
+  const inventory = await inventorySkills({ home, codexHome, cwd });
+  expect(inventory.skills.map((skill) => skill.path).sort()).toEqual(
+    [account, shared, claude, project, ancestor].sort(),
+  );
+  expect(
+    inventory.skills.filter((skill) => skill.name === "openai-docs").map((skill) => skill.path),
+  ).toEqual([account]);
+  expect(inventory.skills.find((skill) => skill.path === project)?.owner).toBe("project");
+  expect(inventory.skills.find((skill) => skill.path === shared)?.owner).toBe("personal");
+  // Explicitly selecting the personal Codex home still includes its bundled skills.
+  const personalInventory = await inventorySkills({
+    home,
+    cwd,
+    codexHome: path.join(home, ".codex"),
+  });
+  expect(personalInventory.skills.map((skill) => skill.path).sort()).toEqual(
+    [personal, shared, claude, project, ancestor].sort(),
+  );
+  const atHome = await inventorySkills({ home, codexHome, cwd: home });
+  expect(atHome.skills.map((skill) => skill.path).sort()).toEqual([account, shared, claude].sort());
+});
+
+it.each(["directory", "file"])("includes the git root but stops above a .git %s", async (kind) => {
+  const { home } = await harness();
+  const repository = path.join(home, "parent/repository");
+  const cwd = path.join(repository, "nested");
+  const project = path.join(repository, ".agents/skills/project");
+  const nested = path.join(cwd, ".codex/skills/nested");
+  const outside = path.join(home, "parent/.agents/skills/outside");
+  for (const directory of [project, nested, outside]) {
+    await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, "SKILL.md"), files().get("SKILL.md")!);
+  }
+  if (kind === "directory") await mkdir(path.join(repository, ".git"));
+  else await writeFile(path.join(repository, ".git"), "gitdir: /unused");
+  const inventory = await inventorySkills({ home, cwd });
+  expect(inventory.skills.map((skill) => skill.path).sort()).toEqual([project, nested].sort());
+});
+
 it("installs a reviewed package, inventories provenance, removes and restores it", async () => {
   const { library, home, target } = await harness();
   const preview = await library.change({ kind: "preview_install", source });
