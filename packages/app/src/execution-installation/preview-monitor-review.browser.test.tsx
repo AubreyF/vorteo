@@ -342,6 +342,7 @@ test("full maintenance delegation shows its scope and revokes on desktop and com
     activatedAt: "2026-01-01T00:00:00.000Z",
   };
   let changes = 0;
+  let delegationUnavailable = false;
   const model = new InstallationPanelModel({
     ...client,
     daemonAutomation: async () => ({
@@ -351,7 +352,10 @@ test("full maintenance delegation shows its scope and revokes on desktop and com
       legacyHostOnly: false,
       services: { host: null, "container-daemon": null, coordinator: null, supervisor: null },
     }),
-    maintenanceDelegation: async () => saved,
+    maintenanceDelegation: async () => {
+      if (delegationUnavailable) throw new Error("Delegation file protection changed");
+      return saved;
+    },
     changeMaintenanceDelegation: async (preference, enabled) => {
       changes++;
       expect(preference.revision).toBe(saved.revision);
@@ -382,6 +386,23 @@ test("full maintenance delegation shows its scope and revokes on desktop and com
         path: `../../../../output/playwright/full-maintenance-delegation-${width}.png`,
         fullPage: true,
       });
+      delegationUnavailable = true;
+      await act(() => model.refresh());
+      render();
+      await expect
+        .element(page.getByRole("alert"))
+        .toHaveTextContent("Delegation file protection changed");
+      expect(revoke.element().getAttribute("aria-disabled")).toBe("true");
+      expect(container.scrollWidth).toBeLessThanOrEqual(container.clientWidth);
+      await page.screenshot({
+        path: `../../../../output/playwright/full-maintenance-delegation-error-${width}.png`,
+        fullPage: true,
+      });
+      delegationUnavailable = false;
+      await act(() => model.refresh());
+      render();
+      await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+      expect(revoke.element().getAttribute("aria-disabled")).not.toBe("true");
     }
     await act(async () => {
       await page.getByTestId("maintenance-delegation-change").click();
