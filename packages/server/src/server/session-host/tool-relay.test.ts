@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
@@ -9,6 +9,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import {
   createToolRelay,
   isToolRelayServer,
+  TOOL_RELAY_BRIDGE_FILE_NAME,
   TOOL_RELAY_UNAVAILABLE_CODE,
   TOOL_RELAY_UNKNOWN_OUTCOME_CODE,
   toolRelayBridgePath,
@@ -306,7 +307,10 @@ describe("tool relay", () => {
     expect(session.socketPath).toBe(toolRelaySocketPath(directory, "session-1"));
     expect(statSync(session.socketPath).mode & 0o777).toBe(0o600);
     expect(isToolRelayServer(session.server)).toBe(true);
-    expect(session.server.args?.[0]).toBe(toolRelayBridgePath());
+    // The provider runs the host's pinned copy of the shipped bridge, not the release file.
+    const script = session.server.args![0]!;
+    expect(script.startsWith(path.join(directory, "tools"))).toBe(true);
+    expect(readFileSync(script)).toEqual(readFileSync(toolRelayBridgePath()));
 
     client.send({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} });
     expect(await client.next()).toEqual([
@@ -635,6 +639,24 @@ describe("tool relay", () => {
       id: 1,
       result: { echo: "initialize" },
     });
+  });
+
+  test("keeps serving its bridge after the release it started from is deleted", async () => {
+    const daemon = await daemonFor();
+    const release = tempDirectory();
+    const shipped = path.join(release, TOOL_RELAY_BRIDGE_FILE_NAME);
+    writeFileSync(shipped, readFileSync(toolRelayBridgePath()));
+    const { relay } = await relayFor({ bridgePath: shipped });
+    rmSync(release, { recursive: true, force: true });
+    const session = await relay.open("session-1", daemon.url);
+    const script = session!.server.args![0]!;
+    expect(script.startsWith(release)).toBe(false);
+    expect(existsSync(script)).toBe(true);
+    expect(isToolRelayServer(session!.server)).toBe(true);
+    // A pinned copy removed by cleanup is restored from memory on the next open.
+    rmSync(script);
+    const next = await relay.open("session-2", daemon.url);
+    expect(existsSync(next!.server.args![0]!)).toBe(true);
   });
 
   test("recognises only the relay's own stdio form", () => {

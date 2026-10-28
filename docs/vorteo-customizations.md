@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-28): the session host runs its tool bridge from a pinned private copy, so release cleanup can no longer remove the bridge from under hosted sessions that keep an older session host alive. Not yet installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-28): loaded agents that stay idle and unchanged for 30 minutes release their provider process and reopen on demand. Timeline reads, such as the Nova bridge's startup sweep, had kept one Codex app-server per agent read until the next restart. Running turns, pending permissions, queued or paused messages, restart holds, active or usage-limited goals, quota and controller custody, owned agents and watched children keep their session; durably hosted sessions release the same way they do for a host upgrade. See [idle session release](../packages/server/src/server/agent/idle-release.ts). Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-28): merges the faster restart reconnection and idle provider session release into the core-services branch, and corrects the plan: the coordinator serves the interface, so only the daemon WebSocket drops during Host restarts. Nothing is installed. README overview and onboarding are unchanged.
