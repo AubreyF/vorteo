@@ -6,6 +6,7 @@ Maintenance review (2026-10-28): automatic upgrade release of idle or errored ho
 Maintenance review (2026-10-28): recovery browser checks use the explicit Maintenance route and wait for owner unlock before asserting request controls. Runtime behavior, README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-28): degraded Docker recovery has a separate exact approval, retained paused-Factory baseline, bounded execution and no replay. An explicitly configured native private recovery origin serves the existing authenticated interface without the Docker redirect. Managed supervisors use the selected worker's strict configuration reader. Source validation and installation acceptance are recorded separately; README overview and onboarding are unchanged.
+Maintenance review (2026-10-27): while a session host upgrade is pending, a hosted agent parked in an error with no turn and no pending permission is released like an idle one, so a usage-limit hold no longer keeps the old host alive. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-26): a coordinator for a systemd Host starts without the launchd coordinator bootstrap ledger instead of crashing. Coordinator bootstrap and renewal remain macOS launchd only. Not yet installed; the current Host uses launchd and is unaffected. README overview and onboarding are unchanged.
 
@@ -1352,6 +1353,8 @@ Reviewed on October 7, 2026 against integrated Paseo commit `c062280429c2aa894d9
 No complete replacement of these custom workflows was established in this review. Future upstream merges must reassess behavior and tests, narrow the inventory to remaining differences, and update the roadmap under the [maintenance rules](writing.md#maintain-the-vorteo-customizations-inventory).
 
 ## Maintenance review
+
+October 28, 2026: Preserved the original errored-session release commit in integration history. Its idle-or-error predicate and permission guards remain, with the reviewed atomic closure fix. README overview and onboarding are unchanged.
 
 October 28, 2026: Integrated the reviewed conditional hosted-session closure with provider recovery and workspace migration. Idle-or-error selection retains its quiet and upgrade gates; authoritative host checks protect active work and approvals. README overview and onboarding are unchanged.
 

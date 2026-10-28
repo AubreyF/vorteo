@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.889 - 2026-10-28
+
+### Maintenance
+
+- Preserve the original errored-session release contribution in integration ancestry while retaining its predicate and the reviewed atomic closure correction. Runtime behavior is unchanged from the preceding integration.
+
 ## 0.11.0-beta.3.vorteo.888 - 2026-10-28
 
 ### Fixed
@@ -198,6 +204,16 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Threads whose provider is unavailable offer the standard account and profile picker in the load error. Recovery reads the previous account's saved history without running a turn, keeps the original thread and workspace, and retains its checklist, journal and questions. Failed recovery leaves the original account binding intact and offers a visible retry. The existing recent-message context bound still applies.
 - Add disabled and removed account recovery tests, stale-source and failed-replacement checks, and a browser journey covering unreadable history, retry and reload.
+
+## 0.11.0-beta.3.vorteo.874 - 2026-10-27
+
+### Fixed
+
+- A hosted agent parked in an error, such as a usage-limit hold, no longer keeps the old session host alive through an upgrade. The release of idle hosted sessions only considered agents whose lifecycle was idle, so an errored agent that ran no turn and had no pending permission held the host for as long as its hold lasted; on the live installation one such agent, with a weekly limit resetting hours later, kept the host on the previous release for a day. Such an agent is now released like an idle one and resumes on the new host when it next runs. A running turn or an unanswered permission still holds the host.
+
+### Validation
+
+- The idle release selection test gains an errored hosted agent with no turn and no pending permission, which is selected, beside one with a pending permission, which is not.
 
 ## 0.11.0-beta.3.vorteo.873 - 2026-10-26
 
