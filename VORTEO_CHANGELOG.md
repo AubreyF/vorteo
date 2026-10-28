@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.881 - 2026-10-28
+
+### Added
+
+- A `movedPaths` Projects folder setting relocates records for a renamed checkout at the next daemon start. Workspaces, membership keys, local project roots and agents, including their resume metadata, move from the old path to the new one. Agent files move to the matching storage folder, and every changed file is backed up first.
+- Sibling directories that only share the old path's prefix are untouched. An archived project whose new root already belongs to another project keeps its recorded root.
+
 ## 0.11.0-beta.3.vorteo.880 - 2026-10-28
 
 ### Fixed
