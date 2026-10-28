@@ -35,7 +35,11 @@ import { InMemoryAgentTimelineStore } from "./agent-timeline-store.js";
 import { toAgentPayload } from "./agent-projections.js";
 import { projectTimelineRows } from "./timeline-projection.js";
 import { getOpenAgentTabLabel, PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
-import { formatSystemNotificationPrompt, startAgentRun } from "./agent-prompt.js";
+import {
+  formatSystemNotificationPrompt,
+  setupFinishNotification,
+  startAgentRun,
+} from "./agent-prompt.js";
 import { StaleProviderSessionError } from "./stale-provider-session-error.js";
 import { ensureAgentLoaded, ensureUnarchivedAgentLoaded } from "./agent-loading.js";
 import type { StoredAgentRecord } from "./agent-storage.js";
@@ -15178,3 +15182,89 @@ test("launch guidance requires verified Tailscale preview links", () => {
   expect(PREVIEW_LINK_GUIDANCE).toContain("never an IP, localhost or *.localhost address");
   expect(PREVIEW_LINK_GUIDANCE).toContain("~/.agents/skills/paseo-preview/SKILL.md");
 });
+
+async function idleReleaseFixture() {
+  const workdir = mkdtempSync(join(tmpdir(), "idle-release-manager-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const client = new SessionRecordingAgentClient();
+  const manager = new AgentManager({ clients: { codex: client }, registry: storage, logger });
+  const queue = new MessageQueueService(
+    new MessageQueueStore(workdir),
+    new QueueAttachmentStore(workdir),
+  );
+  manager.setMessageQueueControl(queue);
+  const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+    workspaceId: undefined,
+  });
+  await manager.flush();
+  const session = client.sessions[0]!;
+  const close = vi.spyOn(session, "close");
+  async function cleanup() {
+    queue.close();
+    await manager.closeAgent(agent.id);
+    await manager.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+  return { manager, storage, queue, agent, session, close, cleanup };
+}
+
+test("releasing an idle agent closes its provider session and the agent reopens on demand", async () => {
+  const fixture = await idleReleaseFixture();
+  try {
+    expect(await fixture.manager.releaseIdleSession(fixture.agent.id)).toBe(true);
+    expect(fixture.close).toHaveBeenCalledTimes(1);
+    expect(fixture.manager.getAgent(fixture.agent.id)).toBeNull();
+    const reopened = await ensureAgentLoaded(fixture.agent.id, {
+      agentManager: fixture.manager,
+      agentStorage: fixture.storage,
+      logger,
+    });
+    expect(reopened).toMatchObject({ id: fixture.agent.id, lifecycle: "idle" });
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test.each(["paused queue", "active goal", "watched child", "pending permission"] as const)(
+  "an idle agent with a %s keeps its provider session",
+  async (condition) => {
+    const fixture = await idleReleaseFixture();
+    try {
+      if (condition === "paused queue") await fixture.queue.pause(fixture.agent.id);
+      if (condition === "active goal") {
+        const goal: AgentGoal = {
+          threadId: "retained",
+          objective: "Keep working",
+          status: "active",
+          tokenBudget: null,
+          tokensUsed: 0,
+          timeUsedSeconds: 0,
+          createdAt: 1,
+          updatedAt: 2,
+        };
+        const goals = new CodexGoals({ request: async () => ({ goal }), onChange() {} });
+        goals.bind("retained");
+        Object.defineProperty(fixture.session, "goals", { value: goals });
+        await fixture.manager.readAgentGoal(fixture.agent.id);
+      }
+      if (condition === "watched child")
+        setupFinishNotification({
+          agentManager: fixture.manager,
+          agentStorage: fixture.storage,
+          childAgentId: fixture.agent.id,
+          callerAgentId: "caller-agent",
+          logger,
+        });
+      if (condition === "pending permission")
+        Reflect.get(fixture.manager, "agents")
+          .get(fixture.agent.id)
+          .pendingPermissions.set("permission-1", { id: "permission-1" });
+      expect(await fixture.manager.releaseIdleSession(fixture.agent.id)).toBe(false);
+      expect(fixture.close).not.toHaveBeenCalled();
+      expect(fixture.manager.getAgent(fixture.agent.id)).toMatchObject({ lifecycle: "idle" });
+    } finally {
+      Reflect.get(fixture.manager, "agents").get(fixture.agent.id)?.pendingPermissions.clear();
+      await fixture.cleanup();
+    }
+  },
+);

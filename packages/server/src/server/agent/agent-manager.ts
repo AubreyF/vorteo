@@ -143,7 +143,7 @@ import {
   type PendingForegroundRun,
 } from "./agent-run-state.js";
 import { invokeRewindCapability, type RewindMode } from "./rewind/rewind.js";
-import { isSystemInjectedEnvelope } from "./agent-prompt.js";
+import { hasArmedFinishNotification, isSystemInjectedEnvelope } from "./agent-prompt.js";
 import {
   buildSwitchHistory,
   prependSwitchHistory,
@@ -510,6 +510,20 @@ export type AttentionState =
       attentionReason: "finished" | "error" | "permission";
       attentionTimestamp: Date;
     };
+
+/** Quota, usage-limit and controller custody each expect the agent's current session to stay. */
+function hasQuotaOrControllerHold(config: AgentSessionConfig): boolean {
+  const usageLimitHeld = Boolean(config.usageLimitHold && !config.usageLimitHold.releasedAt);
+  return Boolean(config.quotaPausedAt || config.controllerExecutionId) || usageLimitHeld;
+}
+
+/** An active goal continues by itself inside the provider; a usage-limited one resumes there. */
+function hasLiveGoal(session: Pick<AgentSession, "goals">): boolean {
+  const state = session.goals?.state;
+  if (!state) return false;
+  if (state.status !== "ready") return true;
+  return state.goal?.status === "active" || state.goal?.status === "usageLimited";
+}
 
 function resolveInitialAttention(input: AttentionState | undefined): AttentionState {
   if (input == null || !input.requiresAttention) {
@@ -3549,6 +3563,38 @@ export class AgentManager {
     };
     void close.then(clearClose, clearClose);
     return close;
+  }
+
+  /**
+   * Closes an idle agent's provider session so its process exits; the agent reopens on demand
+   * the way an unloaded agent does after a restart. Leaves the agent loaded, returning false,
+   * whenever something still relies on the live session.
+   */
+  async releaseIdleSession(agentId: string): Promise<boolean> {
+    const queue = this.messageQueueControl;
+    if (!queue?.read || !this.isIdleReleasable(agentId)) return false;
+    const snapshot = await queue.read(agentId);
+    const queueBusy =
+      snapshot.paused || snapshot.items.length > 0 || Boolean(snapshot.deliveryError);
+    if (queueBusy || (await queue.restartContinuationHeld?.(agentId))) return false;
+    // No await between the last check and the close, which later loads and prompts wait for.
+    if (!this.isIdleReleasable(agentId)) return false;
+    await this.closeAgent(agentId);
+    return true;
+  }
+
+  private isIdleReleasable(agentId: string): boolean {
+    const agent = this.agents.get(agentId);
+    if (!agent?.session || agent.lifecycle !== "idle" || agent.internal) return false;
+    if (this.isRestartDraining() || this.inFlightAgentCloses.has(agentId)) return false;
+    if (this.lifecycleMutationTails.has(agentId) || this.hasInFlightRun(agentId)) return false;
+    const awaitingPermission =
+      agent.pendingPermissions.size > 0 || agent.inFlightPermissionResponses.size > 0;
+    if (agent.activeTurnId || awaitingPermission || agent.pendingReplacement) return false;
+    if (this.controllerSessions.has(agentId) || agent.owner || agent.queueGoalHold) return false;
+    // Closing a watched child would send its caller a "was closed" notification.
+    if (hasArmedFinishNotification(this, agentId)) return false;
+    return !hasQuotaOrControllerHold(agent.config) && !hasLiveGoal(agent.session);
   }
 
   private async closeAgentRuntime(agentId: string): Promise<void> {
