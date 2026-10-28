@@ -179,6 +179,20 @@ export function buildSidebarTreeRows<T>(input: {
   return rows;
 }
 
+/** Folders in one scope whose subtree holds at least one of `keys`; filters hide the rest. */
+export function sidebarFolderIdsWithItems(input: {
+  state: SidebarFolderState;
+  scope: SidebarFolderScope;
+  keys: readonly string[];
+}): Set<string> {
+  const children = buildScopeChildren(input);
+  const kept = new Set<string>();
+  for (const folder of scopeFolders(input.state, input.scope)) {
+    if (countItems(children, folder.id) > 0) kept.add(folder.id);
+  }
+  return kept;
+}
+
 /** Every item key in display order with all folders expanded: the flat order older clients read. */
 export function flattenSidebarScope(input: {
   state: SidebarFolderState;

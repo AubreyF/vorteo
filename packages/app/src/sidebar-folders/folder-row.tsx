@@ -2,7 +2,14 @@ import { useCallback, useMemo, useState, type Ref } from "react";
 import { Text, View, type PressableStateCallbackType } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
-import { FolderInput, FolderPlus, MoreVertical, Pencil, Trash2 } from "lucide-react-native";
+import {
+  ChevronsRight,
+  FolderInput,
+  FolderPlus,
+  MoreVertical,
+  Pencil,
+  Trash2,
+} from "lucide-react-native";
 import type { SidebarFolderScope } from "@getpaseo/protocol/sidebar-state";
 import { sidebarFolderEntry } from "@getpaseo/protocol/sidebar-folders";
 import {
@@ -26,7 +33,11 @@ import { isNative } from "@/constants/platform";
 import { useVortonTouch } from "@/vorton-touch";
 import { sidebarIndentStyle } from "@/components/sidebar/indent";
 import { sidebarContainerRowStyles } from "@/components/sidebar/container-row";
-import { SidebarFolderIcon, SidebarLeadingSlot } from "@/components/sidebar/leading-slot";
+import {
+  SidebarFolderIcon,
+  SidebarLeadingSlot,
+  type SidebarDisclosure,
+} from "@/components/sidebar/leading-slot";
 import type { Theme } from "@/styles/theme";
 import {
   toggleSidebarFolderCollapsed,
@@ -36,6 +47,9 @@ import {
 } from "./actions";
 import { useRemoveSidebarFolder } from "./dialogs";
 import { SidebarFolderDropTarget } from "./drop-context";
+import { SidebarFocusButton } from "@/sidebar-focus/focus-button";
+import { useSidebarRowFocus } from "@/sidebar-focus/context";
+import type { SidebarFocusTarget } from "@/sidebar-focus/model";
 import type { SidebarFolderRow as SidebarFolderRowModel } from "./tree";
 
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
@@ -45,10 +59,12 @@ const ThemedFolderPlus = withUnistyles(FolderPlus);
 const ThemedFolderInput = withUnistyles(FolderInput);
 const ThemedPencil = withUnistyles(Pencil);
 const ThemedTrash2 = withUnistyles(Trash2);
+const ThemedChevronsRight = withUnistyles(ChevronsRight);
 const newFolderIcon = <ThemedFolderPlus size={14} uniProps={mutedColorMapping} />;
 const moveIcon = <ThemedFolderInput size={14} uniProps={mutedColorMapping} />;
 const renameIcon = <ThemedPencil size={14} uniProps={mutedColorMapping} />;
 const deleteIcon = <ThemedTrash2 size={14} uniProps={mutedColorMapping} />;
+const focusIcon = <ThemedChevronsRight size={14} uniProps={mutedColorMapping} />;
 
 function renderKebabIcon({ hovered }: { hovered?: boolean }) {
   return (
@@ -58,14 +74,22 @@ function renderKebabIcon({ hovered }: { hovered?: boolean }) {
 
 type MenuSurface = "context" | "dropdown";
 
+function folderChevron(isFocusRoot: boolean, collapsed: boolean): SidebarDisclosure {
+  if (isFocusRoot) return null;
+  return collapsed ? "expand" : "collapse";
+}
+
 function FolderMenuItems({
   surface,
   row,
   scope,
+  onFocus,
 }: {
   surface: MenuSurface;
   row: SidebarFolderRowModel;
   scope: SidebarFolderScope;
+  /** Present only where rows cannot be hovered, so touch layouts can still focus. */
+  onFocus: (() => void) | null;
 }) {
   const { t } = useTranslation();
   const { folder } = row;
@@ -84,6 +108,15 @@ function FolderMenuItems({
   const removeFolder = useCallback(() => remove(folder.id, folder.name), [remove, folder]);
   return (
     <>
+      {onFocus ? (
+        <Item
+          leading={focusIcon}
+          onSelect={onFocus}
+          testID={`sidebar-folder-menu-focus-${folder.id}`}
+        >
+          {t("sidebar.focus.menuItem")}
+        </Item>
+      ) : null}
       {createInside ? (
         <Item
           leading={newFolderIcon}
@@ -145,6 +178,11 @@ export function SidebarFolderRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const interaction = useLongPressDragInteraction({ drag, menuController: null });
   const { folder, collapsed, itemCount } = row;
+  const focusTarget = useMemo<SidebarFocusTarget>(
+    () => ({ kind: "folder", folderId: folder.id }),
+    [folder.id],
+  );
+  const rowFocus = useSidebarRowFocus({ target: focusTarget, isHovered });
   const {
     role: _dragRole,
     tabIndex: _dragTabIndex,
@@ -156,8 +194,9 @@ export function SidebarFolderRow({
       interaction.didLongPressRef.current = false;
       return;
     }
+    if (rowFocus.isRoot) return;
     toggleSidebarFolderCollapsed(folder.id);
-  }, [folder.id, interaction.didLongPressRef]);
+  }, [folder.id, interaction.didLongPressRef, rowFocus.isRoot]);
   const handlePointerEnter = useCallback(() => {
     if (!touch) setIsHovered(true);
   }, [touch]);
@@ -207,7 +246,7 @@ export function SidebarFolderRow({
             testID={`sidebar-folder-row-${folder.id}`}
           >
             <SidebarLeadingSlot
-              chevron={collapsed ? "expand" : "collapse"}
+              chevron={folderChevron(rowFocus.isRoot, collapsed)}
               revealChevron={isHovered || touch}
               testID={`sidebar-folder-leading-${folder.id}`}
             >
@@ -224,6 +263,13 @@ export function SidebarFolderRow({
               />
             ) : null}
           </ContextMenuTrigger>
+          {rowFocus.buttonAction ? (
+            <SidebarFocusButton
+              name={folder.name}
+              onPress={rowFocus.buttonAction}
+              testID={`sidebar-folder-focus-${folder.id}`}
+            />
+          ) : null}
           <View
             style={showActions ? undefined : styles.hidden}
             pointerEvents={showActions ? "auto" : "none"}
@@ -243,7 +289,12 @@ export function SidebarFolderRow({
                 width={220}
                 sheetTitle={t("sidebar.folders.actions.menu")}
               >
-                <FolderMenuItems surface="dropdown" row={row} scope={scope} />
+                <FolderMenuItems
+                  surface="dropdown"
+                  row={row}
+                  scope={scope}
+                  onFocus={rowFocus.menuAction}
+                />
               </DropdownMenuContent>
             </DropdownMenu>
           </View>
@@ -253,7 +304,12 @@ export function SidebarFolderRow({
           width={220}
           testID={`sidebar-folder-context-${folder.id}`}
         >
-          <FolderMenuItems surface="context" row={row} scope={scope} />
+          <FolderMenuItems
+            surface="context"
+            row={row}
+            scope={scope}
+            onFocus={rowFocus.menuAction}
+          />
         </ContextMenuContent>
       </ContextMenu>
     </SidebarFolderDropTarget>

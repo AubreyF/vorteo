@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.876 - 2026-10-28
+
+### Added
+
+- Focus the sidebar on one project, folder, Standing or Factory section. Hovering a project or folder row shows a double-arrow Focus button just left of its ⋮ menu; touch layouts get a Focus item in project and folder menus instead, and Standing and Factory keep the button visible. The focused item becomes the top level with its contents beneath, and a breadcrumb at the top of the list leads from All projects through its root folders, project and project folders. Every segment but the last focuses that level; All projects leaves focus, and there is no back button. Escape leaves focus while keyboard focus is in the sidebar, and web and desktop show an Esc hint.
+- Focus is remembered on this device across reloads and is never synced through the shared sidebar state. If the focused item is deleted, archived or filtered away, the sidebar falls back to its nearest remaining ancestor, or to all projects. While focused, Pinned is hidden and pinned chats stay in their project; status grouping ignores focus; filters and search keep working inside it.
+
 ## 0.11.0-beta.3.vorteo.875 - 2026-10-28
 
 ### Maintenance

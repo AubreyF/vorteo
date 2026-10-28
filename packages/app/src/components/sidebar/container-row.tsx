@@ -4,7 +4,7 @@ import { StyleSheet } from "react-native-unistyles";
 import { useVortonTouch } from "@/vorton-touch";
 import { sidebarIndentStyle } from "./indent";
 import { SidebarCountBadge } from "./sidebar-count-badge";
-import { SidebarFolderIcon, SidebarLeadingSlot } from "./leading-slot";
+import { SidebarFolderIcon, SidebarLeadingSlot, type SidebarDisclosure } from "./leading-slot";
 import { useSidebarRowDensity } from "./use-sidebar-row-density";
 
 /** Geometry shared by folder-like rows: sidebar folders, Standing and Factory. */
@@ -39,6 +39,11 @@ export const sidebarContainerRowStyles = StyleSheet.create((theme) => ({
   },
 }));
 
+function collapsibleChevron(collapsible: boolean, collapsed: boolean): SidebarDisclosure {
+  if (!collapsible) return null;
+  return collapsed ? "expand" : "collapse";
+}
+
 /**
  * A project's Standing or Factory heading. It reads as a folder: folder icon, hover arrow and
  * the same indent as the project's other direct children.
@@ -47,6 +52,7 @@ export function SidebarSectionRow({
   title,
   count,
   collapsed,
+  collapsible = true,
   onToggle,
   level,
   testID,
@@ -55,6 +61,8 @@ export function SidebarSectionRow({
   title: string;
   count: number;
   collapsed: boolean;
+  /** False for a focused top level, which shows its icon without an arrow. */
+  collapsible?: boolean;
   onToggle: () => void;
   level: number;
   testID: string;
@@ -95,14 +103,14 @@ export function SidebarSectionRow({
         accessibilityRole="button"
         accessibilityLabel={title}
         accessibilityState={accessibilityState}
-        onPress={onToggle}
+        onPress={collapsible ? onToggle : undefined}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         style={sidebarContainerRowStyles.main}
         testID={`${testID}-toggle`}
       >
         <SidebarLeadingSlot
-          chevron={collapsed ? "expand" : "collapse"}
+          chevron={collapsibleChevron(collapsible, collapsed)}
           revealChevron={isHovered || touch}
         >
           <SidebarFolderIcon />

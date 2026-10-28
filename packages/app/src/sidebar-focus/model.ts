@@ -2,7 +2,12 @@ import { z } from "zod";
 import { sidebarFolderEntry } from "@getpaseo/protocol/sidebar-folders";
 import type { SidebarFolder } from "@getpaseo/protocol/sidebar-state";
 import type { SidebarFolderState } from "@/sidebar-folders/store";
-import type { SidebarTreeRow } from "@/sidebar-folders/tree";
+import {
+  ROOT_FOLDER_SCOPE,
+  projectFolderScope,
+  sidebarFolderIdsWithItems,
+  type SidebarTreeRow,
+} from "@/sidebar-folders/tree";
 
 export const SidebarFocusSectionSchema = z.enum(["standing", "factory"]);
 export type SidebarFocusSection = z.infer<typeof SidebarFocusSectionSchema>;
@@ -39,6 +44,46 @@ export interface SidebarFocusWorld {
   projects: ReadonlyMap<string, SidebarFocusProject>;
   /** Folders a filter emptied out of the list. */
   hiddenFolderIds: ReadonlySet<string>;
+}
+
+export interface SidebarFocusProjectInput extends SidebarFocusProject {
+  key: string;
+  workspaceKeys: readonly string[];
+}
+
+export function buildSidebarFocusWorld(input: {
+  folderState: SidebarFolderState;
+  projects: readonly SidebarFocusProjectInput[];
+  hideEmptyFolders: boolean;
+}): SidebarFocusWorld {
+  const { folderState, projects, hideEmptyFolders } = input;
+  const hiddenFolderIds = new Set<string>();
+  if (hideEmptyFolders) {
+    const kept = sidebarFolderIdsWithItems({
+      state: folderState,
+      scope: ROOT_FOLDER_SCOPE,
+      keys: projects.map((project) => project.key),
+    });
+    for (const project of projects) {
+      const projectKept = sidebarFolderIdsWithItems({
+        state: folderState,
+        scope: projectFolderScope(project.key),
+        keys: project.workspaceKeys,
+      });
+      for (const id of projectKept) kept.add(id);
+    }
+    for (const id of Object.keys(folderState.sidebarFolders)) {
+      if (!kept.has(id)) hiddenFolderIds.add(id);
+    }
+  }
+  return {
+    folders: folderState.sidebarFolders,
+    itemFolder: folderState.itemFolder,
+    projects: new Map(
+      projects.map((project) => [project.key, { name: project.name, sections: project.sections }]),
+    ),
+    hiddenFolderIds,
+  };
 }
 
 export interface SidebarFocusCrumb {
@@ -203,15 +248,32 @@ export function focusTreeRows<T>(
   return focused;
 }
 
-/** View-only copy with the focused folder and its folder ancestors unfolded. */
+function folderPath(state: SidebarFolderState, folderId: string | null): string[] {
+  const path: string[] = [];
+  let current = folderId;
+  while (current !== null && !path.includes(current)) {
+    const folder = state.sidebarFolders[current];
+    if (!folder) break;
+    path.push(current);
+    current = folder.parentId;
+  }
+  return path;
+}
+
+/**
+ * View-only copy with every folder on the way to the focused item unfolded: the focused
+ * folder, its folder ancestors and the project's root folders. Stored folding is unchanged.
+ */
 export function expandSidebarFocusPath(
   state: SidebarFolderState,
   target: SidebarFocusTarget,
   world: SidebarFocusWorld,
 ): SidebarFolderState {
-  const folderIds = [...sidebarFocusAncestors(target, world), target].flatMap((entry) =>
-    entry.kind === "folder" ? [entry.folderId] : [],
-  );
+  const projectKey = sidebarFocusProjectKey(target, world);
+  const folderIds = [
+    ...(target.kind === "folder" ? folderPath(state, target.folderId) : []),
+    ...(projectKey === null ? [] : folderPath(state, world.itemFolder[projectKey] ?? null)),
+  ];
   if (!folderIds.some((id) => state.collapsedFolders[id] === true)) return state;
   const collapsedFolders = { ...state.collapsedFolders };
   for (const id of folderIds) delete collapsedFolders[id];
