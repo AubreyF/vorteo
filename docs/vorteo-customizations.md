@@ -1339,6 +1339,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 28, 2026: Clear goal uses a trashcan and stays enabled independently of goal editing readiness. Requests retain existing host validation and error feedback. README overview and onboarding are unchanged.
+
 October 22, 2026: New workspaces branch from a freshly fetched `origin/main` when the local branch is only behind, and previews write their launch wrapper to the untracked `paseo.local.json` on daemons that advertise it. The agent guide treats the primary checkout as read-only. The installed preview helper and broker still need reinstalling. README overview and onboarding are unchanged.
 
 October 22, 2026: The coordinator's release-note check now accepts a well-formed heading with no notes, which unblocks Dev updates from current source; malformed headings and edited history are still refused. `restarts.test.ts` has one failure, "new requests cannot join a restart after dispatch starts", that also fails on unmodified `vorteo.753`. README is unchanged.
@@ -1819,3 +1821,5 @@ Coordinator startup reads promoted requests plus only their exactly bound recove
 Startup diagnostics operate before the interface bundle and automatically check installation reachability after 15 seconds. They use bounded requests, defer offline checks until resume, distinguish completed browser resource timings from unknown in-flight progress, and show only the coordinator's existing public restart-request counts. Counts cannot establish an active component restart, its initiation time, or the cause of a connection failure. The themed app shell dismisses the overlay after local settings load and two paint frames; daemon connection and session readiness remain separate stages. Production exports preload their original entry script with matching security attributes and embed validated source/version metadata. The compact diagnostic reveal uses inline CSS, system fonts and reduced-motion support.
 
 Maintenance review (2026-10-28): reconciled the retained Dev source ancestry with the accepted outage repair without changing runtime code. Tracked Dev delivery, permanent cold-start selection and the degraded-engine recovery baseline retain separate acceptance receipts; README overview and onboarding are unchanged.
+
+Maintenance review: Clear goal is integrated on the installed Host source for static publication. Goal screenshots passed inspection; the retained unrelated compact geometry skip is not a full pass. No daemon restart is needed.

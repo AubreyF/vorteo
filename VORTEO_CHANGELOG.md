@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.881 - 2026-10-28
+
+### Changed
+
+- Use a trashcan for Clear goal and keep the action available, retaining shared error handling and backend serialization.
+
 ## 0.11.0-beta.3.vorteo.880 - 2026-10-28
 
 ### Maintenance
@@ -61,6 +67,8 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Separately approved degraded Docker recovery with pinned executable and container identities, retained paused-Factory evidence, a shared command deadline and no automatic replay.
 - An optional native private recovery origin that serves the existing interface and authenticated installation controls without redirecting through Docker.
+
+- Use a trashcan for Clear goal and keep the action enabled during goal activity, pending requests and errors.
 
 ## 0.11.0-beta.3.vorteo.873 - 2026-10-26
 
