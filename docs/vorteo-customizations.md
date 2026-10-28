@@ -1840,3 +1840,7 @@ Maintenance review: sidebar delivery includes the installed Host maintenance sta
 Maintenance review: integrated the Clear goal trashcan and always-enabled action with the sidebar delivery. Desktop and compact goal screenshots were inspected; the retained geometry retry skipped on unrelated subagent spacing and is not a full geometry pass.
 
 Maintenance review: sidebar tree dragging retains a focusable keyboard handle, arrow reordering, Space or Enter drop, Escape cancellation and focus return. The browser regression covers project and workspace ordering and persistence after reload; pointer placement rules are unchanged. Source awaits independent review and publication. README overview and onboarding are unchanged.
+
+Maintenance review: Clear goal is integrated on the installed Host source for static publication. Goal screenshots passed inspection; the retained unrelated compact geometry skip is not a full pass. No daemon restart is needed.
+
+Maintenance review: the keyboard-corrected sidebar retains the published Clear goal source. Its keyboard browser regressions and pointer resolver tests passed; native screen-reader validation remains separate.

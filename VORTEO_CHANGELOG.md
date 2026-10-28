@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.884 - 2026-10-28
+
+### Maintenance
+
+- Reconcile the keyboard-corrected sidebar delivery with the published Clear goal interface, preserving both source histories and their validation limits.
+
 ## 0.11.0-beta.3.vorteo.883 - 2026-10-28
 
 ### Fixed
@@ -21,6 +27,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Reconcile the sidebar delivery with the installed Host source, retaining maintenance status isolation and all incident fixes.
+
+## 0.11.0-beta.3.vorteo.881 - 2026-10-28
+
+### Changed
+
+- Use a trashcan for Clear goal and keep the action available, retaining shared error handling and backend serialization.
 
 ## 0.11.0-beta.3.vorteo.880 - 2026-10-28
 
