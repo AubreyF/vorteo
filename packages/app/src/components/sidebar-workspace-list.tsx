@@ -182,7 +182,13 @@ import {
   useSidebarFoldersSupported,
 } from "@/sidebar-folders/actions";
 import { SidebarFolderDropProvider, useSidebarFolderDrop } from "@/sidebar-folders/drop-context";
-import { SidebarFolderRow, sidebarDepthStyle } from "@/sidebar-folders/folder-row";
+import { SidebarFolderRow } from "@/sidebar-folders/folder-row";
+import {
+  SIDEBAR_ROW_INSET,
+  sidebarIndentStyle,
+  sidebarNestingStyle,
+} from "@/components/sidebar/indent";
+import { SidebarSectionRow } from "@/components/sidebar/container-row";
 import {
   EMPTY_SIDEBAR_FOLDER_STATE,
   useSidebarFolderStore,
@@ -208,6 +214,10 @@ function treeRowItems<T>(rows: readonly SidebarTreeRow<T>[]): T[] {
 }
 
 const WORKSPACE_STATUS_DOT_WIDTH = 14;
+// A project's direct children (workspaces, folders, Standing, Factory) sit one level in; the
+// workspaces inside Standing and Factory sit one level further.
+const PROJECT_CHILD_LEVEL = 1;
+const SECTION_WORKSPACE_LEVEL = 2;
 const ThemedExternalLink = withUnistyles(ExternalLink);
 const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
 const ThemedPlus = withUnistyles(Plus);
@@ -345,6 +355,8 @@ interface WorkspaceRowInnerProps {
   isPinned?: boolean;
   onTogglePin?: () => void;
   reserveIdleStatusIndicatorSpace?: boolean;
+  /** Hierarchy level inside project mode; see `sidebarIndent`. */
+  indentLevel?: number;
 }
 
 export function PrBadge({ hint, style }: { hint: PrHint; style?: StyleProp<ViewStyle> }) {
@@ -1314,6 +1326,7 @@ function WorkspaceRowInner({
   isPinned,
   onTogglePin,
   reserveIdleStatusIndicatorSpace = true,
+  indentLevel = 1,
 }: WorkspaceRowInnerProps) {
   const density = useSidebarRowDensity();
   const isCompact = useIsCompactFormFactor();
@@ -1400,7 +1413,7 @@ function WorkspaceRowInner({
               style={[
                 workspaceRowStyle,
                 density,
-                !leadingProjectName && sidebarWorkspaceRowStyles.projectIndented,
+                !leadingProjectName && sidebarIndentStyle(indentLevel),
               ]}
               highlightStyle={styles.workspaceRowPressed}
               onPressIn={handleWorkspacePressIn}
@@ -1470,11 +1483,13 @@ function WorkspaceRowWithMenu({
   onToggleWorkspacePin,
   reserveIdleStatusIndicatorSpace = true,
   isCreating = false,
+  indentLevel,
 }: {
   workspace: SidebarWorkspaceEntry;
   hostBadge?: HostBadgeModel | null;
   leadingProjectName?: string | null;
   leadingProjectIconDataUri?: string | null;
+  indentLevel?: number;
   selected: boolean;
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
@@ -1548,6 +1563,7 @@ function WorkspaceRowWithMenu({
         isPinned={isPinned}
         onTogglePin={onTogglePin}
         reserveIdleStatusIndicatorSpace={reserveIdleStatusIndicatorSpace}
+        indentLevel={indentLevel}
       />
       <WorkspaceRenameModal
         visible={isRenameOpen}
@@ -1572,6 +1588,7 @@ interface WorkspaceRowItemProps {
   onToggleWorkspacePin: ToggleSidebarWorkspacePin;
   reserveIdleStatusIndicatorSpace?: boolean;
   isCreating?: boolean;
+  indentLevel?: number;
   selectionEnabled: boolean;
   activeWorkspaceSelection: ActiveWorkspaceSelection | null;
   onWorkspacePress?: () => void;
@@ -1593,6 +1610,7 @@ function WorkspaceRowItem({
   onToggleWorkspacePin,
   reserveIdleStatusIndicatorSpace = true,
   isCreating = false,
+  indentLevel,
   selectionEnabled,
   activeWorkspaceSelection,
   onWorkspacePress,
@@ -1621,6 +1639,7 @@ function WorkspaceRowItem({
       onToggleWorkspacePin={onToggleWorkspacePin}
       reserveIdleStatusIndicatorSpace={reserveIdleStatusIndicatorSpace}
       isCreating={isCreating}
+      indentLevel={indentLevel}
       selected={isWorkspaceSelected({
         selection: activeWorkspaceSelection,
         serverId: workspace.serverId,
@@ -1664,6 +1683,7 @@ function areWorkspaceRowItemPropsEqual(
     previous.onToggleWorkspacePin === next.onToggleWorkspacePin &&
     previous.reserveIdleStatusIndicatorSpace === next.reserveIdleStatusIndicatorSpace &&
     previous.isCreating === next.isCreating &&
+    previous.indentLevel === next.indentLevel &&
     previous.onWorkspacePress === next.onWorkspacePress &&
     previous.drag === next.drag &&
     previous.isDragging === next.isDragging &&
@@ -1690,6 +1710,7 @@ function WorkspaceRow({
   onToggleWorkspacePin,
   reserveIdleStatusIndicatorSpace = true,
   isCreating = false,
+  indentLevel,
   selected,
 }: {
   workspaceEntry: SidebarWorkspaceEntry | null;
@@ -1707,6 +1728,7 @@ function WorkspaceRow({
   onToggleWorkspacePin: ToggleSidebarWorkspacePin;
   reserveIdleStatusIndicatorSpace?: boolean;
   isCreating?: boolean;
+  indentLevel?: number;
   selected: boolean;
 }) {
   if (!workspaceEntry) {
@@ -1731,6 +1753,7 @@ function WorkspaceRow({
       onToggleWorkspacePin={onToggleWorkspacePin}
       reserveIdleStatusIndicatorSpace={reserveIdleStatusIndicatorSpace}
       isCreating={isCreating}
+      indentLevel={indentLevel}
     />
   );
 }
@@ -1900,6 +1923,7 @@ function ProjectBlock({
         drag?: () => void;
         isDragging?: boolean;
         dragHandleProps?: DraggableListDragHandleProps;
+        indentLevel?: number;
       },
     ) => {
       return (
@@ -1919,6 +1943,7 @@ function ProjectBlock({
           drag={input?.drag}
           isDragging={input?.isDragging}
           dragHandleProps={input?.dragHandleProps}
+          indentLevel={input?.indentLevel}
         />
       );
     },
@@ -1948,6 +1973,7 @@ function ProjectBlock({
         drag: workspaceDrag,
         isDragging: isActive,
         dragHandleProps: workspaceDragHandleProps,
+        indentLevel: SECTION_WORKSPACE_LEVEL,
       });
     },
     [renderWorkspaceRow],
@@ -1972,22 +1998,19 @@ function ProjectBlock({
           <SidebarFolderRow
             row={row}
             scope={folderScope}
+            level={PROJECT_CHILD_LEVEL + row.depth}
             drag={rowDrag}
             isDragging={isActive}
             dragHandleProps={rowDragHandleProps}
           />
         );
       }
-      const workspaceRow = renderWorkspaceRow(row.item, {
+      return renderWorkspaceRow(row.item, {
         drag: rowDrag,
         isDragging: isActive,
         dragHandleProps: rowDragHandleProps,
+        indentLevel: PROJECT_CHILD_LEVEL + row.depth,
       });
-      return row.depth > 0 ? (
-        <View style={sidebarDepthStyle(row.depth)}>{workspaceRow}</View>
-      ) : (
-        workspaceRow
-      );
     },
     [folderScope, renderWorkspaceRow],
   );
@@ -2092,10 +2115,10 @@ function ProjectBlock({
           ) : null}
           {groups.factory.length > 0 ? (
             <>
-              <PinnedSectionHeader
+              <SidebarSectionRow
                 title="Factory"
                 count={groups.factory.length}
-                indented
+                level={PROJECT_CHILD_LEVEL}
                 testID={`sidebar-factory-section-${project.viewKey}`}
                 collapsed={factoryCollapsed}
                 onToggle={toggleFactory}
@@ -2128,6 +2151,7 @@ function ProjectBlock({
                     <SidebarGroupToggleRow
                       expanded={factoryGroup.expanded}
                       onPress={factoryGroup.toggleExpanded}
+                      level={SECTION_WORKSPACE_LEVEL}
                       testID={`sidebar-factory-show-more-${project.viewKey}`}
                     />
                   ) : null}
@@ -2137,10 +2161,10 @@ function ProjectBlock({
           ) : null}
           {groups.standing.length > 0 ? (
             <>
-              <PinnedSectionHeader
+              <SidebarSectionRow
                 title="Standing"
                 count={groups.standing.length}
-                indented
+                level={PROJECT_CHILD_LEVEL}
                 testID={`sidebar-standing-section-${project.viewKey}`}
                 collapsed={standingCollapsed}
                 onToggle={toggleStanding}
@@ -2166,6 +2190,7 @@ function ProjectBlock({
                     <SidebarGroupToggleRow
                       expanded={standingGroup.expanded}
                       onPress={standingGroup.toggleExpanded}
+                      level={SECTION_WORKSPACE_LEVEL}
                       testID={`sidebar-standing-show-more-${project.viewKey}`}
                     />
                   ) : null}
@@ -2824,6 +2849,7 @@ function ProjectModeListContent({
           <SidebarFolderRow
             row={row}
             scope={ROOT_FOLDER_SCOPE}
+            level={row.depth}
             drag={drag}
             isDragging={isActive}
             dragHandleProps={dragHandleProps}
@@ -2831,7 +2857,7 @@ function ProjectModeListContent({
         );
       }
       const block = renderProjectBlock(row.item, { drag, isDragging: isActive, dragHandleProps });
-      return row.depth > 0 ? <View style={sidebarDepthStyle(row.depth)}>{block}</View> : block;
+      return row.depth > 0 ? <View style={sidebarNestingStyle(row.depth)}>{block}</View> : block;
     },
     [renderProjectBlock],
   );
@@ -3065,7 +3091,7 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 36,
     paddingVertical: theme.spacing[2],
     paddingHorizontal: theme.spacing[2],
-    paddingLeft: 6,
+    paddingLeft: SIDEBAR_ROW_INSET,
     borderRadius: theme.borderRadius.lg,
     marginBottom: theme.spacing[1],
     flexDirection: "row",

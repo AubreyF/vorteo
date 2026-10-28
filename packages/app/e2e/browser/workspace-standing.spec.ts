@@ -7,6 +7,7 @@ import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import { getServerId } from "../support/helpers/server-id";
 import { openWorkspaceActionsMenu } from "../support/helpers/workspace-ui";
 import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
+import { SIDEBAR_INDENT_UNIT } from "../../src/components/sidebar/indent";
 
 /**
  * Escape closes an open tooltip first and the menu on the next press, so keep pressing until
@@ -153,12 +154,17 @@ test.fixme("Standing follows schedules and protection, and failed changes can be
       .getByText("main", { exact: true })
       .evaluate((element) => getComputedStyle(element).fontSize);
     await expect(heading).toHaveCSS("font-size", titleSize);
-    const arrowBox = await section.locator("svg").first().boundingBox();
-    if (!arrowBox) throw new Error("Expected leading disclosure arrow");
-    expect(Math.abs(arrowBox.x + arrowBox.width / 2 - dotBox.x - dotBox.width / 2)).toBeLessThan(1);
-    expect(headingBox.x - arrowBox.x - arrowBox.width).toBeGreaterThanOrEqual(8);
+    // Standing is a project child like a folder, so its folder icon sits one indent unit
+    // outside the workspaces it holds.
+    const folderIconBox = await section.locator("svg").first().boundingBox();
+    if (!folderIconBox) throw new Error("Expected leading folder icon");
+    const iconCenter = folderIconBox.x + folderIconBox.width / 2;
+    expect(Math.abs(dotBox.x + dotBox.width / 2 - iconCenter - SIDEBAR_INDENT_UNIT)).toBeLessThan(
+      1,
+    );
+    expect(headingBox.x - folderIconBox.x - folderIconBox.width).toBeGreaterThanOrEqual(8);
     const workspaceTitleBox = await workspaceRow.getByText("main", { exact: true }).boundingBox();
-    expect(Math.abs(headingBox.x - workspaceTitleBox!.x)).toBeLessThan(1);
+    expect(Math.abs(workspaceTitleBox!.x - headingBox.x - SIDEBAR_INDENT_UNIT)).toBeLessThan(1);
     await section.hover();
     expect(await section.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(
       "rgba(0, 0, 0, 0)",

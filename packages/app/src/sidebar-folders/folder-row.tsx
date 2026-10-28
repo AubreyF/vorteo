@@ -2,16 +2,7 @@ import { useCallback, useMemo, useState, type Ref } from "react";
 import { Text, View, type PressableStateCallbackType } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
-import {
-  ChevronDown,
-  ChevronRight,
-  Folder,
-  FolderInput,
-  FolderPlus,
-  MoreVertical,
-  Pencil,
-  Trash2,
-} from "lucide-react-native";
+import { FolderInput, FolderPlus, MoreVertical, Pencil, Trash2 } from "lucide-react-native";
 import type { SidebarFolderScope } from "@getpaseo/protocol/sidebar-state";
 import { sidebarFolderEntry } from "@getpaseo/protocol/sidebar-folders";
 import {
@@ -33,7 +24,9 @@ import { useLongPressDragInteraction } from "@/components/sidebar/use-long-press
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { isNative } from "@/constants/platform";
 import { useVortonTouch } from "@/vorton-touch";
-import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
+import { sidebarIndentStyle } from "@/components/sidebar/indent";
+import { sidebarContainerRowStyles } from "@/components/sidebar/container-row";
+import { SidebarFolderIcon, SidebarLeadingSlot } from "@/components/sidebar/leading-slot";
 import type { Theme } from "@/styles/theme";
 import {
   toggleSidebarFolderCollapsed,
@@ -45,14 +38,8 @@ import { useRemoveSidebarFolder } from "./dialogs";
 import { SidebarFolderDropTarget } from "./drop-context";
 import type { SidebarFolderRow as SidebarFolderRowModel } from "./tree";
 
-/** Each nesting level steps in by one icon slot, like workspaces under their project. */
-export const SIDEBAR_FOLDER_INDENT = 16;
-
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
-const ThemedChevronDown = withUnistyles(ChevronDown);
-const ThemedChevronRight = withUnistyles(ChevronRight);
-const ThemedFolder = withUnistyles(Folder);
 const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedFolderPlus = withUnistyles(FolderPlus);
 const ThemedFolderInput = withUnistyles(FolderInput);
@@ -62,13 +49,6 @@ const newFolderIcon = <ThemedFolderPlus size={14} uniProps={mutedColorMapping} /
 const moveIcon = <ThemedFolderInput size={14} uniProps={mutedColorMapping} />;
 const renameIcon = <ThemedPencil size={14} uniProps={mutedColorMapping} />;
 const deleteIcon = <ThemedTrash2 size={14} uniProps={mutedColorMapping} />;
-
-/** Project folders sit among workspace rows, so their icon shares the workspace status slot. */
-const PROJECT_FOLDER_INSET = 20;
-
-export function sidebarDepthStyle(depth: number, inset = 0) {
-  return inlineUnistylesStyle({ paddingLeft: inset + depth * SIDEBAR_FOLDER_INDENT });
-}
 
 function renderKebabIcon({ hovered }: { hovered?: boolean }) {
   return (
@@ -143,12 +123,15 @@ function FolderMenuItems({
 export function SidebarFolderRow({
   row,
   scope,
+  level,
   drag,
   isDragging,
   dragHandleProps,
 }: {
   row: SidebarFolderRowModel;
   scope: SidebarFolderScope;
+  /** Hierarchy level, which sets the indent; see `sidebarIndent`. */
+  level: number;
   drag: () => void;
   isDragging: boolean;
   dragHandleProps?: DraggableListDragHandleProps;
@@ -161,7 +144,7 @@ export function SidebarFolderRow({
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const interaction = useLongPressDragInteraction({ drag, menuController: null });
-  const { folder, collapsed, depth, itemCount } = row;
+  const { folder, collapsed, itemCount } = row;
   const {
     role: _dragRole,
     tabIndex: _dragTabIndex,
@@ -181,13 +164,13 @@ export function SidebarFolderRow({
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
   const rowStyle = useMemo(
     () => [
-      styles.row,
+      sidebarContainerRowStyles.row,
       density,
-      sidebarDepthStyle(depth, scope.kind === "project" ? PROJECT_FOLDER_INSET : 0),
-      (isHovered || contextMenuOpen) && styles.rowHovered,
+      sidebarIndentStyle(level),
+      (isHovered || contextMenuOpen) && sidebarContainerRowStyles.rowHovered,
       isDragging && styles.rowDragging,
     ],
-    [scope.kind, density, depth, isHovered, contextMenuOpen, isDragging],
+    [density, level, isHovered, contextMenuOpen, isDragging],
   );
   const accessibilityState = useMemo(() => ({ expanded: !collapsed }), [collapsed]);
   const kebabStyle = useCallback(
@@ -197,7 +180,6 @@ export function SidebarFolderRow({
     ],
     [],
   );
-  const Chevron = collapsed ? ThemedChevronRight : ThemedChevronDown;
   const showActions = isHovered || menuOpen || touch || compact || isNative;
   const countLabel = String(itemCount);
 
@@ -217,18 +199,21 @@ export function SidebarFolderRow({
             accessibilityRole="button"
             accessibilityLabel={folder.name}
             accessibilityState={accessibilityState}
-            style={styles.main}
+            style={sidebarContainerRowStyles.main}
             onPressIn={interaction.handlePressIn}
             onTouchMove={interaction.handleTouchMove}
             onPressOut={interaction.handlePressOut}
             onPress={toggle}
             testID={`sidebar-folder-row-${folder.id}`}
           >
-            <View style={styles.chevronSlot}>
-              <Chevron size={12} uniProps={mutedColorMapping} />
-            </View>
-            <ThemedFolder size={14} uniProps={mutedColorMapping} />
-            <Text style={styles.title} numberOfLines={1}>
+            <SidebarLeadingSlot
+              chevron={collapsed ? "expand" : "collapse"}
+              revealChevron={isHovered || touch}
+              testID={`sidebar-folder-leading-${folder.id}`}
+            >
+              <SidebarFolderIcon />
+            </SidebarLeadingSlot>
+            <Text style={sidebarContainerRowStyles.title} numberOfLines={1}>
               {folder.name}
             </Text>
             {collapsed ? (
@@ -276,46 +261,12 @@ export function SidebarFolderRow({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  row: {
-    position: "relative",
-    minHeight: 36,
-    marginBottom: theme.spacing[0.5],
-    paddingVertical: theme.spacing[1],
-    paddingRight: theme.spacing[2],
-    borderRadius: theme.borderRadius.lg,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    userSelect: "none",
-  },
-  rowHovered: { backgroundColor: theme.colors.surfaceSidebarHover },
   rowDragging: {
     backgroundColor: theme.colors.surface2,
     borderWidth: 1,
     borderColor: theme.colors.border,
     zIndex: 3,
     ...theme.shadow.md,
-  },
-  main: {
-    flex: 1,
-    minWidth: 0,
-    alignSelf: "stretch",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    paddingLeft: theme.spacing[2],
-  },
-  chevronSlot: {
-    width: theme.iconSize.md,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  title: {
-    flexShrink: 1,
-    minWidth: 0,
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.base,
   },
   hidden: { opacity: 0 },
   kebab: { padding: 2, borderRadius: 4 },
