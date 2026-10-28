@@ -4577,9 +4577,10 @@ for (const failed of [false, true]) {
     expect(response.status).toBe(201);
     const job = RestartJobSchema.parse(await response.json());
     expect(job.engineRecoveryPlanSha256).toBe("e".repeat(64));
-    await page.goto(`${origin}/settings/general?installation=1&restart=${job.id}`);
+    await page.goto(`${origin}/settings/maintenance?installation=1&restart=${job.id}`);
     await page.getByTestId("installation-password").fill(ownerPassword);
     await page.getByTestId("installation-unlock").click();
+    await expect(page.getByTestId("installation-lock")).toBeVisible();
     const card = page.getByTestId(`restart-request-${job.id}`);
     await expect(card).toBeVisible();
     await expect(page.getByTestId(`restart-finish-${job.id}`)).toHaveCount(0);

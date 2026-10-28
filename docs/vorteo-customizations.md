@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-28): recovery browser checks use the explicit Maintenance route and wait for owner unlock before asserting request controls. Runtime behavior, README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-28): degraded Docker recovery has a separate exact approval, retained paused-Factory baseline, bounded execution and no replay. An explicitly configured native private recovery origin serves the existing authenticated interface without the Docker redirect. Managed supervisors use the selected worker's strict configuration reader. Source validation and installation acceptance are recorded separately; README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-26): a coordinator for a systemd Host starts without the launchd coordinator bootstrap ledger instead of crashing. Coordinator bootstrap and renewal remain macOS launchd only. Not yet installed; the current Host uses launchd and is unaffected. README overview and onboarding are unchanged.
