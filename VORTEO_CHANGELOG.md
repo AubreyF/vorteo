@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.885 - 2026-10-28
+
+### Added
+
+- Recover threads whose provider account is unavailable through the existing profile switch, preserving thread identity and recorded history with capability-gated controls.
+
 ## 0.11.0-beta.3.vorteo.884 - 2026-10-28
 
 ### Maintenance
@@ -138,6 +144,9 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Every sidebar hierarchy level now steps in by one 24px unit: root folders, projects, project folders with Standing and Factory, then workspaces. Workspaces inside a project folder, Standing or Factory sit one level deeper than the project's own workspaces. The unit lives in `components/sidebar/indent.ts`.
 
 - Use a trashcan for Clear goal and keep the action enabled during goal activity, pending requests and errors.
+
+- Threads whose provider is unavailable offer the standard account and profile picker in the load error. Recovery reads the previous account's saved history without running a turn, keeps the original thread and workspace, and retains its checklist, journal and questions. Failed recovery leaves the original account binding intact and offers a visible retry. The existing recent-message context bound still applies.
+- Add disabled and removed account recovery tests, stale-source and failed-replacement checks, and a browser journey covering unreadable history, retry and reload.
 
 ## 0.11.0-beta.3.vorteo.873 - 2026-10-26
 

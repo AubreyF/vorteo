@@ -254,6 +254,9 @@ export const ja: TranslationResources = {
   },
   agentPanel: {
     states: {
+      providerUnavailable: en.agentPanel.states.providerUnavailable,
+      providerRecovery: en.agentPanel.states.providerRecovery,
+      loadingProviders: en.agentPanel.states.loadingProviders,
       notFound: "エージェントが見つかりません",
       failedToLoad: "エージェントの読み込みに失敗しました",
       reconnecting: "ホストに再接続中",

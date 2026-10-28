@@ -252,6 +252,9 @@ export const ar: TranslationResources = {
   },
   agentPanel: {
     states: {
+      providerUnavailable: en.agentPanel.states.providerUnavailable,
+      providerRecovery: en.agentPanel.states.providerRecovery,
+      loadingProviders: en.agentPanel.states.loadingProviders,
       notFound: "لم يتم العثور على Agent",
       failedToLoad: "فشل تحميل الوكيل",
       reconnecting: "جارٍ إعادة الاتصال بالمضيف",

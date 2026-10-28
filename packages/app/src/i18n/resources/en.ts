@@ -250,6 +250,10 @@ export const en = {
     states: {
       notFound: "Agent not found",
       failedToLoad: "Failed to load agent",
+      providerUnavailable: "This thread's provider is unavailable",
+      providerRecovery:
+        "Choose a profile to continue this thread. Its saved conversation, tasks and journal stay here.",
+      loadingProviders: "Loading available providers...",
       reconnecting: "Reconnecting to host",
       updating: "Updating messages",
       timelineSyncFailed: "Couldn't refresh agent history.",

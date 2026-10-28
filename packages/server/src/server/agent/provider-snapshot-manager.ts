@@ -13,6 +13,9 @@ import { withTimeout } from "../../utils/promise-timeout.js";
 import {
   filterSelectableAgentModels,
   type AgentClient,
+  type AgentPersistenceHandle,
+  type AgentSessionConfig,
+  type AgentStreamEvent,
   type AgentCreateConfigParent,
   type AgentMode,
   type AgentModelDefinition,
@@ -474,6 +477,34 @@ export class ProviderSnapshotManager {
     clients[provider] = client;
     this.ownedClients.add(client);
     return client;
+  }
+
+  /** Reads the original account's saved transcript even after it was disabled or removed. */
+  async *readSessionHistory(
+    handle: AgentPersistenceHandle,
+    config: AgentSessionConfig,
+  ): AsyncGenerator<AgentStreamEvent> {
+    const override = this.providerOverrides?.[handle.provider];
+    const overrides = { ...this.providerOverrides };
+    if (override) overrides[handle.provider] = { ...override, removed: false };
+    const definition = this.buildRegistry(this.runtimeSettings, overrides)[handle.provider];
+    if (!definition)
+      throw new Error(
+        "The original account configuration is missing. Restore it to recover this thread's history.",
+      );
+    const client = definition.createClient(this.logger);
+    this.ownedClients.add(client);
+    try {
+      const session = await client.resumeSession(handle, config, undefined, { purpose: "history" });
+      try {
+        yield* session.streamHistory();
+      } finally {
+        await session.close();
+      }
+    } finally {
+      await shutdownAgentClients([client], this.logger);
+      this.ownedClients.delete(client);
+    }
   }
 
   async listProviders(input: ProviderSnapshotReadOptions = {}): Promise<ProviderSnapshotEntry[]> {
