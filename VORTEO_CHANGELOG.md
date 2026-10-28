@@ -4,6 +4,21 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.880 - 2026-10-28
+
+### Fixed
+
+- A shutting-down daemon closes each WebSocket as a server shutdown and drops a peer that has not answered the close within one second. A stalled client could previously hold the old worker, and the replacement, for up to 30 seconds.
+
+### Changed
+
+- After a daemon announces its shutdown, clients retry every 500 ms for up to one minute instead of backing off, so they return about when the replacement worker listens. Ordinary network drops keep the existing backoff.
+
+### Maintenance
+
+- Added the invisible Host restarts plan: the measured restart gap, how the client handles disconnects, options for removing the remaining gap, and what making durable sessions the default requires. Durable sessions stay off by default.
+- Merge the faster restart reconnection into the core-services branch.
+
 ## 0.11.0-beta.3.vorteo.879 - 2026-10-28
 
 ### Fixed

@@ -107,7 +107,7 @@ bin/xcaddy build v2.11.4 --with github.com/caddy-dns/cloudflare@v0.2.4 --output 
 GOBIN="$PWD/bin" go install tailscale.com/cmd/tailscaled@<version> tailscale.com/cmd/tailscale@<version>
 ```
 
-Write a private `gateway.json` outside the checkout. Each site either redirects or proxies. Plain HTTP upstreams must be loopback; others use verified HTTPS. `holdSeconds` makes Caddy hold requests while a loopback upstream restarts, up to 120 seconds, instead of failing the page load. Point the protected interface directly at the Host daemon's loopback port; the tailnet round trip through the Host's own Serve route is unnecessary on the same machine.
+Write a private `gateway.json` outside the checkout. Each site either redirects or proxies. Plain HTTP upstreams must be loopback; others use verified HTTPS. `holdSeconds` makes Caddy hold requests while a loopback upstream restarts, up to 120 seconds, instead of failing the page load. Point the protected interface directly at the installation coordinator's loopback port, which serves it; the tailnet round trip through the Host's own Serve route is unnecessary on the same machine.
 
 ```json
 {
@@ -116,7 +116,7 @@ Write a private `gateway.json` outside the checkout. Each site either redirects 
     { "hostname": "old.example.com", "redirect": "https://app.example.com" },
     {
       "hostname": "app.example.com",
-      "upstream": "http://127.0.0.1:<host-daemon-port>",
+      "upstream": "http://127.0.0.1:<coordinator-port>",
       "holdSeconds": 30
     },
     { "hostname": "site.example.com", "upstream": "https://<preview-host>.ts.net:<port>" }

@@ -15,6 +15,7 @@ These findings come from one macOS installation with a native Host and a Docker 
 - **Most restarts are self-inflicted.** The installation builds and runs Vorteo at the same time, so every daemon delivery restarts the environment in use. About 53 of 706 commits in the four weeks before this plan changed restart, recovery or watchdog behavior.
 - **Dev's writable layer is unbounded.** It reached about 195 GB. Agent scratch directories in the container's `/tmp` account for about 159 GiB across more than 13,000 entries untouched for a week. Nothing reaps them because the container rarely restarts and `/tmp` is not a mount. Retained Dev releases account for another 26 GB.
 - **Idle provider processes hold memory.** 35 idle `codex app-server` processes held about 7.6 GB in Dev. The Dev daemon used about 10 GiB and the Docker VM about 15 GB of host memory with a 24 GiB cap.
+- **The interface already survives Host restarts; its connection does not.** The installation coordinator serves the interface and keeps running through Host restarts. The app's WebSocket to the Host daemon drops for 4 to 32 seconds per restart (median about 10), and the client's backoff can add up to 20 more. See [invisible Host restarts](invisible-restarts.md).
 - **Durable sessions already exist.** The session host keeps Claude and Codex sessions alive through worker and release restarts. It is off by default; Claude passed live acceptance and Codex has not.
 
 ## Target architecture
@@ -57,7 +58,7 @@ Two to three days, prepared side by side. Cutover is one owner-approved window.
 
 1. **Native edge.** Implemented as the [native gateway](../../private-domain.md#run-the-gateway-natively); see its cutover and rollback steps. Install Caddy with the Cloudflare DNS plugin as a pinned, digest-verified binary under the installation's private directory, supervised by launchd (systemd on Linux). Install a second `tailscaled` in userspace networking mode with its own state and socket, so the gateway keeps its own tailnet name and address. Migrate the existing gateway node's state at cutover so DNS records do not change.
 2. **Hosted web apps.** Serve other trusted web applications from a built release on the Host, not from a development checkout or the Dev container. Each app gets its own launchd job, state directory and loopback port behind the native edge.
-3. **Interface availability.** The edge serves the protected interface's static files and proxies API and WebSocket traffic to the Host daemon. A daemon restart then shows a reconnecting state instead of a failed page load.
+3. **Interface availability.** The edge proxies the custom domain straight to the coordinator on loopback and holds requests while the coordinator restarts. The coordinator already keeps the interface loading through Host daemon restarts.
 4. **Previews through the Host.** Route Dev previews through the Host's native preview broker to Dev's published ports. Dev then needs no Tailscale node or `NET_ADMIN` capability.
 
 Rollback for each step starts the previous containers again. Removal leaves state and credentials for diagnosis.
@@ -68,8 +69,9 @@ Acceptance: both custom domains and the protected interface stay reachable throu
 
 Three to five days.
 
-- Turn durable sessions on by default once Codex passes live acceptance.
-- Keep the listening socket open across worker swaps so connections are held, never refused.
+- Turn durable sessions on by default for new installations once Codex passes live acceptance. This Host already runs with them on. The installer must write the setting, and the session host job needs systemd and Dev support.
+- Shutdown no longer stalls on a peer that ignores the close frame, and clients retry every 500 ms after a daemon announces its shutdown. Both are implemented on the task branch and not yet installed.
+- Have the coordinator front the daemon's WebSocket port and hold upgrades while the daemon restarts, so connections wait instead of failing. This needs a reviewed Tailscale Serve route change; see [invisible Host restarts](invisible-restarts.md).
 - Clients reconnect without losing drafts, queued messages or scroll position.
 
 Acceptance: a Host release upgrade during a running Claude turn and a running Codex turn shows no error and loses no output.

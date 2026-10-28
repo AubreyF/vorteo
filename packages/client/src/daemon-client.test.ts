@@ -1371,6 +1371,84 @@ test("connect during a scheduled retry reconnects immediately without leaving th
   }
 });
 
+test("polls quickly after the daemon announces a shutdown, then backs off normally again", async () => {
+  useHeartbeatClock();
+  try {
+    const transports: Array<ReturnType<typeof createMockTransport>> = [];
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "clsk_restart_reconnect",
+      reconnect: { enabled: true, baseDelayMs: 1_500, maxDelayMs: 30_000 },
+      transportFactory: () => {
+        const transport = createMockTransport();
+        transports.push(transport);
+        return transport.transport;
+      },
+    });
+    clients.push(client);
+
+    const initialConnect = client.connect();
+    transports[0]!.triggerOpen();
+    await initialConnect;
+
+    transports[0]!.triggerClose({ code: 1001, reason: "Server shutting down" });
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await vi.advanceTimersByTimeAsync(499);
+      expect(transports).toHaveLength(attempt);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(transports).toHaveLength(attempt + 1);
+      // The replacement is not listening yet; the proxy refuses the upgrade.
+      transports[attempt]!.triggerClose({ code: 1006, reason: "" });
+    }
+    await vi.advanceTimersByTimeAsync(500);
+    transports[4]!.triggerOpen();
+    expect(client.getConnectionState().status).toBe("connected");
+
+    // An ordinary network drop keeps the exponential backoff.
+    transports[4]!.triggerClose({ code: 1006, reason: "" });
+    await vi.advanceTimersByTimeAsync(1_499);
+    expect(transports).toHaveLength(5);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(transports).toHaveLength(6);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a daemon that keeps refusing after its shutdown is polled quickly for one minute only", async () => {
+  useHeartbeatClock();
+  try {
+    const transports: Array<ReturnType<typeof createMockTransport>> = [];
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "clsk_restart_window",
+      reconnect: { enabled: true, baseDelayMs: 1_500, maxDelayMs: 30_000 },
+      transportFactory: () => {
+        const transport = createMockTransport();
+        transports.push(transport);
+        // A daemon that is still starting answers every attempt with the same shutdown close.
+        queueMicrotask(() =>
+          transport.triggerClose({ code: 1001, reason: "Server shutting down" }),
+        );
+        return transport.transport;
+      },
+    });
+    clients.push(client);
+
+    void client.connect().catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(60_000);
+    const attemptsInWindow = transports.length;
+    expect(attemptsInWindow).toBe(121);
+
+    await vi.advanceTimersByTimeAsync(1_499);
+    expect(transports).toHaveLength(attemptsInWindow);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(transports).toHaveLength(attemptsInWindow + 1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("disabling reconnect cancels a pending retry until explicitly resumed", async () => {
   useHeartbeatClock();
   try {
