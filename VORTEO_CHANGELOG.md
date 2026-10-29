@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.891 - 2026-10-29
+
+### Fixed
+
+- Resolve node-pty native inputs from the server's dependency context when tracing the Nix runtime closure. Include platform prebuilds and the Release fallback with their companion assets for workspace-local and hoisted installations, preventing a missing native addon at daemon startup.
+
+### Validation
+
+- Add isolated runtime-closure regressions using the real tracer and node-pty loader across both dependency layouts and both native binary locations. Nix build and CI rerun remain separate.
+
 ## 0.11.0-beta.3.vorteo.890 - 2026-10-28
 
 ### Maintenance
