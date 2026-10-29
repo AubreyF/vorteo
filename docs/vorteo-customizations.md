@@ -1892,3 +1892,5 @@ Retained prepared web builds invoke the physical checkout-local Expo CLI through
 Maintenance review: restart-cause regression tests allow ten seconds for asynchronous drain preparation under Windows CI load. All behavior assertions and production restart handling remain unchanged.
 
 Project status and cross-host grouping browser checks select the seeded workspace row by its existing server/workspace test ID, preserving behavioral assertions while excluding the draggable wrapper from matching.
+
+Settings keeps fresh web section jumps pinned through control feedback and non-reader scroll displacement, while wheel, touch, keyboard and background/scrollbar input still release the pin. The update-task policy and disconnected-host feedback remain unchanged.
