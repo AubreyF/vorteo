@@ -5,7 +5,7 @@ Agents create checkouts and build caches under /tmp. A long-lived container
 never clears them, so its writable layer grows without bound. An entry is
 stale only when nothing inside changed within the retention period, every part
 of it can be read, no process uses it, and every Git repository inside it, at
-any depth, has no uncommitted, stashed or unpushed work. Bare repositories are
+any depth, has no uncommitted, stashed or unpushed work under any local ref. Bare repositories are
 always kept. The default is a dry run; --delete also requires that every
 process can be inspected, rechecks each entry before removing it and reports
 removals that fail.
@@ -20,55 +20,56 @@ import sys
 import time
 
 
-def busy_paths(proc=Path('/proc')):
-    """Paths a process uses: working directory, root, executable, open files and mapped files.
+def process_snapshot(proc=Path('/proc')):
+    """Paths processes use, and any reasons the snapshot is incomplete.
 
-    A running program's executable and shared libraries appear only in exe and maps, not as open
-    file descriptors. Missing them once deleted the Node runtime a daemon was running from.
+    Covers working directories, roots, executables, open files and mapped files. A running
+    program's executable and shared libraries appear only in exe and maps, not as open file
+    descriptors; missing them once deleted the Node runtime a daemon was running from. A process
+    that exits mid-read is skipped; any other read failure is reported, never treated as unused.
     """
-    held = set()
-    for entry in proc.iterdir() if proc.is_dir() else []:
-        if not entry.name.isdigit():
-            continue
+    if not proc.is_dir():
+        return set(), ['process table unavailable']
+    held, gaps = set(), []
+
+    def note(entry, error):
+        if not isinstance(error, (FileNotFoundError, ProcessLookupError)):
+            gaps.append(f'process {entry.name} cannot be inspected: {type(error).__name__}')
+
+    try:
+        entries = [entry for entry in proc.iterdir() if entry.name.isdigit()]
+    except OSError as error:
+        return set(), [f'process table cannot be listed: {type(error).__name__}']
+    for entry in entries:
         links = [entry / 'cwd', entry / 'root', entry / 'exe']
         try:
             links += list((entry / 'fd').iterdir())
-        except OSError:
-            pass
+        except OSError as error:
+            note(entry, error)
         for link in links:
             try:
                 held.add(os.readlink(link).removesuffix(' (deleted)'))
-            except OSError:
-                continue
+            except OSError as error:
+                # A kernel thread has no executable or root to read.
+                if link.name not in ('exe', 'root', 'cwd') or not isinstance(error, FileNotFoundError):
+                    note(entry, error)
         try:
             for line in (entry / 'maps').read_text().splitlines():
                 fields = line.split(None, 5)
                 if len(fields) == 6 and fields[5].startswith('/'):
                     held.add(fields[5].removesuffix(' (deleted)'))
-        except OSError:
-            pass
-    return held
+        except OSError as error:
+            note(entry, error)
+    return held, gaps
+
+
+def busy_paths(proc=Path('/proc')):
+    return process_snapshot(proc)[0]
 
 
 def visibility_gaps(proc=Path('/proc')):
     """Reasons the process table cannot be fully inspected; any gap makes deletion unsafe."""
-    if not proc.is_dir():
-        return ['process table unavailable']
-    gaps = []
-    for entry in proc.iterdir():
-        if not entry.name.isdigit():
-            continue
-        for probe in (lambda: os.readlink(entry / 'exe'), lambda: list((entry / 'fd').iterdir()),
-                      lambda: (entry / 'maps').read_text()):
-            try:
-                probe()
-            except PermissionError:
-                gaps.append(f'process {entry.name} cannot be inspected')
-                break
-            except OSError:
-                # The process exited or is a kernel thread without an executable.
-                continue
-    return gaps
+    return process_snapshot(proc)[1]
 
 
 def scan(path, cutoff):
@@ -123,8 +124,9 @@ def unsafe_git(repository, run=subprocess.run):
     stash = ask('stash', 'list')
     if stash.returncode != 0 or stash.stdout.strip():
         return 'stashed changes'
-    # Any branch, tag or detached HEAD commit missing from every remote exists only here.
-    unpushed = ask('log', '--oneline', '-1', 'HEAD', '--branches', '--tags', '--not', '--remotes')
+    # Any commit reachable from a local ref (HEAD, branches, tags, notes or custom refs) but from
+    # no remote exists only here.
+    unpushed = ask('log', '--oneline', '-1', '--all', '--not', '--remotes')
     if unpushed.returncode != 0 or unpushed.stdout.strip():
         return 'unpushed commits'
     return None
@@ -164,8 +166,14 @@ def remove(stale, days, run=subprocess.run, proc=Path('/proc')):
     removed, failed = [], []
     for item in stale:
         path = Path(item['path'])
-        # Work may have resumed during the scan, so every safety check runs again here.
-        reason = keep_reason(path, time.time() - days * 86400, busy_paths(proc), run)
+        # Work may have resumed during the scan, so every safety check runs again here, with a
+        # fresh process snapshot that must itself be complete.
+        held, gaps = process_snapshot(proc)
+        if gaps:
+            failed.append({'path': str(path), 'reason': 'kept at deletion: process visibility incomplete',
+                           'gaps': gaps[:5]})
+            continue
+        reason = keep_reason(path, time.time() - days * 86400, held, run)
         if reason:
             failed.append({'path': str(path), 'reason': 'kept at deletion: ' + reason})
             continue

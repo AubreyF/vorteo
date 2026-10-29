@@ -7,7 +7,7 @@ import time
 import unittest
 
 import scratch_reaper
-from scratch_reaper import busy_paths, plan, remove, visibility_gaps
+from scratch_reaper import busy_paths, plan, process_snapshot, remove, visibility_gaps
 
 HAS_GIT = shutil.which('git') is not None
 GIT_ENV = {**os.environ, 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@example.com',
@@ -130,6 +130,39 @@ class ScratchReaperTests(unittest.TestCase):
         self.age(clean)
         self.assertEqual(self.reasons(), {'stashed': 'stashed changes', 'clean': None})
 
+    def test_visibility_lost_after_planning_keeps_the_candidate(self):
+        old = self.make('old')
+        stale, _ = plan(self.root, 7, held=set())
+        self.assertEqual([item['path'] for item in stale], [str(old)])
+        # A process the reaper cannot inspect appears after planning.
+        hidden = self.base / 'proc' / '42'
+        (hidden / 'fd').mkdir(parents=True)
+        os.chmod(hidden / 'fd', 0)
+        self.addCleanup(os.chmod, hidden / 'fd', 0o700)
+        if os.access(hidden / 'fd', os.R_OK):
+            self.skipTest('running with privileges that ignore permissions')
+        self.assertTrue(process_snapshot(self.base / 'proc')[1])
+        removed, failed = remove(stale, 7, proc=self.base / 'proc')
+        self.assertEqual(removed, [])
+        self.assertEqual(failed[0]['reason'], 'kept at deletion: process visibility incomplete')
+        # The process table disappearing entirely refuses the same way.
+        removed, failed = remove(stale, 7, proc=self.base / 'gone-proc')
+        self.assertEqual((removed, failed[0]['gaps']), ([], ['process table unavailable']))
+        self.assertTrue(old.exists())
+
+    @unittest.skipUnless(HAS_GIT, 'git is required')
+    def test_commit_held_only_by_a_custom_ref_is_kept(self):
+        repo = self.repository(self.root / 'recovered')
+        git(repo, 'checkout', '-q', '-b', 'temporary')
+        (repo / 'old-work').write_text('x')
+        git(repo, 'add', 'old-work')
+        git(repo, 'commit', '-q', '-m', 'old work')
+        git(repo, 'update-ref', 'refs/recovery/old-work', 'HEAD')
+        git(repo, 'checkout', '-q', '-')
+        git(repo, 'branch', '-q', '-D', 'temporary')
+        self.age(repo)
+        self.assertEqual(self.reasons(), {'recovered': 'unpushed commits'})
+
     def test_missing_process_table_blocks_deletion(self):
         self.assertEqual(visibility_gaps(self.base / 'no-proc'), ['process table unavailable'])
 
@@ -143,7 +176,8 @@ class ScratchReaperTests(unittest.TestCase):
         os.chmod(stuck / 'inner', 0o500)
         self.addCleanup(os.chmod, stuck / 'inner', 0o700)
         self.age(stuck)
-        removed, failed = remove(stale, 7, proc=self.base / 'empty-proc')
+        (self.base / 'complete-proc').mkdir()
+        removed, failed = remove(stale, 7, proc=self.base / 'complete-proc')
         self.assertEqual(removed, [str(removable)])
         reasons = {Path(item['path']).name: item['reason'] for item in failed}
         self.assertEqual(reasons['resumed'], 'kept at deletion: recently modified')

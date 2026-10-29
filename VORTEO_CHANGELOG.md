@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.919 - 2026-10-29
+
+### Fixed
+
+- An automatic idle release now blocks new runs with a closing marker that a Stop or a replacement's cancellation cannot clear. Direct prompts, replacements, queued delivery and rewind stay refused until the provider close settles, even after the run reservation's cancellation deadline passes.
+- The Dev scratch reaper takes a fresh process snapshot for every deletion and keeps the candidate when that snapshot is incomplete or the process table is missing; read failures are reported, never treated as unused files.
+- The reaper's unpushed-work check covers every local ref, including notes and custom refs, not only HEAD, branches and tags.
+
+### Maintenance
+
+- The core-services plan labels the pre-cutover Vorton description as history.
+
 ## 0.11.0-beta.3.vorteo.918 - 2026-10-29
 
 ### Fixed

@@ -15244,7 +15244,7 @@ test("a prompt or queued delivery during an automatic release is refused instead
     await expect.poll(() => close.mock.calls.length).toBe(1);
     // The agent is reserved while its provider closes: neither admission path may start a turn.
     expect(() => fixture.manager.streamAgent(fixture.agent.id, "hello")).toThrow(
-      "already has an active run",
+      "is closing its idle session",
     );
     const item = { id: "queued-1" } as Parameters<AgentManager["startQueuedMessage"]>[2];
     expect(fixture.manager.startQueuedMessage(fixture.agent.id, "queued", item)).toBeNull();
@@ -15256,6 +15256,43 @@ test("a prompt or queued delivery during an automatic release is refused instead
     await fixture.cleanup();
   }
 });
+
+test("a Stop that settles the release reservation after its deadline does not reopen admission", async () => {
+  const fixture = await idleReleaseFixture();
+  try {
+    fixture.close.mockRestore();
+    const original = fixture.session.close.bind(fixture.session);
+    let finishClose = () => {};
+    const closing = new Promise<void>((resolve) => (finishClose = resolve));
+    const close = vi.spyOn(fixture.session, "close").mockImplementation(async () => {
+      await closing;
+      await original();
+    });
+    const release = fixture.manager.releaseIdleSession(fixture.agent.id);
+    await expect.poll(() => close.mock.calls.length).toBe(1);
+    // Stop cancels the reservation once its pending-run deadline passes; the close is still held.
+    await fixture.manager.cancelAgentRun(fixture.agent.id).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    expect(Reflect.get(fixture.manager, "runs").hasRun(fixture.agent.id)).toBe(false);
+    expect(() => fixture.manager.streamAgent(fixture.agent.id, "hello")).toThrow(
+      "is closing its idle session",
+    );
+    await expect(fixture.manager.replaceAgentRun(fixture.agent.id, "replace")).rejects.toThrow(
+      "is closing its idle session",
+    );
+    const item = { id: "queued-1" } as Parameters<AgentManager["startQueuedMessage"]>[2];
+    expect(fixture.manager.startQueuedMessage(fixture.agent.id, "queued", item)).toBeNull();
+    await expect(fixture.manager.rewind(fixture.agent.id, "message-1", "files")).rejects.toThrow(
+      "is closing its idle session",
+    );
+    finishClose();
+    expect(await release).toBe(true);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(Reflect.get(fixture.manager, "automaticCloses").has(fixture.agent.id)).toBe(false);
+  } finally {
+    await fixture.cleanup();
+  }
+}, 15_000);
 
 test("an automatic release refuses an agent that changed after it was observed idle", async () => {
   const fixture = await idleReleaseFixture();

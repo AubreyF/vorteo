@@ -1463,6 +1463,8 @@ export class AgentManager {
   private readonly backgroundTasks = new Set<Promise<void>>();
   private readonly agentRegistrationTasks = new Set<Promise<void>>();
   private readonly inFlightAgentCloses = new Map<string, Promise<void>>();
+  /** Agents whose idle session is being released; no run may start until the close settles. */
+  private readonly automaticCloses = new Set<string>();
   private readonly reloadedSessionCloses = new WeakMap<AgentSession, Promise<void>>();
   private readonly lifecycleMutationTails = new Map<string, Promise<void>>();
   private readonly agentStreamCoalescer: AgentStreamCoalescer;
@@ -1839,7 +1841,7 @@ export class AgentManager {
     prompt: AgentPromptInput,
     item: QueueItem,
   ): AsyncGenerator<AgentStreamEvent> | null {
-    if (this.isRestartDraining()) return null;
+    if (this.isRestartDraining() || this.automaticCloses.has(agentId)) return null;
     const agent = this.getAgent(agentId);
     const stored = this.registry?.getLoadedRecord(agentId);
     if (!agent || stored?.archivedAt || agent.lifecycle !== "idle") return null;
@@ -3671,6 +3673,7 @@ export class AgentManager {
    */
   async releaseIdleSession(agentId: string, expected?: IdleSessionObservation): Promise<boolean> {
     const queue = this.messageQueueControl;
+    if (this.automaticCloses.has(agentId)) return false;
     if (!queue?.read || !this.isIdleReleasable(agentId, expected)) return false;
     const snapshot = await queue.read(agentId);
     const queueBusy =
@@ -3680,6 +3683,9 @@ export class AgentManager {
     // (streamAgent, queued delivery) refuses an agent with a reserved run, so no turn can start
     // on a session while it closes; a refused queue item is delivered after the agent reopens.
     if (!this.isIdleReleasable(agentId, expected)) return false;
+    // The marker, unlike the reservation, cannot be settled by a Stop or a replacement's
+    // cancellation timeout, so admission stays closed until the close itself settles.
+    this.automaticCloses.add(agentId);
     const reservation = this.runs.createPendingRun(agentId);
     const hosted = Boolean(this.agents.get(agentId)?.session?.isDurablyHosted?.());
     try {
@@ -3692,6 +3698,7 @@ export class AgentManager {
     } finally {
       // A completed close clears the agent's runs; otherwise drop only our own reservation.
       if (this.runs.getRun(agentId) === reservation) this.runs.clearAgentRun(agentId);
+      this.automaticCloses.delete(agentId);
     }
   }
 
@@ -4890,6 +4897,7 @@ export class AgentManager {
   ): AsyncGenerator<AgentStreamEvent> {
     this.assertAcceptingAgentRegistrations();
     const existingAgent = this.requireSessionAgent(agentId);
+    this.assertNotAutomaticallyClosing(agentId);
     this.assertQuotaNotPaused(agentId);
     this.takeOverUsageLimitHold(existingAgent, options);
     const parentId = existingAgent.labels[PARENT_AGENT_ID_LABEL];
@@ -5110,6 +5118,8 @@ export class AgentManager {
   ): Promise<AsyncGenerator<AgentStreamEvent>> {
     this.assertAcceptingAgentRegistrations();
     const snapshot = this.requireAgent(agentId);
+    // Refuse before cancelling: cancelling the release's reservation must not reopen admission.
+    this.assertNotAutomaticallyClosing(agentId);
     this.assertQuotaNotPaused(agentId);
     if (
       snapshot.lifecycle !== "running" &&
@@ -5682,6 +5692,8 @@ export class AgentManager {
 
   async rewind(agentId: string, messageId: string, mode: RewindMode): Promise<void> {
     const agent = this.requireSessionAgent(agentId);
+    // Rewind cancels any reservation, so it must not run while an idle release is closing.
+    this.assertNotAutomaticallyClosing(agentId);
     const submittedRow = this.timelineStore
       .getRows(agentId)
       .find(
@@ -8111,6 +8123,11 @@ export class AgentManager {
       throw new Error(`Unknown agent '${normalizedId}'`);
     }
     return agent;
+  }
+
+  private assertNotAutomaticallyClosing(agentId: string): void {
+    if (this.automaticCloses.has(agentId))
+      throw new Error(`Agent ${agentId} is closing its idle session; send again in a moment`);
   }
 
   private requireSessionAgent(id: string): ActiveManagedAgent {
