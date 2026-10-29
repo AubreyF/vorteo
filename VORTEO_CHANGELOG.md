@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.891 - 2026-10-29
+
+### Fixed
+
+- Keep the desktop App updates label readable beside Check and Update actions. Use local inline actions at desktop widths and stack this row at compact widths without changing shared footers or update behavior.
+
+### Maintenance
+
+- Restrict the packaged desktop smoke workspace selector to the exact named sidebar row, excluding its draggable wrapper while retaining strict visibility and uniqueness checks.
+
+### Validation
+
+- Restore the manual download and rollout-recheck browser cases at desktop and compact widths, with row-scoped controls and geometry assertions for readable labels, contained actions and no overlap.
+
 ## 0.11.0-beta.3.vorteo.890 - 2026-10-28
 
 ### Maintenance

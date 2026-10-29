@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): the App updates row uses local inline actions on desktop and stacks its content and actions at compact widths. Manual update checks and rollout rechecks retain their behavior; restored renderer tests cover both layouts and row geometry. The packaged desktop smoke now selects the exact named sidebar row rather than its drag wrapper, with sandbox checks unchanged. Source only, awaiting review and installation; README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-28): project skill traversal stops before the user's home, preserving explicit personal and account roots without importing the personal Codex bundle as a project scope from git-less working directories. Inventory regressions cover distinct homes, explicit personal roots and Git directory and file boundaries. Source only, awaiting integration; README overview and onboarding are unchanged.
 Maintenance review (2026-10-28): automatic upgrade release of idle or errored hosted sessions uses an atomic conditional close at the host. Active turns, blocking permissions and in-flight provider calls prevent closure; refusal retains the registration, and asynchronous thread questions survive reload. A worker requires the host's conditional-close capability and never substitutes explicit close on an older host. Source awaits integration; README overview and onboarding are unchanged.
 
