@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.894 - 2026-10-29
+
+### Fixed
+
+- Give Nix desktop renderer exports the established 8192 MiB heap on Linux and macOS. Append the export limit after inherited Node options while retaining fatal diagnostics, macOS worker limits and Linux concurrency behavior.
+
+### Validation
+
+- Verify the export command and its child process inherit the larger heap without changing the surrounding build environment. Full Nix desktop builds remain a separate CI check.
+
 ## 0.11.0-beta.3.vorteo.893 - 2026-10-29
 
 ### Maintenance
