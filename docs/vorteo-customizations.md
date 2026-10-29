@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): direct loopback installation requests select an exact-origin descriptor and separate owner session, with forwarding-header rejection and unchanged public authentication. Fatal startup failures remain visible through the bootstrap overlay. Current centered diagnostics, controls and layout tests are preserved. Source validation and tracked installation remain separate; README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): integrate corrected browser reliability coverage with functional typography and phone-layout assertions restored. Launcher timing includes visible, editable readiness and rejects the retained hidden-composer probe. Known appearance freezes and the repeated hover failure remain unresolved; the branch has no application runtime changes. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): integrate the reviewed Optimizer title migration, preserving role identity and idempotent startup behavior. The focused retitling suite passes; installed title verification remains a separate tracked Host delivery check.

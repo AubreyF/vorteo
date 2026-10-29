@@ -2,7 +2,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RootErrorFallback } from "./root-error-boundary";
+import { RootErrorBoundary, RootErrorFallback } from "./root-error-boundary";
 
 const { runtime, theme } = vi.hoisted(() => ({
   runtime: { breakpoint: "xs" },
@@ -53,6 +53,7 @@ beforeEach(() => {
   vi.stubGlobal("React", React);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("window", dom.window);
+  vi.stubGlobal("CustomEvent", dom.window.CustomEvent);
   vi.stubGlobal("document", dom.window.document);
   vi.stubGlobal("HTMLElement", dom.window.HTMLElement);
   vi.stubGlobal("Node", dom.window.Node);
@@ -92,5 +93,29 @@ describe("RootErrorFallback", () => {
       expect(details?.contains(reload)).toBe(false);
       expect(screen?.contains(reload)).toBe(true);
     });
+  }
+});
+
+it("reports a fixed bootstrap failure when React catches a render error", () => {
+  const events: unknown[] = [];
+  window.addEventListener("vorteo-boot-failed", (event) =>
+    events.push((event as CustomEvent).detail),
+  );
+  const logger = vi.spyOn(console, "error").mockImplementation(() => {});
+  function Broken(): React.ReactNode {
+    throw new Error("private-render-details");
+  }
+  try {
+    act(() =>
+      root?.render(
+        <RootErrorBoundary onReload={vi.fn()}>
+          <Broken />
+        </RootErrorBoundary>,
+      ),
+    );
+    expect(events).toEqual(["render-failed"]);
+    expect(document.querySelector('[data-testid="root-error-boundary"]')).not.toBeNull();
+  } finally {
+    logger.mockRestore();
   }
 });

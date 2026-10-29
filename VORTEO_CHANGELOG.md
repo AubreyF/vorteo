@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.917 - 2026-10-29
+
+### Fixed
+
+- Serve origin-bound installation descriptors and separate owner sessions for direct loopback access, while preserving public authentication and rejecting requests with forwarding headers.
+- Keep fatal installation and rendering errors visible in startup diagnostics instead of covering them with an indefinite loading state. Preserve the centered diagnostics layout and recovery controls.
+
 ## 0.11.0-beta.3.vorteo.916 - 2026-10-29
 
 ### Maintenance

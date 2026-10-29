@@ -24,8 +24,10 @@ export class OwnerSessions {
     ).filter((session) => session.expiresAt > this.now());
   }
 
-  private hash(token: string): string {
-    return createHash("sha256").update(token).digest("hex");
+  private hash(token: string, origin?: string): string {
+    // Preserve existing public session hashes and the strict retained record schema.
+    const value = origin === undefined ? token : JSON.stringify([origin, token]);
+    return createHash("sha256").update(value).digest("hex");
   }
 
   private write(sessions: z.infer<typeof OwnerSessionsSchema>): void {
@@ -44,22 +46,25 @@ export class OwnerSessions {
     }
   }
 
-  create(): string {
+  create(origin?: string): string {
     const token = randomBytes(32).toString("base64url");
     const sessions = this.read();
-    sessions.push({ hash: this.hash(token), expiresAt: this.now() + OWNER_SESSION_MAX_AGE * 1000 });
+    sessions.push({
+      hash: this.hash(token, origin),
+      expiresAt: this.now() + OWNER_SESSION_MAX_AGE * 1000,
+    });
     this.write(sessions);
     return token;
   }
 
-  expiresAt(token: string | undefined): string | null {
+  expiresAt(token: string | undefined, origin?: string): string | null {
     if (!token) return null;
-    const session = this.read().find((candidate) => candidate.hash === this.hash(token));
+    const session = this.read().find((candidate) => candidate.hash === this.hash(token, origin));
     return session ? new Date(session.expiresAt).toISOString() : null;
   }
 
-  revoke(token: string | undefined): void {
+  revoke(token: string | undefined, origin?: string): void {
     if (!token) return;
-    this.write(this.read().filter((session) => session.hash !== this.hash(token)));
+    this.write(this.read().filter((session) => session.hash !== this.hash(token, origin)));
   }
 }
