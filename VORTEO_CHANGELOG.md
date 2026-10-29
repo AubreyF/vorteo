@@ -4,12 +4,23 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.905 - 2026-10-29
+
+### Changed
+
+- Integrate negotiated HTML compression and the startup diagnostics scroll-inset correction, retaining both reviewed implementations and their focused regression coverage.
+
 ## 0.11.0-beta.3.vorteo.904 - 2026-10-29
 
 ### Changed
 
 - Negotiate Brotli or gzip for daemon-served HTML after injecting its public connection or installation hint. Preserve no-store caching, merge Accept-Encoding into Vary, and return negotiated headers without a body for HEAD.
 - Respect encoding quality and exclusions when selecting static sidecars, including available gzip fallback and refusal when no representation is acceptable. Cover HTTP parity and fallback behavior with focused server tests.
+
+### Fixed
+
+- Keep startup diagnostic controls inside the viewport when scrolling or focusing them on compact displays with fractional layout coordinates. Match the existing safe-area content insets without changing controls or startup behavior.
+- Exercise strict compact and desktop control bounds across fractional positions, retaining all four controls and 44px targets.
 
 ## 0.11.0-beta.3.vorteo.903 - 2026-10-29
 

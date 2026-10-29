@@ -1,5 +1,9 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): integrate HTML encoding negotiation and startup diagnostic scroll insets without changing their reviewed source. Preserve focused HTTP and browser regression coverage; installed acceptance remains separate.
+
+Maintenance review (2026-10-29): startup diagnostics use the existing safe-area content insets as scroll padding so fractional scroll alignment cannot clip controls at the viewport edge. Compact and desktop browser checks retain strict bounds, all four controls and 44px targets across fractional positions. Startup logic, security checks, README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): simplify startup diagnostics with compact elapsed time beneath the progress bar, a data-saver checkmark button and an adjacent Copy diagnostics button. Remove the progress explanation, connection-details disclosure and data-saver help text. The shared duration formatter is embedded inline with `node scripts/sync-boot-duration.mjs`; `--check` verifies it stays synchronized without introducing a bootstrap download. Source only, awaiting publication. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): initial workspace agents and draft retries share the profile configuration builder, leaving profile permissions to the daemon in both paths. This prevents an unchanged retry from conflicting with its original creation request. Browser coverage includes consecutive project workspace creation and failed startup recovery before and after remount. README overview and onboarding are unchanged.
