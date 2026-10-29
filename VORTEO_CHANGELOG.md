@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.911 - 2026-10-29
+
+### Maintenance
+
+- Address the independent review of the CI flake branch without removing coverage:
+  - The Code font Settings test runs again with all of its checks. It waits for the page to answer after each font commit and gets a 150-second budget for two known freezes of up to 22 seconds on CI.
+  - The chat outline test runs its phone checks again. It waits for the page after each layout switch, with a 120-second budget, instead of skipping that part.
+  - The new agent tab latency still uses its 3000ms budget. Its clock now runs from pressing the New agent menu item until the frame after a new composer is visible and editable. If it fails, the error reports when a composer was first mounted and its visibility at that point. Measured locally at 248 to 331ms. A composer hidden for 4 seconds fails at 4034ms, reported as mounted at 288ms with opacity 0.
+
 ## 0.11.0-beta.3.vorteo.910 - 2026-10-29
 
 ### Maintenance

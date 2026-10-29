@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): test-only change. The Code font and chat outline browser tests run all of their checks again instead of skipping them, and the new agent tab latency check measures from the menu press to a visible, editable composer. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): merge-only change. The CI flake branch takes main 0e1db4743, whose Settings section tracking fix replaces the branch's known-issue mark in the Vorteo update test. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): ordinary web comboboxes can flip above a lower-edge trigger so Metadata model selection stays visible. Preserve measured top/above-search anchoring, native presentation, keyboard dismissal and fixed picker sizing; focused browser checks cover lower-edge placement. README overview and onboarding are unchanged.
