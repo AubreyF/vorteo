@@ -1890,3 +1890,5 @@ Primary web builds support an explicit retained prepared-checkout mode during pr
 Retained prepared web builds invoke the physical checkout-local Expo CLI through Node and bind its identity and hash to the input receipt. Missing or foreign CLI files refuse before export; the ordinary snapshot build path is unchanged.
 
 Maintenance review: restart-cause regression tests allow ten seconds for asynchronous drain preparation under Windows CI load. All behavior assertions and production restart handling remain unchanged.
+
+Project status and cross-host grouping browser checks select the seeded workspace row by its existing server/workspace test ID, preserving behavioral assertions while excluding the draggable wrapper from matching.
