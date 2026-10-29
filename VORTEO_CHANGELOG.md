@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.917 - 2026-10-29
+
+### Changed
+
+- Keep project, folder, Standing and Factory icons visible on touch layouts. The expand arrow now replaces the icon on pointer hover only, so phones no longer show a column of arrows where folder icons belong. Tapping a row still folds it.
+
 ## 0.11.0-beta.3.vorteo.916 - 2026-10-29
 
 ### Changed

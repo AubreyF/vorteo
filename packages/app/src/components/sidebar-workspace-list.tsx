@@ -1268,7 +1268,7 @@ function ProjectHeaderRow({
         projectViewKey={project.viewKey}
         backdrop={getSidebarRowBackdrop({ isDragging, isPressed, selected, isHovered })}
         chevron={chevron}
-        showChevron={(isHovered || touch) && chevron !== null}
+        showChevron={isHovered && chevron !== null}
         isArchiving={isArchiving}
       />
 

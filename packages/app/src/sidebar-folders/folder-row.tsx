@@ -255,7 +255,7 @@ export function SidebarFolderRow({
         >
           <SidebarLeadingSlot
             chevron={folderChevron(rowFocus.isRoot, collapsed)}
-            revealChevron={isHovered || touch}
+            revealChevron={isHovered}
             testID={`sidebar-folder-leading-${folder.id}`}
           >
             <SidebarFolderIcon />
