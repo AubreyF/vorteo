@@ -1135,6 +1135,53 @@ test("sidebar drags into a compact rail with persistent controls and interactive
   await page.screenshot({ path: info.outputPath("sidebar-menu.png") });
 });
 
+test("compact rail keeps even margins and focuses projects from its flyout", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto("/?demo=1");
+  const sidebar = page.getByTestId("floating-sidebar");
+  await page.getByTestId("sidebar-collapse").click();
+  await expect(page.getByTestId("compact-project-rail")).toBeVisible();
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(50);
+  const railBox = (await sidebar.boundingBox())!;
+  const expandBox = (await page.getByTestId("sidebar-expand").boundingBox())!;
+  // Inside the 1px panel border, the first button's top margin matches its side margins.
+  const top = expandBox.y - railBox.y - 1;
+  const left = expandBox.x - railBox.x - 1;
+  const right = railBox.x + railBox.width - 1 - (expandBox.x + expandBox.width);
+  expect(Math.abs(left - top)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(right - top)).toBeLessThanOrEqual(0.5);
+  await page.screenshot({ path: info.outputPath("compact-rail-margins.png") });
+
+  const railProject = page
+    .getByTestId("compact-project-rail")
+    .getByRole("button", { name: /^Atlas,/ });
+  await railProject.hover();
+  const preview = page.getByTestId("project-rail-preview");
+  await expect(preview).toBeVisible();
+  const projectRow = preview.locator('[data-testid^="sidebar-project-row-"]').first();
+  await projectRow.hover();
+  await expect(preview.locator('[data-testid^="sidebar-project-focus-"]')).toBeVisible();
+  await page.screenshot({ path: info.outputPath("compact-rail-flyout-focus.png") });
+  const showInSidebar = preview.getByTestId("project-rail-show-in-sidebar");
+  await showInSidebar.hover();
+  await showInSidebar.click();
+  await expect(page.getByTestId("compact-project-rail")).toHaveCount(0);
+  await expect(page.getByTestId("sidebar-focus-breadcrumb")).toBeVisible();
+  await expect(page.getByTestId("sidebar-focus-current")).toHaveText("Atlas");
+  // The focused project's own row gives way to the breadcrumb; its workspaces are top level.
+  await expect(
+    page.getByTestId("sidebar-project-list").locator('[data-testid^="sidebar-project-row-"]'),
+  ).toHaveCount(0);
+  await expect(
+    page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0"),
+  ).toBeVisible();
+  await page.screenshot({ path: info.outputPath("focused-project.png") });
+  await page.getByTestId("sidebar-focus-crumb-all").click();
+  await expect(page.getByTestId("sidebar-focus-breadcrumb")).toHaveCount(0);
+});
+
 test.describe("touch project rail", () => {
   test.use({ hasTouch: true });
   test("keeps project previews and rail navigation usable without hover", async ({

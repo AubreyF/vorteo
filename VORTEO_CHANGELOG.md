@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.919 - 2026-10-29
+
+### Maintenance
+
+- Cover the compact rail in a demo browser test: its 50px width and equal button margins, the flyout's hover Focus button, and Show project in sidebar expanding the sidebar into the focused project with its workspaces as top-level rows.
+
 ## 0.11.0-beta.3.vorteo.918 - 2026-10-29
 
 ### Changed
