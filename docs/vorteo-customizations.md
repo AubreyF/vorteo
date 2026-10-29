@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-28): the preview broker identity check accepts a running daemon whose executable was replaced with identical bytes and still refuses any other replacement. Applied to the installed Host broker; README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-28): adds the [hosted app tool](private-domain.md#serve-a-trusted-web-app-from-a-host-release) for running trusted web applications from reviewed Host releases with separated state. Staged, not activated. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-28): the Dev scratch reaper now protects running executables and mapped libraries and refuses deletion without full process visibility. Not scheduled or installed. README overview and onboarding are unchanged.

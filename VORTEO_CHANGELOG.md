@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.886 - 2026-10-28
+
+### Fixed
+
+- The preview broker and preview helper keep recognising a Dev daemon whose Node executable was replaced by a byte-identical file. The identity check previously failed on the running process's "(deleted)" executable, so every Dev preview stayed unpublished until the daemon restarted. A replacement with different bytes is still refused.
+
 ## 0.11.0-beta.3.vorteo.885 - 2026-10-28
 
 ### Added
