@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.907 - 2026-10-29
+
+### Fixed
+
+- Let ordinary web comboboxes flip above their trigger when the dropdown would leave the viewport. Preserve intentional top/above-search anchoring and native behavior.
+- Cover Metadata model selection near the lower viewport edge, including picker geometry, sizing, Escape dismissal and keyboard focus restoration.
+- Make Settings browser helpers release a fresh section jump with a reader scroll gesture before revealing a pane.
+
 ## 0.11.0-beta.3.vorteo.906 - 2026-10-29
 
 ### Fixed

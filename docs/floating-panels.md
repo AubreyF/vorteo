@@ -43,6 +43,14 @@ Consumers: `composer/agent-controls/mode-control.tsx`,
 `components/import-session-sheet.tsx`, `screens/workspace/workspace-screen.tsx`,
 `screens/settings-screen.tsx`, and `screens/project-settings-screen.tsx`.
 
+## Desktop placement near viewport edges
+
+Ordinary web `bottom-start` comboboxes may flip above their trigger when there is
+not enough space below. Keep flipping enabled for these floating coordinates.
+Web `top-start` and `above-search` panels use measured bottom anchoring so content
+changes do not move the search field away from the composer; keep their existing
+placement path. Native comboboxes retain their existing flip and sheet behavior.
+
 ## Gotcha 1 — Android touch hit-test by parent bounds
 
 On Android, a child View whose bounds fall outside its parent's bounds renders

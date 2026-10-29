@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): ordinary web comboboxes can flip above a lower-edge trigger so Metadata model selection stays visible. Preserve measured top/above-search anchoring, native presentation, keyboard dismissal and fixed picker sizing; focused browser checks cover lower-edge placement. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): integrate HTML encoding negotiation and startup diagnostic scroll insets without changing their reviewed source. Preserve focused HTTP and browser regression coverage; installed acceptance remains separate.
 
 Maintenance review (2026-10-29): startup diagnostics use the existing safe-area content insets as scroll padding so fractional scroll alignment cannot clip controls at the viewport edge. Compact and desktop browser checks retain strict bounds, all four controls and 44px targets across fractional positions. Startup logic, security checks, README overview and onboarding are unchanged.
@@ -1904,3 +1906,5 @@ Project status and cross-host grouping browser checks select the seeded workspac
 Settings keeps fresh web section jumps pinned through control feedback and non-reader scroll displacement, while wheel, touch, keyboard and background/scrollbar input still release the pin. The update-task policy and disconnected-host feedback remain unchanged.
 
 Daemon-served HTML negotiates Brotli or gzip after injecting its public connection or installation hint; it does not serve sealed HTML sidecars that lack the request-specific hint. Identity and compressed responses vary by Accept-Encoding, HEAD reports the negotiated HTML length without a body, and static asset selection respects available sidecars, quality values and exclusions.
+
+- 2026-10-29: Settings browser helpers use a real wheel gesture before moving from a freshly pinned section to a pane, preserving the product's reader-scroll handoff.
