@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.916 - 2026-10-29
+
+### Maintenance
+
+- Restore the previously reviewed zoom-slider browser fixture correction in the diagnostic branch. Scroll the control into view before each real drag, preserving all assertions and timeouts. No product behavior changes.
+
 ## 0.11.0-beta.3.vorteo.915 - 2026-10-29
 
 ### Maintenance

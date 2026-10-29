@@ -1395,6 +1395,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 29, 2026: The diagnostic branch reuses the reviewed zoom-slider browser fixture correction, keeping the control visible before real pointer drags. Assertions, timeouts and runtime behavior are unchanged. README overview and onboarding are unchanged.
+
 October 29, 2026: The isolated diagnostic candidate reuses three reviewed installation test fixtures for protected executables and platform ownership. Production guards and interface behavior remain unchanged. README overview and onboarding are unchanged.
 
 October 28, 2026: Preserved the original errored-session release commit in integration history. Its idle-or-error predicate and permission guards remain, with the reviewed atomic closure fix. README overview and onboarding are unchanged.
