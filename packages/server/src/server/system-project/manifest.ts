@@ -22,7 +22,7 @@ export interface SystemRole {
  * until monitoring ships its collector.
  */
 export const SYSTEM_ROLES: readonly SystemRole[] = [
-  { role: "optimization-runner", title: "Optimization Runner", environments: ["host", "single"] },
+  { role: "optimization-runner", title: "Vorteo :: Optimizer", environments: ["host", "single"] },
 ];
 
 export function rolesForEnvironment(environment: SystemEnvironment): SystemRole[] {

@@ -84,7 +84,7 @@ describe("startup seeding", () => {
       projectId: result.projectId,
       kind: "directory",
       cwd: systemPaths(home).runner("optimization-runner"),
-      title: "Optimization Runner",
+      title: "Vorteo :: Optimizer",
       standing: true,
       protected: true,
     });
@@ -102,11 +102,30 @@ describe("startup seeding", () => {
       createdProject: false,
       created: [],
       adopted: [],
+      retitled: [],
       retired: [],
       absorbed: [],
       archivedProjects: [],
     });
     expect(JSON.stringify([await projects.list(), await workspaces.list()])).toBe(before);
+  });
+
+  test("a manifest rename carries onto an existing role workspace", async () => {
+    await ensure();
+    const created = await runner();
+    // Simulates a workspace created under the old manifest title.
+    await workspaces.writeSystemWorkspace({ ...created, title: "Optimization Runner" });
+    open();
+    const result = await ensure();
+    expect(result.retitled).toEqual([created.workspaceId]);
+    expect(await runner()).toMatchObject({
+      workspaceId: created.workspaceId,
+      title: "Vorteo :: Optimizer",
+      standing: true,
+      protected: true,
+    });
+    open();
+    expect((await ensure()).retitled).toEqual([]);
   });
 
   test("overlapping calls in one daemon allocate a single project", async () => {
@@ -218,6 +237,7 @@ describe("adoption", () => {
       branch: null,
       worktreeRoot: null,
       createdAt: T0,
+      title: "Vorteo :: Optimizer",
       systemMembership: { role: "optimization-runner" },
       standing: true,
       protected: true,

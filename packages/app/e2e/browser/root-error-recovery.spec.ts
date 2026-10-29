@@ -9,7 +9,15 @@ test.beforeAll(async () => {
   test.setTimeout(120_000);
   const metroPort = process.env.E2E_METRO_PORT;
   if (!metroPort) throw new Error("E2E_METRO_PORT is required");
-  const bundle = `http://localhost:${metroPort}/packages/app/e2e/support/recovery-app.bundle?platform=web&dev=true&minify=false&hot=false&lazy=true&transform.engine=hermes&transform.routerRoot=src%2Fapp`;
+  // Reuse the app document's bundle options so Metro serves the fixture from the transforms
+  // the global warmup cached. Different options re-transformed every module: 64s locally, and
+  // on CI run 40250589484 over 120s before Metro's worker ran out of heap.
+  const origin = `http://localhost:${metroPort}`;
+  const appDocument = await (await fetch(origin, { signal: AbortSignal.timeout(120_000) })).text();
+  const appScript = appDocument.match(/<script[^>]+src=["']([^"']+\.bundle\?[^"']+)["']/)?.[1];
+  if (!appScript) throw new Error("The Metro document lists no app bundle to copy options from");
+  const appBundle = new URL(appScript, origin);
+  const bundle = `${origin}/packages/app/e2e/support/recovery-app.bundle${appBundle.search}`;
   const compiled = await fetch(bundle, { signal: AbortSignal.timeout(120_000) });
   if (!compiled.ok) {
     // Metro's body names the module or transform that failed; CI showed only the status.

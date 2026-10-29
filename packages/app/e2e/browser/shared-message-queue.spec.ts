@@ -9,6 +9,7 @@ import {
   fillComposerDraft,
   expectComposerVisible,
 } from "../support/helpers/composer";
+import { resizeAndSettle } from "../support/helpers/viewport";
 
 test("shared queue survives reload and synchronizes a second device", async ({ page, browser }) => {
   test.setTimeout(300_000);
@@ -90,7 +91,7 @@ test("shared queue survives reload and synchronizes a second device", async ({ p
       contentType: "image/png",
     });
     const desktopViewport = page.viewportSize()!;
-    await page.setViewportSize({ width: 390, height: 844 });
+    await resizeAndSettle(page, { width: 390, height: 844 });
     // Rows take 44px targets on touch devices, not narrow windows, since 2cf5e0cbb; this browser
     // has a mouse, so the narrow layout keeps desktop row metrics.
     await localStatus.click();
@@ -101,7 +102,7 @@ test("shared queue survives reload and synchronizes a second device", async ({ p
       body: await queue.screenshot(),
       contentType: "image/png",
     });
-    await page.setViewportSize(desktopViewport);
+    await resizeAndSettle(page, desktopViewport);
     await expect(queue.getByTestId("queue-attachment-summary")).toHaveAttribute(
       "aria-label",
       "1 attachment",

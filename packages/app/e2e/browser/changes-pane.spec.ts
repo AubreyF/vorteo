@@ -7,6 +7,7 @@ import { test, expect } from "../support/fixtures";
 import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
 import { getServerId } from "../support/helpers/server-id";
 import { connectSeedClient } from "../support/helpers/seed-client";
+import { waitForPaint } from "../support/helpers/viewport";
 import { createTempGitRepo } from "../support/helpers/workspace";
 import { openChangesPanel, waitForWorkspaceTabsVisible } from "../support/helpers/workspace-tabs";
 
@@ -992,21 +993,33 @@ test("canvas diff stays sharp while its workspace pane is resized", async ({ pag
     .toBe(true);
 });
 
-test("changes diff waits for configured fonts, then applies code typography changes", async ({
-  page,
-}) => {
+test("changes diff commits no geometry until configured fonts are ready", async ({ page }) => {
   const workspace = await createWorkspaceWithMountedTabDiff();
   await useCodeFont(page, 12);
   await useUnwrappedDiffLines(page);
   await holdBrowserFontLoads(page);
   await navigateToWorkspaceChanges(page, workspace);
 
-  await test.step("commit no geometry before the configured fonts are ready", async () => {
-    await expect(page.getByTestId("git-diff-canvas")).toBeVisible();
-    await expect(page.getByTestId("diff-file-0-body")).toHaveCount(0);
-    await releaseBrowserFontLoads(page);
-    await expectExpandedMountedTabDiff(page);
-  });
+  await expect(page.getByTestId("git-diff-canvas")).toBeVisible();
+  await expect(page.getByTestId("diff-file-0-body")).toHaveCount(0);
+  await releaseBrowserFontLoads(page);
+  await expectExpandedMountedTabDiff(page);
+});
+
+test("changes diff applies code typography changes from Settings", async ({ page }) => {
+  // Known performance regression, reported to Builds on 2026-10-26: committing a Code font field
+  // in Settings blocks the page for 16 to 19 s on a Mac dev build and about 22 s on CI. A CPU
+  // profile puts 13.3 of 16.6 s in applyAppearance rebuilding Unistyles web CSS once per
+  // registered theme (loop from e1805ef54, eight themes since 60f4899a6; commit not identified).
+  // The helper waits for the page to answer after each of the two commits, so every functional
+  // check still runs; the budget covers two freezes on CI. Return to the default budget once a
+  // code font change commits in well under a second.
+  test.setTimeout(150_000);
+  const workspace = await createWorkspaceWithMountedTabDiff();
+  await useCodeFont(page, 12);
+  await useUnwrappedDiffLines(page);
+  await navigateToWorkspaceChanges(page, workspace);
+  await expectExpandedMountedTabDiff(page);
   const before = await readDiffTypographyGeometry(page);
 
   await changeCodeTypographyFromSettings(page, {
@@ -1834,8 +1847,11 @@ async function changeCodeTypographyFromSettings(
   await page.getByRole("button", { name: "Appearance" }).click();
   await page.getByLabel("Code font family").fill(typography.fontFamily);
   await page.getByLabel("Code font family").press("Enter");
+  // Each commit re-applies the appearance, which can block the page past an action's timeout.
+  await waitForPaint(page);
   await page.getByLabel("Code font size").fill(String(typography.fontSize));
   await page.getByLabel("Code font size").press("Enter");
+  await waitForPaint(page);
   await expect(page.getByLabel("Code font family")).toHaveValue(typography.fontFamily);
   await expect(page.getByLabel("Code font size")).toHaveValue(String(typography.fontSize));
   await expectStoredCodeFontSize(page, typography.fontSize);

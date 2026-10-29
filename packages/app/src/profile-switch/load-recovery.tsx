@@ -8,11 +8,23 @@ import {
   type AgentProfileApplyTarget,
 } from "@/agent-profiles/internal/use-agent-profile-picker";
 import { PresetControls } from "@/agent-profiles/preset-controls";
+import { useHostFeature } from "@/runtime/host-features";
 
 interface LoadRecoveryProps {
   serverId: string;
   agentId: string;
   onRecovered: () => void;
+}
+
+export function AgentProviderRecoveryFooter(props: LoadRecoveryProps) {
+  const { t } = useTranslation();
+  const canRecover = useHostFeature(props.serverId, "agentProviderRecovery");
+  return (
+    <View style={styles.footer} testID="agent-provider-recovery-footer">
+      <Text style={styles.message}>{t("agentPanel.states.providerUnavailable")}</Text>
+      {canRecover ? <AgentLoadRecovery {...props} /> : null}
+    </View>
+  );
 }
 
 export function AgentLoadRecovery({ serverId, agentId, onRecovered }: LoadRecoveryProps) {
@@ -45,6 +57,12 @@ export function AgentLoadRecovery({ serverId, agentId, onRecovered }: LoadRecove
 }
 
 const styles = StyleSheet.create((theme) => ({
+  footer: {
+    alignItems: "center",
+    gap: theme.spacing[3],
+    paddingVertical: theme.spacing[4],
+    paddingHorizontal: theme.spacing[4],
+  },
   container: {
     alignItems: "center",
     gap: theme.spacing[3],

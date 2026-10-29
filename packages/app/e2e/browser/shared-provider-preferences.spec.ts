@@ -16,6 +16,10 @@ import { expectComposerVisible } from "../support/helpers/composer";
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
 
 test("shared choices survive account changes and protect an open editor", async ({ page }) => {
+  // Each layout switch blocks setViewportSize while unistyles rebuilds its whole web stylesheet
+  // per mounted style: 8 to 14s locally. The test takes 31 to 50s locally and timed out at the
+  // 60s default in its second resize on CI run 40250589484 (about 1.6 times slower).
+  test.setTimeout(120_000);
   const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "shared-preferences" });
   const previous = (await client.getDaemonConfig()).config;
   const initial = previous.sharedProviderPreferences!;
