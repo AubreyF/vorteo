@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): initial workspace agents and draft retries share the profile configuration builder, leaving profile permissions to the daemon in both paths. This prevents an unchanged retry from conflicting with its original creation request. Browser coverage includes consecutive project workspace creation and failed startup recovery before and after remount. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): Nix desktop renderer exports now receive the same 8192 MiB heap as browser exports, scoped to the export and appended after inherited Node options. Fatal diagnostics, macOS two-worker export limits and Linux concurrency remain unchanged. Bounded shell and child-process checks cover inheritance; full Nix builds and CI acceptance remain separate. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): integrate the approved desktop updates layout and smoke workspace selector with current source, preserving the exact reviewed source and tests. Existing browser and selector evidence applies unchanged; normal integration hooks and publication hygiene are checked separately. Source only; publication and installation remain separate. README overview and onboarding are unchanged.
