@@ -107,7 +107,7 @@ test("opens a populated demo without connecting to a real host", async ({ page }
   const expandedWidth = (await sidebar.boundingBox())!.width;
   await expect(page.getByText("Compact", { exact: true })).toHaveCount(0);
   await page.getByTestId("sidebar-collapse").click();
-  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(56);
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(50);
   await expect(page.getByTestId("compact-project-rail")).toBeVisible();
   const railProject = page
     .getByTestId("compact-project-rail")
@@ -446,7 +446,7 @@ test("restores responsive sidebars without replacing manual preferences", async 
   await expect(cards).toBeHidden();
   await page.setViewportSize({ width: 800, height: 1000 });
   await expect(rail).toBeVisible();
-  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(56);
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(50);
   await expect(cards).toBeHidden();
   await rail.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(expandedWidth);
@@ -481,7 +481,7 @@ test("restores responsive sidebars without replacing manual preferences", async 
   await page.setViewportSize({ width: 800, height: 1000 });
   await expect(rail).toBeVisible();
   await page.setViewportSize({ width: 1800, height: 1000 });
-  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(56);
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(50);
   await expect(cards).toBeHidden();
 });
 
@@ -1065,7 +1065,7 @@ test("sidebar drags into a compact rail with persistent controls and interactive
   await expect(page.getByTestId("compact-project-rail")).toHaveCount(0);
   await dragTo(155);
   await expect(page.getByTestId("compact-project-rail")).toBeVisible();
-  await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(56);
+  await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(50);
   const ids = ["sidebar-expand", "sidebar-search", "sidebar-schedules", "sidebar-sessions"];
   let previous = -1;
   for (const id of ids) {

@@ -2,6 +2,7 @@ import { ProjectRailPreview } from "./project-rail-preview";
 import { memo, type ReactNode } from "react";
 import { ScrollView, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
+import { COMPACT_RAIL_MARGIN } from "@/stores/panel-store/state";
 import {
   useSidebarProjectStatusBucket,
   type SidebarProjectEntry,
@@ -82,7 +83,14 @@ export function CompactProjectRail({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  rail: { flex: 1, minHeight: 0, alignItems: "center", paddingBottom: 2, gap: 2 },
+  rail: {
+    flex: 1,
+    minHeight: 0,
+    alignItems: "center",
+    paddingHorizontal: COMPACT_RAIL_MARGIN,
+    paddingBottom: COMPACT_RAIL_MARGIN,
+    gap: 2,
+  },
   header: { height: 48, justifyContent: "center" },
   scroll: { flex: 1, width: "100%" },
   projects: { alignItems: "center", gap: 2 },

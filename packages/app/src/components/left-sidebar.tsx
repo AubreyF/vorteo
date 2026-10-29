@@ -78,7 +78,7 @@ import {
   FLOATING_PANEL_CONTROL_HEIGHT,
   floatingPanelStyles,
 } from "@/styles/floating-panel";
-import { SIDEBAR_OUTER_GAP } from "@/stores/panel-store/state";
+import { COMPACT_RAIL_MARGIN, SIDEBAR_OUTER_GAP } from "@/stores/panel-store/state";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { resolveDesktopSidebarWidth } from "@/components/desktop-sidebar-layout";
 import {
@@ -1274,7 +1274,8 @@ const staticStyles = RNStyleSheet.create({
 const styles = StyleSheet.create((theme) => ({
   narrowNavigation: { gap: 2, padding: 2 },
   narrowNavigationRow: { justifyContent: "flex-start", minHeight: 36 },
-  railToolbar: { alignItems: "center", gap: 0, paddingTop: 2 },
+  // The same margin sits above the first button as on either side of it.
+  railToolbar: { alignItems: "center", gap: 0, paddingTop: COMPACT_RAIL_MARGIN },
   sidebarContent: {
     flex: 1,
     minHeight: 0,
