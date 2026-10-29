@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): the lab installation guide now describes a lab as an ordinary self-modifying installation with no extra privileges, and production as an installation that updates to a chosen revision. Documentation only; functionality, README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): the container installer can publish the Dev daemon on host loopback through `PASEO_HOST_LOOPBACK_PORT`, closing a gap where new installations could not pair with the Host extension. A lab installation guide covers a separate installation on another Mac. Installer tests cover the override, its default absence and invalid ports. Nothing is installed; lab delivery and promotion remain planned. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): ordinary web comboboxes can flip above a lower-edge trigger so Metadata model selection stays visible. Preserve measured top/above-search anchoring, native presentation, keyboard dismissal and fixed picker sizing; focused browser checks cover lower-edge placement. README overview and onboarding are unchanged.

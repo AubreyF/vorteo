@@ -1,8 +1,10 @@
 # Lab installation
 
-A lab is a second, fully separate Vorteo installation on another Mac. Vorteo development installs there freely, so its restarts never interrupt the production installation you use for other work. Production upgrades only when you promote a revision the lab has verified.
+A lab is an ordinary Vorteo installation that you use to develop Vorteo itself. Development installs there as often as it likes, so its restarts never interrupt the installation you use for other work, which this guide calls production. Production upgrades only to revisions you choose after the lab has run them. Anyone can run this pattern: the lab gets no privileges, credentials or endpoints that a fresh installation would not have, and production trusts nothing from the lab except a Git revision you choose.
 
-Status: this guide covers setting up the lab. Delivering to the lab, promoting from it and listing the lab's Host in the production interface are planned in the core services on the Host plan, Phase 3, and are not implemented.
+Use a second machine for the lab. A second installation in the same account on the production machine could read production's credentials, and it would share production's Docker engine, Tailscale node and launchd session, which are the parts lab changes most often restart.
+
+Any installation can modify itself: its Builds thread integrates and installs the change locally, then pushes it or opens a pull request. A lab is an installation you use that way for Vorteo. Production instead updates to a revision you choose from the repository. Status: this guide covers setting up the lab. Updating an installation from a chosen tag or `main` revision is planned and not implemented; today updates arrive as source an agent submits.
 
 ## Separation
 
@@ -15,7 +17,7 @@ The lab is a new installation, not a copy. It gets its own:
 
 Never copy production state, credentials, `coordinator.json`, `installation.json`, provider sign-ins or browser storage into the lab. Never give lab agents a production credential. Never point a custom domain or `redirectOrigins` entry for production at the lab.
 
-Lab Host agents run as the macOS account that installed the lab, with the same access as production's Host agents have to theirs. Installing in the account you use for other work on that Mac is supported and lets the lab run in the background, but those agents can read that account's files and credentials. Leave desktop automation unavailable on a Mac you are using.
+Lab Host agents run as the macOS account that installed the lab, like any installation's Host agents. Installing in the account you use for other work on that Mac is supported and lets the lab run in the background, but those agents can read that account's files and credentials. Leave desktop automation unavailable on a Mac you are using.
 
 Both installations can share one tailnet. Their names differ because they run on different nodes, so the default ports do not collide.
 
