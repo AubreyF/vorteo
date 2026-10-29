@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-28): the Dev scratch reaper now protects running executables and mapped libraries and refuses deletion without full process visibility. Not scheduled or installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-28): documentation only. The core-services plan adds the Vorton Host release requirements. Functionality, README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-28): documentation only. The core-services plan records the deferred Dev preview move and a proposed promotion rule. Functionality, README overview and onboarding are unchanged.

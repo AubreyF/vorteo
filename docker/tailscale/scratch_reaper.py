@@ -18,22 +18,47 @@ import time
 
 
 def busy_paths(proc=Path('/proc')):
-    """Paths held by any process as its working directory, root or open file."""
+    """Paths a process uses: working directory, root, executable, open files and mapped files.
+
+    A running program's executable and shared libraries appear only in exe and maps, not as open
+    file descriptors. Missing them once deleted the Node runtime a daemon was running from.
+    """
     held = set()
     for entry in proc.iterdir() if proc.is_dir() else []:
         if not entry.name.isdigit():
             continue
-        links = [entry / 'cwd', entry / 'root']
+        links = [entry / 'cwd', entry / 'root', entry / 'exe']
         try:
             links += list((entry / 'fd').iterdir())
         except OSError:
             pass
         for link in links:
             try:
-                held.add(os.readlink(link))
+                held.add(os.readlink(link).removesuffix(' (deleted)'))
             except OSError:
                 continue
+        try:
+            for line in (entry / 'maps').read_text().splitlines():
+                fields = line.split(None, 5)
+                if len(fields) == 6 and fields[5].startswith('/'):
+                    held.add(fields[5].removesuffix(' (deleted)'))
+        except OSError:
+            pass
     return held
+
+
+def unreadable_processes(proc=Path('/proc')):
+    """Processes whose executable cannot be inspected; their files would look unused."""
+    hidden = 0
+    for entry in proc.iterdir() if proc.is_dir() else []:
+        if entry.name.isdigit():
+            try:
+                os.readlink(entry / 'exe')
+            except PermissionError:
+                hidden += 1
+            except OSError:
+                continue
+    return hidden
 
 
 def recently_modified(path, cutoff):
@@ -110,6 +135,9 @@ def main(argv=None):
     root = Path(args.root).resolve()
     if root == Path('/'):
         raise ValueError('Refusing to reap the filesystem root')
+    if args.delete and unreadable_processes():
+        # Without visibility into every process, an executable in use could be deleted.
+        raise ValueError('Some processes cannot be inspected; run as their user or with more privileges')
     stale, kept = plan(root, args.days)
     removed = []
     if args.delete:

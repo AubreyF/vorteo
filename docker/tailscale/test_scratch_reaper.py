@@ -49,6 +49,23 @@ class ScratchReaperTests(unittest.TestCase):
         self.make('work')
         self.assertEqual(self.reasons(held={str(self.root / 'work-other')}), {'work': None})
 
+    def test_running_executable_and_mapped_files_count_as_in_use(self):
+        runtime = self.make('node-runtime', files=('bin/node',))
+        library = self.make('libs', files=('lib.so',))
+        proc = self.root / 'proc'
+        process = proc / '42'
+        process.mkdir(parents=True)
+        (process / 'fd').mkdir()
+        os.symlink(str(runtime / 'bin/node') + ' (deleted)', process / 'exe')
+        (process / 'maps').write_text(f'0-1 r-xp 0 00:00 1 {library}/lib.so\n0-1 rw-p 0 00:00 0 [heap]\n')
+        from scratch_reaper import busy_paths
+        held = busy_paths(proc)
+        self.assertIn(str(runtime / 'bin/node'), held)
+        self.assertIn(str(library / 'lib.so'), held)
+        reasons = self.reasons(held=held)
+        self.assertEqual(reasons['node-runtime'], 'in use by a process')
+        self.assertEqual(reasons['libs'], 'in use by a process')
+
     def test_git_checkout_with_unique_work_is_kept(self):
         self.make('checkout', files=('.git/HEAD',))
 

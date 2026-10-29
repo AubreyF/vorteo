@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.884 - 2026-10-28
+
+### Fixed
+
+- The Dev scratch reaper treats running executables and memory-mapped files as in use, and refuses to delete when it cannot inspect every process. It previously checked only working directories and open files, and so deleted the Node runtime a running daemon used.
+
 ## 0.11.0-beta.3.vorteo.883 - 2026-10-28
 
 ### Maintenance
