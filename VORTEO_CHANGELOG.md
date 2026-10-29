@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.915 - 2026-10-29
+
+### Added
+
+- Offer the double-arrow Focus button in the compact rail flyout: on hover, the project header and folder rows show it immediately left of their ⋮ menus, and Standing and Factory headings show it too. Pressing it focuses that item in the sidebar, closes the flyout and expands the sidebar.
+
 ## 0.11.0-beta.3.vorteo.914 - 2026-10-29
 
 ### Changed

@@ -29,11 +29,15 @@ export function ProjectRailPreview({
   workspaceEntries,
   initials,
   onSelect,
+  onFocused,
 }: {
   project: SidebarProjectEntry;
   workspaceEntries: ReadonlyMap<string, SidebarWorkspaceEntry>;
   initials: string;
+  /** Show project in sidebar: focuses the project and expands the sidebar. */
   onSelect: (key: string) => void;
+  /** After a Focus button in the flyout focuses its item, so the sidebar can expand. */
+  onFocused: () => void;
 }) {
   const bottomSheetInternal = useBottomSheetModalInternal(true);
   const triggerRef = useRef<View>(null);
@@ -165,6 +169,10 @@ export function ProjectRailPreview({
     close();
     onSelect(project.viewKey);
   }, [close, onSelect, project.viewKey]);
+  const focused = useCallback(() => {
+    close();
+    onFocused();
+  }, [close, onFocused]);
   const click = useCallback(() => {
     pinned.current = true;
     open();
@@ -209,6 +217,7 @@ export function ProjectRailPreview({
                   workspaceEntries={workspaceEntries}
                   width={previewWidth - 16}
                   onNavigate={close}
+                  onFocused={focused}
                   onContentSizeChange={measureContent}
                 />
               </OverlayLayerProvider>

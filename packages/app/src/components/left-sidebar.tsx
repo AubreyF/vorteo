@@ -1179,6 +1179,7 @@ function DesktopSidebar({
                 workspaceEntries={workspaceEntriesByKey}
                 projects={projects}
                 onSelectProject={selectRailProject}
+                onFocused={expandSidebar}
               />
             </>
           ) : (

@@ -342,6 +342,11 @@ interface SidebarWorkspaceListProps {
   dragGestureHostActive?: boolean;
   /** False where the list shows a single project, such as the compact rail's flyout. */
   rootFolders?: boolean;
+  /**
+   * Where focus shows in another list, as from the compact rail's flyout: Focus buttons focus
+   * their item in the sidebar's store, then call this so the sidebar can show it.
+   */
+  onFocusElsewhere?: () => void;
 }
 
 interface ProjectHeaderRowProps {
@@ -2712,6 +2717,7 @@ export function SidebarWorkspaceList({
   parentGestureRef,
   dragGestureHostActive,
   rootFolders = true,
+  onFocusElsewhere,
 }: SidebarWorkspaceListProps) {
   const pathname = usePathname();
   const hosts = useHosts();
@@ -2820,6 +2826,7 @@ export function SidebarWorkspaceList({
         onToggleWorkspacePin={onToggleWorkspacePin}
         onPinnedWorkspaceReorder={handlePinnedWorkspaceReorder}
         rootFolders={rootFolders}
+        onFocusElsewhere={onFocusElsewhere}
       />
     );
 
@@ -2918,6 +2925,7 @@ function useProjectModeView(input: {
   hideEmptyFolders: boolean;
   rootFolders: boolean;
   collapsedProjectKeys: ReadonlySet<string>;
+  onFocusElsewhere?: () => void;
 }) {
   const {
     projects,
@@ -2926,6 +2934,7 @@ function useProjectModeView(input: {
     hideEmptyFolders,
     rootFolders,
     collapsedProjectKeys,
+    onFocusElsewhere,
   } = input;
   const focusHostIds = useMemo(
     () =>
@@ -2959,8 +2968,19 @@ function useProjectModeView(input: {
       }),
     [folderState, projects, workspaceEntriesByKey, supportsFactoryByServerId, hideEmptyFolders],
   );
-  // The compact rail's single-project flyout has no room for a focused view.
+  // The compact rail's single-project flyout has no room for a focused view: it never shows
+  // focus itself, and its Focus buttons focus the sidebar instead.
   const focusController = useSidebarFocusController({ world: focusWorld, enabled: rootFolders });
+  const focusElsewhere = useMemo(() => {
+    if (rootFolders || !onFocusElsewhere) return null;
+    return {
+      focus: null,
+      focusOn: (target: SidebarFocusTarget | null) => {
+        focusController.focusOn(target);
+        onFocusElsewhere();
+      },
+    };
+  }, [rootFolders, onFocusElsewhere, focusController]);
   const focus = focusController.focus;
   const { t } = useTranslation();
   const focusTrail = useMemo(
@@ -3007,8 +3027,7 @@ function useProjectModeView(input: {
     return { kind: "project" };
   }, [focus, focusProjectKey]);
   return {
-    // The compact rail's single-project flyout offers no focus.
-    focusContext: rootFolders ? focusController : null,
+    focusContext: rootFolders ? focusController : focusElsewhere,
     focus,
     focusWorld,
     focusTrail,
@@ -3046,6 +3065,7 @@ function ProjectModeListContent({
   onToggleWorkspacePin,
   onPinnedWorkspaceReorder,
   rootFolders = true,
+  onFocusElsewhere,
 }: Omit<
   SidebarWorkspaceListProps,
   | "workspaceGroups"
@@ -3104,6 +3124,7 @@ function ProjectModeListContent({
     hideEmptyFolders,
     rootFolders,
     collapsedProjectKeys,
+    onFocusElsewhere,
   });
 
   const getProjectOrder = useSidebarOrderStore((state) => state.getProjectOrder);

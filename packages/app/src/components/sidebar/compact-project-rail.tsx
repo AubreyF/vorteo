@@ -14,16 +14,20 @@ interface CompactProjectRailProps {
   workspaceEntries: ReadonlyMap<string, SidebarWorkspaceEntry>;
   projects: SidebarProjectEntry[];
   onSelectProject: (key: string) => void;
+  /** After a flyout Focus button focuses its item: expands the sidebar to show it. */
+  onFocused: () => void;
 }
 
 const ProjectRailItem = memo(function ProjectRailItem({
   project,
   workspaceEntries,
   onSelect,
+  onFocused,
 }: {
   project: SidebarProjectEntry;
   workspaceEntries: ReadonlyMap<string, SidebarWorkspaceEntry>;
   onSelect: (key: string) => void;
+  onFocused: () => void;
 }) {
   const bucket = useSidebarProjectStatusBucket({ workspaces: project.workspaces, enabled: true });
   const initials =
@@ -41,6 +45,7 @@ const ProjectRailItem = memo(function ProjectRailItem({
         project={project}
         initials={initials}
         onSelect={onSelect}
+        onFocused={onFocused}
       />
       {bucket && bucket !== "done" ? (
         <View pointerEvents="none" style={[styles.dot, statusDotStyle(bucket)]} />
@@ -55,6 +60,7 @@ export function CompactProjectRail({
   workspaceEntries,
   projects,
   onSelectProject,
+  onFocused,
 }: CompactProjectRailProps) {
   return (
     <View style={styles.rail} testID="compact-project-rail">
@@ -66,6 +72,7 @@ export function CompactProjectRail({
             key={project.viewKey}
             project={project}
             onSelect={onSelectProject}
+            onFocused={onFocused}
           />
         ))}
       </ScrollView>
