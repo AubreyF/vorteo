@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): refresh the coordinator diagnostic source candidate onto the served interface baseline, retaining app source, assets and UI generators. Server runtime uses the installed baseline plus the three accepted initialization diagnostic files; explicit reversions exclude unrelated server, broker, packaging and tooling changes. Source only; build, CI, retention, publication and lifecycle acceptance remain gated. Existing documentation history, README overview and onboarding are preserved.
+
 Maintenance review (2026-10-29): expanded startup diagnostics center vertically when they fit and retain bounded scrolling on short screens. Recovery buttons use equal gaps, with a visible Data Saver checkbox first and Reload last. Browser checks cover centering, wrapped gaps, focus visibility and checkbox states; the SVG stub includes the shaded logo primitives. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): themed brand marks and the startup loader retain the original loop shading with their existing palettes. Browser coverage checks the rendered crossing in all four tinted themes. README overview and onboarding are unchanged.

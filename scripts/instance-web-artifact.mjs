@@ -92,23 +92,17 @@ export async function sealArtifact(directory, provenance) {
   );
 }
 
-export async function snapshotSource({
-  source,
-  sourceCommit,
-  committed,
-  builds,
-  retainArchive = false,
-}) {
+export async function snapshotSource({ source, sourceCommit, committed, builds }) {
   await fs.mkdir(builds, { recursive: true });
   const root = await fs.mkdtemp(path.join(builds, "build-"));
   if (committed) {
     // Archive the chosen commit so concurrent edits cannot contaminate a primary build.
-    const archive = retainArchive ? root + ".source.tar" : path.join(root, ".source.tar");
+    const archive = path.join(root, ".source.tar");
     execFileSync("git", ["archive", "--format=tar", `--output=${archive}`, sourceCommit], {
       cwd: source,
     });
     execFileSync("tar", ["-xf", archive, "-C", root]);
-    if (!retainArchive) await fs.rm(archive);
+    await fs.rm(archive);
   } else {
     const files = git(source, ["ls-files", "-co", "--exclude-standard", "-z"])
       .split("\0")

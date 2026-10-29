@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.913 - 2026-10-29
+
+### Maintenance
+
+- Refresh the coordinator diagnostic candidate onto the currently served interface source, retaining its startup shading, recovery controls, assets and UI generators.
+- Limit server runtime changes to the three accepted initialization diagnostic files on the installed baseline. Restore unrelated server, broker, packaging and tooling changes explicitly.
+- Preserve existing documentation histories and dependency versions. Source only; build, CI, retention, publication and lifecycle acceptance remain gated.
+
 ## 0.11.0-beta.3.vorteo.912 - 2026-10-29
 
 ### Maintenance

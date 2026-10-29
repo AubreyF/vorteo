@@ -914,27 +914,15 @@ async function captureLaunchPolicy(
 }
 
 /**
- * The CODEX_HOME a Codex session's app-server inherits. The provider registry merges each
- * provider's env over the one it extends, so the nearest CODEX_HOME along that chain wins,
- * then the daemon's own. Account sessions list skills from that folder, so the skill
- * snapshot must read the same one. Codex treats an explicit empty value as its default
- * ~/.codex, so it stops inheritance too; undefined selects that default in the inventory.
+ * The CODEX_HOME a Codex session's app-server inherits: the account's own, else the daemon's.
+ * Account sessions list skills from that folder, so the skill snapshot must read the same one.
  */
-export function launchCodexHome(
+function launchCodexHome(
   provider: string,
-  settings: Pick<MutableDaemonConfig, "providers"> | undefined,
+  settings: MutableDaemonConfig | undefined,
   providerId: string,
-  daemonEnv: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
   if (provider !== "codex") return undefined;
-  const visited = new Set<string>();
-  for (let current: string | undefined = providerId; current && !visited.has(current); ) {
-    visited.add(current);
-    const parsed = ProviderOverrideSchema.safeParse(settings?.providers?.[current]);
-    if (!parsed.success) break;
-    const home = parsed.data.env?.CODEX_HOME;
-    if (home !== undefined) return home || undefined;
-    current = parsed.data.extends;
-  }
-  return daemonEnv.CODEX_HOME || undefined;
+  const parsed = ProviderOverrideSchema.safeParse(settings?.providers?.[providerId]);
+  return (parsed.success ? parsed.data.env?.CODEX_HOME : undefined) ?? process.env.CODEX_HOME;
 }
