@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.916 - 2026-10-29
+
+### Changed
+
+- Show the sidebar Focus button permanently on touch, compact and native layouts wherever the ⋮ menu is permanent, using the same condition: project, folder, Standing and Factory rows and compact rail flyout headers.
+- Remove the touch-only Focus item from project and folder menus, since the button is now always visible there.
+
 ## 0.11.0-beta.3.vorteo.915 - 2026-10-29
 
 ### Added

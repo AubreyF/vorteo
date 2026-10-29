@@ -1208,7 +1208,6 @@ export const ru: TranslationResources = {
     },
     focus: {
       focusItem: "Сфокусироваться на {{name}}",
-      menuItem: "Фокус",
       allProjects: "Все проекты",
       breadcrumb: "Путь фокуса боковой панели",
     },

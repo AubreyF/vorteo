@@ -1227,7 +1227,6 @@ export const es: TranslationResources = {
     },
     focus: {
       focusItem: "Enfocar {{name}}",
-      menuItem: "Enfocar",
       allProjects: "Todos los proyectos",
       breadcrumb: "Ruta de enfoque de la barra lateral",
     },

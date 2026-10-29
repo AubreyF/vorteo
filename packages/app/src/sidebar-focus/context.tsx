@@ -80,10 +80,13 @@ export function useSidebarFocusAction(target: SidebarFocusTarget): (() => void) 
 export interface SidebarRowFocus {
   /** The focused top level: it shows no arrow and does not fold away. */
   isRoot: boolean;
-  /** The hover button's action; null while not hovered and where hover is unavailable. */
+  /**
+   * The Focus button beside the row's ⋮ menu, under the condition that shows ⋮: on hover with
+   * a pointer, and always where rows cannot be hovered. Null while hidden.
+   */
   buttonAction: (() => void) | null;
-  /** The menu item's action, offered only where rows cannot be hovered. */
-  menuAction: (() => void) | null;
+  /** Hover with a pointer only, for a row showing no ⋮ menu, such as a folded project. */
+  hoverAction: (() => void) | null;
 }
 
 /** Focus affordances for a project or folder row. */
@@ -98,7 +101,7 @@ export function useSidebarRowFocus(input: {
   const hoverUnavailable = touch || compact || isNative;
   return {
     isRoot: context ? isSameSidebarFocus(context.focus, input.target) : false,
-    buttonAction: input.isHovered && !hoverUnavailable ? action : null,
-    menuAction: hoverUnavailable ? action : null,
+    buttonAction: input.isHovered || hoverUnavailable ? action : null,
+    hoverAction: input.isHovered && !hoverUnavailable ? action : null,
   };
 }

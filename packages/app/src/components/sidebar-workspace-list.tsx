@@ -65,7 +65,6 @@ import {
   LockKeyhole,
   FolderInput,
   FolderPlus,
-  ChevronsRight,
 } from "lucide-react-native";
 import { NestableScrollContainer } from "react-native-draggable-flatlist";
 import { DraggableList, type DraggableRenderItemInfo } from "./draggable-list";
@@ -269,7 +268,6 @@ const ThemedLock = withUnistyles(LockKeyhole);
 const ThemedSettings = withUnistyles(Settings);
 const ThemedFolderPlus = withUnistyles(FolderPlus);
 const ThemedFolderInput = withUnistyles(FolderInput);
-const ThemedChevronsRight = withUnistyles(ChevronsRight);
 
 const foregroundColorMapping = (theme: Theme) => ({
   color: theme.colors.foreground,
@@ -608,7 +606,6 @@ function ProjectRowTrailingActions({
             onRemoveProject={onRemoveProject}
             removeProjectStatus={removeProjectStatus}
             removeProjectBlockedReason={removeProjectBlockedReason}
-            onFocus={focus.menuAction}
           />
         </View>
       ) : null}
@@ -630,7 +627,6 @@ const newFolderLeadingIcon = <ThemedFolderPlus size={14} uniProps={foregroundMut
 const moveToFolderLeadingIcon = (
   <ThemedFolderInput size={14} uniProps={foregroundMutedColorMapping} />
 );
-const focusLeadingIcon = <ThemedChevronsRight size={14} uniProps={foregroundMutedColorMapping} />;
 const openInNewWindowLeadingIcon = (
   <ThemedExternalLink size={14} uniProps={foregroundMutedColorMapping} />
 );
@@ -652,7 +648,6 @@ function ProjectKebabMenu({
   onRemoveProject,
   removeProjectStatus,
   removeProjectBlockedReason,
-  onFocus,
 }: {
   projectViewKey: string;
   projectName: string;
@@ -661,7 +656,6 @@ function ProjectKebabMenu({
   onRemoveProject: () => void;
   removeProjectStatus: "idle" | "pending" | "success";
   removeProjectBlockedReason?: string | null;
-  onFocus: (() => void) | null;
 }) {
   const { t } = useTranslation();
   const actionSize = useSidebarActionSize();
@@ -700,7 +694,6 @@ function ProjectKebabMenu({
           onRemoveProject={onRemoveProject}
           removeProjectStatus={removeProjectStatus}
           removeProjectBlockedReason={removeProjectBlockedReason}
-          onFocus={onFocus}
         />
       </DropdownMenuContent>
     </DropdownMenu>
@@ -731,7 +724,6 @@ function ProjectMenuItems({
   onRemoveProject,
   removeProjectStatus,
   removeProjectBlockedReason,
-  onFocus,
 }: {
   surface: ProjectMenuSurface;
   projectViewKey: string;
@@ -741,8 +733,6 @@ function ProjectMenuItems({
   onRemoveProject: () => void;
   removeProjectStatus: "idle" | "pending" | "success";
   removeProjectBlockedReason?: string | null;
-  /** Present only where rows cannot be hovered, so touch layouts can still focus. */
-  onFocus: (() => void) | null;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -793,16 +783,6 @@ function ProjectMenuItems({
 
   return (
     <>
-      {onFocus ? (
-        <ProjectMenuItem
-          surface={surface}
-          testID={`sidebar-project-menu-focus-${projectViewKey}`}
-          leading={focusLeadingIcon}
-          onSelect={onFocus}
-        >
-          {t("sidebar.focus.menuItem")}
-        </ProjectMenuItem>
-      ) : null}
       {factoryScreenAvailable ? (
         <>
           <ProjectMenuItem
@@ -1308,7 +1288,7 @@ function ProjectHeaderRow({
           summary={taskSummary}
           projectViewKey={project.viewKey}
           displayName={displayName}
-          focusAction={rowFocus.buttonAction}
+          focusAction={rowFocus.hoverAction}
         />
       ) : (
         <ProjectRowTrailingActions
@@ -1404,7 +1384,6 @@ function ProjectHeaderRow({
           onRemoveProject={onRemoveProject}
           removeProjectStatus={removeProjectStatus}
           removeProjectBlockedReason={removeProjectBlockedReason}
-          onFocus={rowFocus.menuAction}
         />
       </ContextMenuContent>
     </ContextMenu>
@@ -2144,7 +2123,6 @@ function ProjectFocusActions({
         removeProjectBlockedReason={
           isSystemProject ? t("sidebar.project.actions.removeBlockedSystem") : null
         }
-        onFocus={null}
       />
     </View>
   );

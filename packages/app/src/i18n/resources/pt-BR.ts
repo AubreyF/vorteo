@@ -1216,7 +1216,6 @@ export const ptBR: TranslationResources = {
     },
     focus: {
       focusItem: "Focar em {{name}}",
-      menuItem: "Focar",
       allProjects: "Todos os projetos",
       breadcrumb: "Caminho de foco da barra lateral",
     },
