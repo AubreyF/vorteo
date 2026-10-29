@@ -480,6 +480,7 @@
         /* Storage may be unavailable; the neutral dark loader remains usable. */
       }
       var bootStarted = Date.now();
+      var bootStyles = "not_checked";
       var bootAssets = "Waiting for the interface to start";
       var bootAssetError = null;
       var bootFailedScript = null;
@@ -640,6 +641,7 @@
             elapsedSeconds: Math.floor((Date.now() - bootStarted) / 1000),
             page: "HTML and diagnostic script loaded; cache freshness unknown",
             assets: bootAssets,
+            styles: bootStyles,
             assetError: bootAssetError,
             scriptResources: bootResourceTimings(),
             interfaceDownloadRetries: bootScriptRetries,
@@ -695,6 +697,15 @@
           formatDuration(report.elapsedSeconds * 1000) +
           " elapsed" +
           (document.hidden ? " · background timers may be delayed" : "");
+        if (bootStyles === "waiting" || bootStyles === "failed") {
+          var styleRow = document.createElement("p");
+          styleRow.dataset.state = bootStyles === "failed" ? "failed" : "checking";
+          styleRow.textContent =
+            bootStyles === "failed"
+              ? "Interface styles: Download failed. Reload to try again."
+              : "Interface styles: Waiting for layout and theme styles to apply.";
+          panel.appendChild(styleRow);
+        }
         var completed =
           report.scriptElements.length > 0 &&
           report.scriptElements.every(function (entry) {
@@ -712,6 +723,12 @@
             : bootEndpointProbe.state === "complete" && !bootEndpointFailure
               ? "The server answered. The interface is still starting on this device."
               : "The interface is still starting. Slow downloads can remain pending without a browser error.";
+        if (bootStyles === "waiting" || bootStyles === "failed") {
+          document.getElementById("boot-summary").textContent =
+            bootStyles === "failed"
+              ? "Interface styles could not load. Reload to try again."
+              : "Loading interface styles…";
+        }
         if (bootMaintenance.state !== "not_checked") {
           var maintenance = document.createElement("p");
           maintenance.textContent =
@@ -734,6 +751,13 @@
             bootFailedScript = event.target;
             document.getElementById("boot-retry-script").hidden = false;
           }
+        } else if (
+          event.target instanceof HTMLLinkElement &&
+          event.target.rel === "stylesheet" &&
+          event.target.id !== "vorteo-optional-fonts"
+        ) {
+          event.target.dataset.vorteoStyleFailed = "true";
+          bootStyles = "failed";
         } else if (event.target === window) {
           var name = event.error && event.error.name;
           var allowed = [
@@ -765,6 +789,9 @@
         renderBootDiagnostics();
       }
       function bootResourceLoaded(event) {
+        if (event.target instanceof HTMLLinkElement) {
+          delete event.target.dataset.vorteoStyleFailed;
+        }
         if (
           event.target instanceof HTMLScriptElement &&
           bootScriptPath(event.target.src) &&
@@ -994,8 +1021,15 @@
       window.addEventListener("vorteo-data-saver-change", bootRenderDataSaver);
       bootRenderDataSaver();
       renderBootDiagnostics();
+      function bootStyleStatus(event) {
+        if (event.detail === "waiting" && bootStyles === "failed") return;
+        bootStyles = event.detail;
+        renderBootDiagnostics();
+      }
+      window.addEventListener("vorteo-boot-styles", bootStyleStatus);
       window.__vorteoFinishBoot = function () {
         bootFinished = true;
+        window.removeEventListener("vorteo-boot-styles", bootStyleStatus);
         clearInterval(bootClock);
         clearTimeout(bootDelayTimer);
         window.removeEventListener("vorteo-data-saver-change", bootRenderDataSaver);

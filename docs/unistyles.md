@@ -409,3 +409,14 @@ The welcome-screen investigation used this approach to prove the white layer was
 ## Pending view attachment
 
 The maintained web patch restores a missing CSS rule when a view attaches. Class creation happens during render, while the last committed owner can unmount before a pending replacement commits. Cleanup can therefore release a rule that the replacement already references, leaving text at the browser's default black. The attachment callback rebuilds missing styles, updates the affected class when theme values changed, and registers the restored rule for normal cleanup. An old cleanup callback must only dispose its own theme listener, never a replacement listener registered in the meantime.
+
+## Startup style readiness
+
+`appearance/boot-handoff.web.tsx` keeps the bootstrap overlay until required stylesheet links
+have loaded and a hidden React Native View has its computed flex layout, dimensions and
+current theme background. The probe exercises both React Native Web and Unistyles. Two
+consecutive animation frames must pass; elapsed time alone is not readiness. Keep the root
+inert while covered so keyboard focus cannot enter the unfinished interface. Optional font
+downloads retain system-font fallback and Data saver behavior. Startup diagnostics report
+stylesheet failures and keep Reload available. The browser startup suite withholds each
+runtime stylesheet and exercises delayed and failed stylesheet downloads.
