@@ -5,11 +5,12 @@ import { useVortonTouch } from "@/vorton-touch";
 import {
   isSameSidebarFocus,
   resolveSidebarFocus,
-  sidebarFocusAncestors,
+  storedSidebarFocus,
   type SidebarFocusTarget,
   type SidebarFocusWorld,
 } from "./model";
 import { useSidebarFocusStore } from "./store";
+import { useSidebarFolderStore } from "@/sidebar-folders/store";
 
 export interface SidebarFocusController {
   /** The item shown as the top level, after falling back from removed items. */
@@ -35,11 +36,29 @@ export function useSidebarFocusController(input: {
   );
   const focusOn = useCallback(
     (target: SidebarFocusTarget | null) => {
-      setFocus(target ? { target, ancestors: sidebarFocusAncestors(target, world) } : null);
+      setFocus(target ? storedSidebarFocus(target, world) : null);
     },
     [setFocus, world],
   );
   return useMemo(() => ({ focus, focusOn }), [focus, focusOn]);
+}
+
+/**
+ * Focuses a project from outside the expanded list, such as the compact rail's flyout footer.
+ * It writes the same store, in the same shape, as the project row's Focus button; ancestors
+ * come from the stored folders, which is all a project's ancestry depends on.
+ */
+export function focusSidebarProject(projectKey: string): void {
+  const folders = useSidebarFolderStore.getState();
+  const world: SidebarFocusWorld = {
+    folders: folders.sidebarFolders,
+    itemFolder: folders.itemFolder,
+    projects: new Map(),
+    hiddenFolderIds: new Set(),
+  };
+  useSidebarFocusStore
+    .getState()
+    .setFocus(storedSidebarFocus({ kind: "project", projectKey }, world));
 }
 
 export function useSidebarFocus(): SidebarFocusController | null {

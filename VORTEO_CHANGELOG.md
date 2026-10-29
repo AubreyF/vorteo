@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.914 - 2026-10-29
+
+### Changed
+
+- Make the compact rail flyout's Show project in sidebar button focus that project exactly as its Focus button does, then expand the sidebar to show the focused view. It no longer applies a project filter, and it now shows the double-arrow Focus icon before its label.
+
 ## 0.11.0-beta.3.vorteo.913 - 2026-10-29
 
 ### Changed

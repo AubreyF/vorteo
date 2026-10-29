@@ -5,6 +5,7 @@ import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { useBottomSheetModalInternal } from "@gorhom/bottom-sheet";
 import { Portal } from "@gorhom/portal";
 import { StyleSheet } from "react-native-unistyles";
+import { ChevronsRight } from "lucide-react-native";
 import { Button } from "@/components/ui/button";
 import { FloatingSurface } from "@/components/ui/floating";
 import { useHoverSafeZone } from "@/hooks/use-hover-safe-zone";
@@ -211,7 +212,12 @@ export function ProjectRailPreview({
                   onContentSizeChange={measureContent}
                 />
               </OverlayLayerProvider>
-              <Button variant="ghost" onPress={selectProject}>
+              <Button
+                variant="ghost"
+                leftIcon={ChevronsRight}
+                onPress={selectProject}
+                testID="project-rail-show-in-sidebar"
+              >
                 Show project in sidebar
               </Button>
             </FloatingSurface>

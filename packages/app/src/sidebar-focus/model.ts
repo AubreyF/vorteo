@@ -125,6 +125,14 @@ function isListed(target: SidebarFocusTarget, world: SidebarFocusWorld): boolean
   return folder.scope.kind === "root" || world.projects.has(folder.scope.projectKey);
 }
 
+/** What the store keeps for a newly focused target: it and its ancestors, for later fallback. */
+export function storedSidebarFocus(
+  target: SidebarFocusTarget,
+  world: SidebarFocusWorld,
+): StoredSidebarFocus {
+  return { target, ancestors: sidebarFocusAncestors(target, world) };
+}
+
 /** Ancestors of a listed target, outermost first. */
 export function sidebarFocusAncestors(
   target: SidebarFocusTarget,
