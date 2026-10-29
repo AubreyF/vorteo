@@ -152,6 +152,7 @@ function fakeGh({ root, origin, checks = [], reviews = [], viewer = "owner", aut
     calls.push({ args, input });
     const [group, verb] = args;
     if (group === "api" && verb === "user") return viewer;
+    if (group === "api" && verb.endsWith("/permission")) return "admin";
     if (group === "pr" && verb === "list") {
       return JSON.stringify(prs.filter((pr) => pr.state === "OPEN"));
     }
@@ -268,7 +269,7 @@ test("publishing opens a pull request, waits for required checks and merges with
   assert.match(calls.find((call) => call.args[1] === "create").input, /^\(AI Generated\)\./);
   // Reusing the branch finds the same pull request instead of opening another.
   assert.equal((await openPullRequest(plan, { env, gh, pollMs: 0 })).number, pr.number);
-  assert.equal(assertReviewed(plan, pr, { gh }), "opened by this installation");
+  assert.equal(assertReviewed(plan, pr, { gh }), "authored by this installation's account");
   let polls = 0;
   await waitForChecks(plan, {
     gh,
@@ -341,44 +342,59 @@ test("a cancelled run waits briefly for its replacement before refusing", async 
   assert.equal(polls, 1);
 });
 
-test("other pull requests wait for an owner approval that is current on their head", () => {
+test("reviews count only from writers, by their latest decision, and change requests block all", () => {
   const plan = { repository: REPO, head: "abc" };
   const fork = { number: 7, isCrossRepository: true, author: { login: "contributor" } };
   const review = (overrides) => ({
     id: 1,
     state: "APPROVED",
     commit_id: "abc",
-    author_association: "OWNER",
     user: "owner",
     ...overrides,
   });
-  const gh =
-    (reviews, viewer = "owner") =>
-    (args) =>
-      args[1] === "user" ? viewer : reviews.map((entry) => JSON.stringify(entry)).join("\n");
-  assert.throws(() => assertReviewed(plan, fork, { gh: gh([]) }), /waits for review/);
-  assert.throws(
-    () => assertReviewed(plan, fork, { gh: gh([review({ commit_id: "old" })]) }),
-    /waits for review/,
-  );
-  assert.throws(
-    () => assertReviewed(plan, fork, { gh: gh([review({ author_association: "CONTRIBUTOR" })]) }),
-    /waits for review/,
-  );
+  const permissions = { owner: "admin", helper: "write", reader: "read" };
+  const gh = (reviews) => (args) => {
+    if (args[1] === "user") return "owner";
+    const permission = /collaborators\/([^/]+)\/permission/.exec(args[1]);
+    if (permission) return permissions[permission[1]] ?? "none";
+    return reviews.map((entry) => JSON.stringify(entry)).join("\n");
+  };
+  const refuses = (pr, reviews, pattern) =>
+    assert.throws(() => assertReviewed(plan, pr, { gh: gh(reviews) }), pattern);
+  refuses(fork, [], /waits for review/);
+  refuses(fork, [review({ commit_id: "old" })], /waits for review/);
+  refuses(fork, [review({ user: "reader" })], /waits for review/);
   // A later change request from the same reviewer supersedes the approval.
-  assert.throws(
-    () =>
-      assertReviewed(plan, fork, {
-        gh: gh([review({}), review({ id: 2, state: "CHANGES_REQUESTED" })]),
-      }),
-    /changes requested by owner/,
+  refuses(fork, [review({}), review({ id: 2, state: "CHANGES_REQUESTED" })], /changes requested/);
+  // A dismissed change request no longer blocks; a reader's request never did.
+  assert.equal(
+    assertReviewed(plan, fork, {
+      gh: gh([
+        review({}),
+        review({ id: 2, user: "helper", state: "CHANGES_REQUESTED" }),
+        review({ id: 3, user: "helper", state: "DISMISSED" }),
+        review({ id: 4, user: "reader", state: "CHANGES_REQUESTED" }),
+      ]),
+    }),
+    "approved on its head",
   );
-  assert.equal(assertReviewed(plan, fork, { gh: gh([review({})]) }), "approved on its head");
   // A same-repository branch from another account is not this installation's own work.
-  const collaborator = { ...fork, isCrossRepository: false, author: { login: "collaborator" } };
-  assert.throws(() => assertReviewed(plan, collaborator, { gh: gh([]) }), /waits for review/);
+  refuses(
+    { ...fork, isCrossRepository: false, author: { login: "helper" } },
+    [],
+    /waits for review/,
+  );
   const own = { ...fork, isCrossRepository: false, author: { login: "owner" } };
-  assert.equal(assertReviewed(plan, own, { gh: gh([]) }), "opened by this installation");
+  assert.equal(
+    assertReviewed(plan, own, { gh: gh([]) }),
+    "authored by this installation's account",
+  );
+  // Even this installation's own pull request stops on a writer's change request.
+  refuses(
+    own,
+    [review({ user: "helper", state: "CHANGES_REQUESTED" })],
+    /changes requested by helper/,
+  );
 });
 
 test("finds Gitleaks through an explicit override", () => {

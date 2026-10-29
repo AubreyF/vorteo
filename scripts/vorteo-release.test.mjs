@@ -18,6 +18,7 @@ import {
   summarizeChecks,
 } from "./lib/github.mjs";
 import { contains, loadRulesets, planSync, validateRuleset } from "./sync-github-rulesets.mjs";
+import { jobGuards, matchesFilters, parseTriggers, startsOnTag } from "./lib/workflow-triggers.mjs";
 import {
   createTag,
   latestFor,
@@ -178,22 +179,37 @@ test("required checks come from the checked-in main ruleset", () => {
   const mainRuleset = loadRulesets(process.cwd()).find((entry) => entry.target === "branch");
   assert.deepEqual(requiredChecks(mainRuleset), ["changes", "format", "lint", "typecheck", "scan"]);
   assert.equal(requiredCheckApp(mainRuleset), 15368);
+  const required = ["changes", "format", "lint", "typecheck", "scan"];
+  const done = (id, name, conclusion) => ({ id, name, status: "completed", conclusion });
   const summary = summarizeChecks(
     [
-      { id: 1, name: "format", status: "completed", conclusion: "failure" },
-      { id: 2, name: "format", status: "completed", conclusion: "success" },
-      { id: 3, name: "lint", status: "completed", conclusion: "skipped" },
+      done(1, "format", "failure"),
+      done(2, "format", "success"),
+      done(3, "lint", "skipped"),
       { id: 4, name: "scan", status: "in_progress", conclusion: null },
-      { id: 5, name: "typecheck", status: "completed", conclusion: "neutral" },
+      done(5, "typecheck", "neutral"),
+      done(6, "changes", "success"),
     ],
-    ["format", "lint", "typecheck", "scan"],
+    required,
   );
   assert.deepEqual(summary, {
-    passed: ["format"],
+    passed: ["changes", "format"],
     skipped: ["lint"],
     pending: ["scan"],
     failed: ["typecheck (neutral)"],
   });
+  // Skips count only for path-filtered jobs, and only when changes passed.
+  const skippedScan = summarizeChecks(
+    [done(1, "changes", "success"), done(2, "scan", "skipped")],
+    ["scan"],
+  );
+  assert.deepEqual(skippedScan.failed, ["scan (skipped)"]);
+  const withoutGate = summarizeChecks(
+    [done(1, "changes", "failure"), done(2, "lint", "skipped")],
+    ["lint"],
+  );
+  assert.deepEqual(withoutGate.failed, ["lint (skipped without changes)"]);
+  assert.deepEqual(summarizeChecks([done(2, "lint", "skipped")], ["lint"]).pending, ["lint"]);
   assert.throws(() => requiredChecks({ rules: [] }), /no required checks/);
   assert.equal(parseGitHubRemote("https://github.com/AubreyF/paseo.git"), "AubreyF/paseo");
   assert.equal(parseGitHubRemote("git@github.com:AubreyF/vorteo.git"), "AubreyF/vorteo");
@@ -247,66 +263,74 @@ test("ruleset sync creates missing rulesets and ignores fields GitHub adds", () 
   assert.equal(contains([1, 2], [1]), false);
 });
 
-// Tag push filters from each workflow's `on:` block, read as text so the test needs no YAML parser.
-function workflowTriggers() {
+function workflows() {
   const directory = path.join(".github", "workflows");
   return readdirSync(directory)
     .filter((file) => /\.ya?ml$/.test(file))
     .map((file) => {
-      const lines = readFileSync(path.join(directory, file), "utf8").split("\n");
-      const end = lines.findIndex((line) => line.startsWith("jobs:"));
-      const on = lines.slice(0, end === -1 ? lines.length : end);
-      const tags = [];
-      on.forEach((line, index) => {
-        const header = /^(\s*)tags:\s*$/.exec(line);
-        if (!header) return;
-        for (const next of on.slice(index + 1)) {
-          const item = /^(\s*)-\s*["']?([^"'\s]+)["']?\s*$/.exec(next);
-          if (!item || item[1].length <= header[1].length) break;
-          tags.push(item[2]);
-        }
-      });
-      return { file, tags, release: on.some((line) => /^\s+release:/.test(line)) };
+      const source = readFileSync(path.join(directory, file), "utf8");
+      return { file, source, events: parseTriggers(source) };
     });
 }
 
-// GitHub filter globs: * stops at "/", ** does not, and later "!" patterns exclude.
-function triggers(patterns, tag) {
-  const toRegex = (glob) =>
-    new RegExp(
-      `^${glob
-        .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-        .replace(/\*\*/g, "\u0000")
-        .replace(/\*/g, "[^/]*")
-        .replace(/\?/g, ".")
-        .replaceAll("\u0000", ".*")}$`,
-    );
-  let matched = false;
-  for (const pattern of patterns) {
-    if (pattern.startsWith("!")) {
-      if (toRegex(pattern.slice(1)).test(tag)) matched = false;
-    } else if (toRegex(pattern).test(tag)) matched = true;
-  }
-  return matched;
-}
+// secret-scan.yml runs on every push, tags included; it only reads the repository.
+const HARMLESS_ON_TAGS = new Set(["secret-scan.yml"]);
 
-test("release tags start no upstream workflow; GitHub Releases start only guarded ones", () => {
-  const workflows = workflowTriggers();
-  const tagged = workflows.filter((workflow) => workflow.tags.length);
-  assert.ok(tagged.length >= 3, "expected upstream tag-triggered workflows");
-  // The old vorteo- prefix matched v*; keep proving the parser sees that.
-  assert.ok(tagged.some((workflow) => triggers(workflow.tags, "vorteo-922")));
+test("release tags start no upstream workflow; GitHub Releases start only guarded jobs", () => {
+  const all = workflows();
+  // The first proposed prefix matched v*; keep proving the parser sees that.
+  const vorteo = all.filter((workflow) => startsOnTag(workflow.events, "vorteo-922"));
+  assert.ok(vorteo.some((workflow) => workflow.file === "android-apk-release.yml"));
+  assert.ok(vorteo.some((workflow) => workflow.file === "desktop-release.yml"));
   for (const tag of [tagName("beta", 922), tagName("stable", 922)]) {
-    for (const workflow of tagged) {
-      assert.equal(triggers(workflow.tags, tag), false, `${workflow.file} runs on ${tag}`);
+    const started = all
+      .filter((workflow) => startsOnTag(workflow.events, tag))
+      .map((workflow) => workflow.file);
+    assert.deepEqual(
+      started.filter((file) => !HARMLESS_ON_TAGS.has(file)),
+      [],
+      `${tag} starts ${started.join(", ")}`,
+    );
+  }
+  for (const workflow of all.filter((entry) => "release" in entry.events)) {
+    for (const job of jobGuards(workflow.source)) {
+      assert.ok(job.upstreamOnly, `${workflow.file} job ${job.name} runs on GitHub Releases here`);
     }
   }
-  for (const workflow of workflows.filter((entry) => entry.release)) {
-    const source = readFileSync(path.join(".github", "workflows", workflow.file), "utf8");
-    assert.match(
-      source,
-      /github\.repository == 'getpaseo\/paseo'/,
-      `${workflow.file} runs on GitHub Releases in this repository`,
-    );
-  }
+});
+
+test("the trigger parser reads the workflow shapes GitHub accepts", () => {
+  const triggers = (on) => parseTriggers(`name: x\n${on}\njobs:\n  a:\n    runs-on: x\n`);
+  assert.equal(startsOnTag(triggers("on: push"), "release-1"), true);
+  assert.equal(startsOnTag(triggers("on: [push, pull_request]"), "release-1"), true);
+  assert.equal(startsOnTag(triggers("on:\n  create:"), "release-1"), true);
+  assert.equal(startsOnTag(triggers("on:\n  push:\n    paths: [a]"), "release-1"), true);
+  assert.equal(startsOnTag(triggers("on:\n  push:\n    branches: [main]"), "release-1"), false);
+  assert.equal(
+    startsOnTag(triggers("on:\n  push:\n    tags-ignore:\n      - 'release-*'"), "release-1"),
+    false,
+  );
+  const commented = triggers(
+    'on:\n  push:\n    tags:\n      - "v*" # desktop\n\n      # app\n      - "rel*"\n  workflow_dispatch:',
+  );
+  assert.equal(startsOnTag(commented, "release-1"), true);
+  assert.equal(startsOnTag(triggers("on:\n  push:\n    tags: [v*, 'x*']"), "x1"), true);
+  assert.equal(startsOnTag(triggers('on:\n  push:\n    tags: "v*"'), "vorteo-1"), true);
+  assert.equal(startsOnTag(triggers("on:\n  schedule:\n    - cron: '0 0 * * *'"), "v1"), false);
+  assert.ok("release" in triggers("on: release"));
+  assert.ok(matchesFilters(["release-[0-9]*"], "release-922"));
+  assert.ok(!matchesFilters(["release-[0-9]*"], "release-x"));
+  assert.ok(matchesFilters(["v1+"], "v111"));
+  assert.ok(matchesFilters(["v*", "!v*-beta.*"], "v1.0"));
+  assert.ok(!matchesFilters(["v*", "!v*-beta.*"], "v1-beta.2"));
+  assert.ok(!matchesFilters(["a/*"], "a/b/c"));
+  assert.ok(matchesFilters(["a/**"], "a/b/c"));
+  const guards = jobGuards(
+    "jobs:\n  ok:\n    if: github.repository == 'getpaseo/paseo'\n  bad:\n    steps:\n      - if: github.repository == 'getpaseo/paseo'\n",
+  );
+  assert.deepEqual(guards, [
+    { name: "ok", upstreamOnly: true },
+    { name: "bad", upstreamOnly: false },
+  ]);
+  assert.throws(() => triggers("on:\n  push:\n    tags: {a: b}"), /Unsupported/);
 });

@@ -69,12 +69,17 @@ export function requiredCheckApp(ruleset) {
   return [...apps][0];
 }
 
+// CI's `changes` job always runs and decides, through its path filter, whether these jobs
+// run. A skip of any other check, or a skip without a passing `changes`, is not accepted.
+export const PATH_FILTER_GATE = "changes";
+export const PATH_FILTERED_CHECKS = new Set(["format", "lint", "typecheck"]);
+
 /**
  * Summarizes required checks for one commit from its check runs. The newest run per
- * name decides, as on GitHub. Only success passes. A job skipped by CI's path filter
- * satisfies the requirement, as GitHub's ruleset does, but is listed as skipped so it
- * is never reported as validation. Any other conclusion, including cancelled and
- * neutral, fails: it is not evidence, and a rerun produces a newer run.
+ * name decides, as on GitHub. Only success passes. A path-filtered job that was skipped
+ * satisfies the requirement, as GitHub's ruleset does, when `changes` passed on the same
+ * commit; it is listed as skipped so it is never reported as validation. Any other
+ * conclusion, including cancelled, neutral and other skips, fails.
  */
 export function summarizeChecks(checkRuns, required) {
   const latest = new Map();
@@ -82,6 +87,8 @@ export function summarizeChecks(checkRuns, required) {
     const previous = latest.get(run.name);
     if (!previous || run.id > previous.id) latest.set(run.name, run);
   }
+  const gate = latest.get(PATH_FILTER_GATE);
+  const gatePassed = gate?.status === "completed" && gate.conclusion === "success";
   const passed = [];
   const skipped = [];
   const pending = [];
@@ -90,8 +97,11 @@ export function summarizeChecks(checkRuns, required) {
     const run = latest.get(name);
     if (!run || run.status !== "completed") pending.push(name);
     else if (run.conclusion === "success") passed.push(name);
-    else if (run.conclusion === "skipped") skipped.push(name);
-    else failed.push(`${name} (${run.conclusion})`);
+    else if (run.conclusion === "skipped" && PATH_FILTERED_CHECKS.has(name)) {
+      if (gatePassed) skipped.push(name);
+      else if (gate?.status === "completed") failed.push(`${name} (skipped without changes)`);
+      else pending.push(name);
+    } else failed.push(`${name} (${run.conclusion})`);
   }
   return { passed, skipped, pending, failed };
 }

@@ -33,7 +33,8 @@ import { assertBuildsCoordinator } from "./lib/builds-guard.mjs";
 
 export class PublishRefusal extends Error {}
 
-const TRUSTED_REVIEWERS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+// GitHub reports maintain as write in the legacy permission field.
+const WRITE_PERMISSIONS = new Set(["admin", "write"]);
 
 function fetchBase(root, remote, branch) {
   git(root, ["fetch", "--quiet", remote, branch]);
@@ -240,40 +241,55 @@ export async function openPullRequest(
 }
 
 /**
- * Decides whether a pull request may merge without waiting for the owner. Only a
- * same-repository pull request opened by the account running Builds merges on its checks.
- * Every other one needs an approval on its exact head from a reviewer with write access,
- * judged by each reviewer's latest decision, and no outstanding change request.
+ * Decides whether a pull request may merge. Reviewers count only with write access,
+ * checked through GitHub's permission API, and each reviewer's latest decision counts.
+ * An outstanding change request blocks every merge. A same-repository pull request
+ * authored by the account running Builds needs no approval: anyone who can push to its
+ * branch already has write access. Every other one needs an approval on its exact head.
+ * GitHub enforces no review gate itself, so a review submitted in the seconds between
+ * this check and the merge is not seen.
  */
 export function assertReviewed(plan, pr, { gh = runGh } = {}) {
   const viewer = gh(["api", "user", "--jq", ".login"]);
-  if (!pr.isCrossRepository && pr.author?.login && pr.author.login === viewer) {
-    return "opened by this installation";
-  }
   const output = gh([
     "api",
     "--paginate",
     `repos/${plan.repository}/pulls/${pr.number}/reviews`,
     "--jq",
-    ".[] | {id, state, commit_id, author_association, user: .user.login}",
+    ".[] | {id, state, commit_id, user: .user.login}",
   ]);
   const latest = new Map();
   for (const review of output ? output.split("\n").map((line) => JSON.parse(line)) : []) {
-    if (!TRUSTED_REVIEWERS.has(review.author_association)) continue;
     if (!["APPROVED", "CHANGES_REQUESTED", "DISMISSED"].includes(review.state)) continue;
     const previous = latest.get(review.user);
     if (!previous || review.id > previous.id) latest.set(review.user, review);
   }
-  const decisions = [...latest.values()];
-  const blocking = decisions.filter((review) => review.state === "CHANGES_REQUESTED");
-  const approved = decisions.some(
+  const canWrite = (login) =>
+    WRITE_PERMISSIONS.has(
+      gh([
+        "api",
+        `repos/${plan.repository}/collaborators/${login}/permission`,
+        "--jq",
+        ".permission",
+      ]),
+    );
+  const decisions = [...latest.values()].filter((review) => review.state !== "DISMISSED");
+  const trusted = decisions.filter((review) => canWrite(review.user));
+  const blocking = trusted.filter((review) => review.state === "CHANGES_REQUESTED");
+  if (blocking.length) {
+    throw new PublishRefusal(
+      `Pull request #${pr.number} has changes requested by ${blocking.map((r) => r.user).join(", ")}.`,
+    );
+  }
+  if (!pr.isCrossRepository && pr.author?.login && pr.author.login === viewer) {
+    return "authored by this installation's account";
+  }
+  const approved = trusted.some(
     (review) => review.state === "APPROVED" && review.commit_id === plan.head,
   );
-  if (blocking.length || !approved) {
+  if (!approved) {
     throw new PublishRefusal(
-      blocking.length
-        ? `Pull request #${pr.number} has changes requested by ${blocking.map((r) => r.user).join(", ")}.`
-        : `Pull request #${pr.number} has no owner approval on ${plan.head.slice(0, 9)}. It waits for review.`,
+      `Pull request #${pr.number} has no approval on ${plan.head.slice(0, 9)} from a reviewer with write access. It waits for review.`,
     );
   }
   return "approved on its head";

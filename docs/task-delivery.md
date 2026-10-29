@@ -89,7 +89,7 @@ node scripts/publish-main.mjs [--no-merge] [--pr <number>] [--delete-branch] [--
 Run it from Builds in the clean integration checkout, on a named branch that already contains `origin/main`. It refuses local changes, `main` or a detached HEAD, a stale base, a missing Gitleaks binary and a ruleset without required checks. It then:
 
 1. Pushes the branch without force and opens its pull request, or reuses this repository's open one once GitHub reports the pushed head. Every call names the repository, because `gh` in this fork otherwise targets upstream Paseo.
-2. Checks [who may merge](#who-merges), then waits for the required checks listed in [`.github/rulesets/main.json`](../.github/rulesets/main.json), reported by GitHub Actions on the exact head commit. Only success passes. A failed or neutral run stops it; a cancelled run gets a few polls for its replacement, then stops. A job that CI's path filter skipped satisfies the rule, as on GitHub, and is reported as skipped, not as validation.
+2. Checks [who may merge](#who-merges), then waits for the required checks listed in [`.github/rulesets/main.json`](../.github/rulesets/main.json), reported by GitHub Actions on the exact head commit. Only success passes. A failed or neutral run stops it; a cancelled run gets a few polls for its replacement, then stops. A skipped `format`, `lint` or `typecheck` satisfies the rule only when `changes`, whose path filter decides those jobs, passed on the same commit; it is reported as skipped, not as validation. Any other skip fails.
 3. Checks the review again, merges with a merge commit pinned to that head (`--match-head-commit`), confirms GitHub reports the pull request merged, and proves `main` contains both the merge commit and the head.
 
 The branch is kept by default, so recovery branches and preservation holds survive delivery. `--delete-branch` deletes it after the verified merge unless it moved; a failed deletion is reported without undoing the merge. `--no-merge` opens the pull request and stops. `--pr <number>` merges an existing pull request instead of the current branch.
@@ -101,13 +101,14 @@ The required checks are a floor for every merge. They never replace Builds' inte
 ### Delivery order
 
 - **Level 3** merges source to `main` without installing it.
-- **Level 4 on an installation used to develop Vorteo**: integrate and validate, install through the tracked lifecycle workflow and its approval, accept the install, then merge the same day. If `main` moved meanwhile, merge it and prepare a fresh version; the installed commit stays an ancestor of `main`.
+- **Level 4 on an installation used to develop Vorteo**: integrate and validate, install, accept the install, then merge the same day. Interface-only changes install by guarded static publication with no daemon restart; daemon and protocol changes use the tracked lifecycle workflow and its approval. If `main` moved meanwhile, merge it and prepare a fresh version; the installed commit stays an ancestor of `main`.
 - **An installation that follows a release channel**, such as production, installs only [tagged releases](release.md#vorteo-releases), through the same tracked source-update approval. Every installation is the same kind; only its use differs.
 
 ### Who merges
 
-- **This installation's own work.** A same-repository pull request opened by the GitHub account running Builds merges once the required checks pass. Zero approving reviews are required: GitHub does not let an account approve its own pull request.
-- **Everything else**, including contributors' fork pull requests and branches pushed by other accounts, waits for the owner. It merges only when a reviewer with write access has approved its exact head and no such reviewer's latest review requests changes. The check runs again right before the merge.
+- **This installation's own work.** A same-repository pull request authored by the GitHub account running Builds merges once the required checks pass, unless a change request blocks it. Anyone who can push to its branch already has write access. Zero approving reviews are required: GitHub does not let an account approve its own pull request.
+- **Everything else**, including contributors' fork pull requests and branches pushed by other accounts, waits for the owner. It merges only when a reviewer with write access, confirmed through GitHub's permission API rather than the review's association label, has approved its exact head. That approval is the owner's review: the owner is the only account with write access today, and granting write access to anyone else delegates it.
+- **Change requests** from a reviewer with write access block every merge, this installation's own included, until that reviewer approves or the review is dismissed. Each reviewer's latest decision counts. The check runs again right before the merge; GitHub enforces no review gate, so a review submitted in the seconds before the merge is not seen.
 
 ### Parallel branches and version counters
 

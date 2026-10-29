@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.925 - 2026-10-29
+
+### Fixed
+
+- Pull request delivery stops on a change request from any reviewer with write access, including on this installation's own pull requests, and confirms reviewer write access through GitHub's permission API instead of the review's association label.
+- A skipped required check counts only for `format`, `lint` and `typecheck`, and only when `changes`, whose path filter decides those jobs, passed on the same commit.
+- The release-tag trigger test reads unfiltered `push:` and `create` triggers, `tags-ignore`, flow lists, comments and character classes, and checks every job in a release-triggered workflow. It records that the read-only secret scan runs on every tag push.
+
+### Maintenance
+
+- The delivery docs say Level 4 interface-only changes install by guarded static publication without a daemon restart, and define a writer's GitHub approval as the owner's review.
+
 ## 0.11.0-beta.3.vorteo.924 - 2026-10-29
 
 ### Added
