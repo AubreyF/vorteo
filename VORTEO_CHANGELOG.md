@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.910 - 2026-10-29
+
+### Changed
+
+- Show a focused sidebar item's contents as the top level directly beneath the breadcrumb. The focused row and its ancestor rows are hidden, and every focus level rebases its children to the base indent.
+- Move the focused project's new-workspace + and ⋮ menu, and a focused folder's ⋮ menu, to the breadcrumb's last segment, shown on hover with a pointer and always on touch.
+- Keep drag and drop working inside focus: the focused container receives top-level drops, and depths are rebased so focused children are depth 0.
+
 ## 0.11.0-beta.3.vorteo.909 - 2026-10-29
 
 ### Fixed

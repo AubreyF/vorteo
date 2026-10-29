@@ -10,7 +10,7 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react-native";
-import type { SidebarFolderScope } from "@getpaseo/protocol/sidebar-state";
+import type { SidebarFolder, SidebarFolderScope } from "@getpaseo/protocol/sidebar-state";
 import { sidebarFolderEntry } from "@getpaseo/protocol/sidebar-folders";
 import {
   ContextMenu,
@@ -80,18 +80,17 @@ function folderChevron(isFocusRoot: boolean, collapsed: boolean): SidebarDisclos
 
 function FolderMenuItems({
   surface,
-  row,
+  folder,
   scope,
   onFocus,
 }: {
   surface: MenuSurface;
-  row: SidebarFolderRowModel;
+  folder: SidebarFolder;
   scope: SidebarFolderScope;
   /** Present only where rows cannot be hovered, so touch layouts can still focus. */
   onFocus: (() => void) | null;
 }) {
   const { t } = useTranslation();
-  const { folder } = row;
   const Item = surface === "context" ? ContextMenuItem : DropdownMenuItem;
   const createInside = useCreateSidebarFolderAction(scope, folder.id);
   const move = useMoveToSidebarFolderAction({
@@ -148,6 +147,48 @@ function FolderMenuItems({
   );
 }
 
+function folderKebabStyle({ hovered }: PressableStateCallbackType & { hovered?: boolean }) {
+  return [styles.kebab, hovered && styles.kebabHovered];
+}
+
+/** A folder's ⋮ menu. */
+function FolderKebabMenu({
+  folder,
+  scope,
+  onFocus,
+  open,
+  onOpenChange,
+}: {
+  folder: SidebarFolder;
+  scope: SidebarFolderScope;
+  onFocus: (() => void) | null;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <DropdownMenu compactMode="sheet" open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger
+        hitSlop={8}
+        style={folderKebabStyle}
+        accessibilityRole="button"
+        accessibilityLabel={t("sidebar.folders.actions.menu")}
+        testID={`sidebar-folder-kebab-${folder.id}`}
+      >
+        {renderKebabIcon}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" width={220} sheetTitle={t("sidebar.folders.actions.menu")}>
+        <FolderMenuItems surface="dropdown" folder={folder} scope={scope} onFocus={onFocus} />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** The ⋮ menu of a focused folder, whose own row the focused view hides. */
+export function SidebarFolderMenuButton({ folder }: { folder: SidebarFolder }) {
+  return <FolderKebabMenu folder={folder} scope={folder.scope} onFocus={null} />;
+}
+
 /**
  * A folder heading inside a sortable sidebar list. Pressing it folds the folder; dragging it
  * moves the folder with its contents; dropping a row onto it (web) moves the row inside.
@@ -168,7 +209,6 @@ export function SidebarFolderRow({
   isDragging: boolean;
   dragHandleProps?: DraggableListDragHandleProps;
 }) {
-  const { t } = useTranslation();
   const density = useSidebarRowDensity();
   const touch = useVortonTouch();
   const compact = useIsCompactFormFactor();
@@ -211,13 +251,6 @@ export function SidebarFolderRow({
     [density, level, isHovered, contextMenuOpen, isDragging],
   );
   const accessibilityState = useMemo(() => ({ expanded: !collapsed }), [collapsed]);
-  const kebabStyle = useCallback(
-    ({ hovered }: PressableStateCallbackType & { hovered?: boolean }) => [
-      styles.kebab,
-      hovered && styles.kebabHovered,
-    ],
-    [],
-  );
   const showActions = isHovered || menuOpen || touch || compact || isNative;
   const countLabel = String(itemCount);
 
@@ -272,33 +305,22 @@ export function SidebarFolderRow({
           style={showActions ? undefined : styles.hidden}
           pointerEvents={showActions ? "auto" : "none"}
         >
-          <DropdownMenu compactMode="sheet" open={menuOpen} onOpenChange={setMenuOpen}>
-            <DropdownMenuTrigger
-              hitSlop={8}
-              style={kebabStyle}
-              accessibilityRole="button"
-              accessibilityLabel={t("sidebar.folders.actions.menu")}
-              testID={`sidebar-folder-kebab-${folder.id}`}
-            >
-              {renderKebabIcon}
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              width={220}
-              sheetTitle={t("sidebar.folders.actions.menu")}
-            >
-              <FolderMenuItems
-                surface="dropdown"
-                row={row}
-                scope={scope}
-                onFocus={rowFocus.menuAction}
-              />
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <FolderKebabMenu
+            folder={folder}
+            scope={scope}
+            onFocus={rowFocus.menuAction}
+            open={menuOpen}
+            onOpenChange={setMenuOpen}
+          />
         </View>
       </View>
       <ContextMenuContent align="start" width={220} testID={`sidebar-folder-context-${folder.id}`}>
-        <FolderMenuItems surface="context" row={row} scope={scope} onFocus={rowFocus.menuAction} />
+        <FolderMenuItems
+          surface="context"
+          folder={folder}
+          scope={scope}
+          onFocus={rowFocus.menuAction}
+        />
       </ContextMenuContent>
     </ContextMenu>
   );

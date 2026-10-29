@@ -1,9 +1,10 @@
-import { Fragment, useCallback, useEffect, useRef } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { ChevronRight } from "lucide-react-native";
-import { isWeb } from "@/constants/platform";
+import { isNative, isWeb } from "@/constants/platform";
+import { useIsCompactFormFactor } from "@/constants/layout";
 import { Shortcut } from "@/components/ui/shortcut";
 import { SIDEBAR_ROW_INSET } from "@/components/sidebar/indent";
 import type { Theme } from "@/styles/theme";
@@ -48,11 +49,26 @@ function Crumb({
 
 /**
  * The path from All projects to the focused item. Every segment but the last focuses that
- * level; All projects leaves focus. There is deliberately no back button.
+ * level; All projects leaves focus. There is deliberately no back button. The focused item's
+ * own row is hidden, so its actions trail the last segment: on hover with a pointer, always
+ * where rows cannot be hovered, exactly as row actions are.
  */
-export function SidebarFocusBreadcrumb({ trail }: { trail: readonly SidebarFocusCrumb[] }) {
+export function SidebarFocusBreadcrumb({
+  trail,
+  actions,
+}: {
+  trail: readonly SidebarFocusCrumb[];
+  actions?: ReactNode;
+}) {
   const { t } = useTranslation();
   const controller = useSidebarFocus();
+  const touch = useVortonTouch();
+  const compact = useIsCompactFormFactor();
+  const [isHovered, setIsHovered] = useState(false);
+  const handlePointerEnter = useCallback(() => {
+    if (!touch) setIsHovered(true);
+  }, [touch]);
+  const handlePointerLeave = useCallback(() => setIsHovered(false), []);
   const containerRef = useRef<View>(null);
   const last = trail[trail.length - 1];
   const lastKey = last?.key;
@@ -66,6 +82,7 @@ export function SidebarFocusBreadcrumb({ trail }: { trail: readonly SidebarFocus
 
   if (!controller || !last) return null;
   const ancestors = trail.slice(0, -1);
+  const actionsVisible = isHovered || touch || compact || isNative;
   return (
     <View
       ref={containerRef}
@@ -73,6 +90,8 @@ export function SidebarFocusBreadcrumb({ trail }: { trail: readonly SidebarFocus
       role="navigation"
       accessibilityLabel={t("sidebar.focus.breadcrumb")}
       style={styles.container}
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
       testID="sidebar-focus-breadcrumb"
     >
       <View style={styles.trail}>
@@ -91,6 +110,15 @@ export function SidebarFocusBreadcrumb({ trail }: { trail: readonly SidebarFocus
           {last.label}
         </Text>
       </View>
+      {actions ? (
+        <View
+          style={[styles.actions, !actionsVisible && styles.actionsHidden]}
+          pointerEvents={actionsVisible ? "auto" : "none"}
+          testID="sidebar-focus-actions"
+        >
+          {actions}
+        </View>
+      ) : null}
       <Shortcut keys={ESCAPE_KEYS} style={styles.escapeHint} />
     </View>
   );
@@ -99,7 +127,8 @@ export function SidebarFocusBreadcrumb({ trail }: { trail: readonly SidebarFocus
 const styles = StyleSheet.create((theme) => ({
   container: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    // Actions belong to the last segment, which ends the trail's last line.
+    alignItems: "flex-end",
     gap: theme.spacing[2],
     paddingLeft: SIDEBAR_ROW_INSET,
     paddingRight: theme.spacing[2],
@@ -136,6 +165,12 @@ const styles = StyleSheet.create((theme) => ({
     lineHeight: 18,
     flexShrink: 1,
   },
+  actions: {
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  actionsHidden: { opacity: 0 },
   escapeHint: {
     flexShrink: 0,
   },
