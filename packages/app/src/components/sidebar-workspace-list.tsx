@@ -212,7 +212,6 @@ import {
 } from "@/sidebar-drop/session";
 import { SidebarFocusBreadcrumb } from "@/sidebar-focus/breadcrumb";
 import {
-  SIDEBAR_FOCUS_SCOPE,
   SidebarFocusProvider,
   useSidebarFocusAction,
   useSidebarFocusController,
@@ -3548,7 +3547,7 @@ function ProjectModeListContent({
 
   return (
     <SidebarFocusProvider value={focusContext}>
-      <View style={styles.container} dataSet={SIDEBAR_FOCUS_SCOPE}>
+      <View style={styles.container}>
         {platformIsNative ? (
           <NestableScrollContainer
             {...nativeScrollGestureProps}

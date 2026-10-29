@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.911 - 2026-10-29
+
+### Changed
+
+- Remove Escape from sidebar focus: the breadcrumb no longer shows an Esc hint, Escape no longer leaves focus, and the breadcrumb no longer takes keyboard focus after a focus change. The All projects crumb leaves focus.
+
 ## 0.11.0-beta.3.vorteo.910 - 2026-10-29
 
 ### Changed

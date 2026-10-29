@@ -1,11 +1,10 @@
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useState, type ReactNode } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { ChevronRight } from "lucide-react-native";
-import { isNative, isWeb } from "@/constants/platform";
+import { isNative } from "@/constants/platform";
 import { useIsCompactFormFactor } from "@/constants/layout";
-import { Shortcut } from "@/components/ui/shortcut";
 import { SIDEBAR_ROW_INSET } from "@/components/sidebar/indent";
 import type { Theme } from "@/styles/theme";
 import { LIST_ROW_TOUCH_ACTION_SIZE } from "@/styles/list-row-metrics";
@@ -15,7 +14,6 @@ import type { SidebarFocusCrumb, SidebarFocusTarget } from "./model";
 
 const ThemedChevronRight = withUnistyles(ChevronRight);
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
-const ESCAPE_KEYS = ["Esc"];
 
 function crumbTextStyle({ hovered }: PressableStateCallbackType & { hovered?: boolean }) {
   return [styles.crumb, hovered && styles.crumbHovered];
@@ -69,24 +67,13 @@ export function SidebarFocusBreadcrumb({
     if (!touch) setIsHovered(true);
   }, [touch]);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
-  const containerRef = useRef<View>(null);
   const last = trail[trail.length - 1];
-  const lastKey = last?.key;
-
-  // After a click moves focus, keep keyboard focus in the sidebar so Escape can leave it.
-  useEffect(() => {
-    if (!isWeb || !controller?.takeKeyboardFocusRequest()) return;
-    const element = containerRef.current as unknown as HTMLElement | null;
-    element?.focus({ preventScroll: true });
-  }, [controller, lastKey]);
 
   if (!controller || !last) return null;
   const ancestors = trail.slice(0, -1);
   const actionsVisible = isHovered || touch || compact || isNative;
   return (
     <View
-      ref={containerRef}
-      tabIndex={-1}
       role="navigation"
       accessibilityLabel={t("sidebar.focus.breadcrumb")}
       style={styles.container}
@@ -119,7 +106,6 @@ export function SidebarFocusBreadcrumb({
           {actions}
         </View>
       ) : null}
-      <Shortcut keys={ESCAPE_KEYS} style={styles.escapeHint} />
     </View>
   );
 }
@@ -171,7 +157,4 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
   },
   actionsHidden: { opacity: 0 },
-  escapeHint: {
-    flexShrink: 0,
-  },
 }));
