@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.895 - 2026-10-29
+
+### Maintenance
+
+- Use owned protected executable fixtures and require valid baseline digests in recovery tests, preserving production permission and ownership guards.
+- Keep protected-grant behavior tests on POSIX platforms and explicitly verify fail-closed behavior when owner identity is unavailable and on native Windows. Match skill-path expectations through the asynchronous native realpath API.
+- Format the preview broker client and its tests with the configured formatter without changing their parsed behavior.
+- Check the Nix macOS bundle against the configured com.vorteo.desktop identifier while retaining executable, launcher-link and plist validation.
+
 ## 0.11.0-beta.3.vorteo.894 - 2026-10-29
 
 ### Fixed

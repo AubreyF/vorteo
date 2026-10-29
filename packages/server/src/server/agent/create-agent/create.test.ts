@@ -1,6 +1,7 @@
 import { readInstallationSettings } from "../../execution-installation/settings/projection.js";
 import { readInstallationProviders } from "../../execution-installation/settings/providers.js";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, realpathSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
@@ -1221,7 +1222,7 @@ test("an explicit empty account home stops inheritance and captures default-home
     };
     await captureSkillPolicy(config, "codex", { home, codexHome });
     expect(config.profileLaunch?.skillSnapshot?.skills.map((skill) => skill.path)).toEqual([
-      realpathSync(defaultSkill),
+      await realpath(defaultSkill),
     ]);
     expect(codexHome).toBeUndefined();
   } finally {
