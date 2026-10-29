@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): the sidebar title-width browser test now selects the exact seeded workspace row by its existing test identifier. The desktop hover, shortcut and width assertions remain unchanged and pass; the pre-existing touch-layout review hold remains. No runtime behavior, README overview or onboarding changed.
+
 Maintenance review (2026-10-29): CI recovery fixtures now use owned protected executables instead of the runner Node binary and require valid baseline digests before negative preflight cases. Protected-grant tests retain POSIX behavior and explicit Windows refusal coverage; default-home skill assertions use asynchronous native realpath consistently. Preview broker changes are formatting only. Nix macOS verification now uses the configured com.vorteo.desktop bundle identifier, preserving executable, launcher-link and plist checks; actual bundle verification remains a CI check. Production guards and user behavior are unchanged; native Windows validation remains a CI check. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): Nix desktop renderer exports now receive the same 8192 MiB heap as browser exports, scoped to the export and appended after inherited Node options. Fatal diagnostics, macOS two-worker export limits and Linux concurrency remain unchanged. Bounded shell and child-process checks cover inheritance; full Nix builds and CI acceptance remain separate. README overview and onboarding are unchanged.
