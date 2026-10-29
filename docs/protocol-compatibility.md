@@ -164,6 +164,8 @@ The blocked status is discretionary and independent of `blockedBy` prerequisite 
 
 Daemons advertise `features.agentJournal`. The interface gates the journal card on that capability. Journal entries travel as an optional `journal` array in existing agent snapshots; older clients ignore the field, and newer clients still accept snapshots that omit it. No new WebSocket message type is sent to older clients. The caller-bound MCP tools assign append sequence and timestamp on the server, commit before broadcasting, and deduplicate retries by entry ID. Ordinary agent snapshot writes preserve the durable journal.
 
+Daemons advertise `features.agentTimelinePromptIndexAfterSeq` when `agent.timeline.list_prompts.request` accepts optional `afterSeq` and returns only prompts after that timeline position. The interface sends the field only to capable daemons; older daemons would strip it and return the complete index, which older interfaces continue to request. Prompt rows keep their sequence once appended, so a suffix extends the held index for the same epoch.
+
 Journal entries and append input accept optional `machineContext` text for agent reference details. The card renders only `text`; machine context remains available in journal reads and snapshots and is not a secret store. Older entries omit it, and older clients ignore it. Agents must inspect the append tool schema before sending this field to an older daemon; no client write path assumes support. Retries must retain both text and machine context exactly. The short-summary limits are writing instructions, not a narrowing of the existing wire text schema; historical entries remain readable.
 
 ## Open questions

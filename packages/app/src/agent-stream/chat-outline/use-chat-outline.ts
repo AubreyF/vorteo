@@ -31,6 +31,8 @@ export interface UseChatOutlineInput {
   tail: StreamItem[];
   head: StreamItem[] | undefined;
   enabled: boolean;
+  /** The daemon returns only prompts after a known position (agentTimelinePromptIndexAfterSeq). */
+  supportsIncrementalIndex?: boolean;
   viewportRef: RefObject<StreamViewportHandle | null>;
   onJumpError: () => void;
   visibleMessageIds?: ReadonlySet<string>;
@@ -51,12 +53,15 @@ export function useChatOutline({
   tail,
   head,
   enabled,
+  supportsIncrementalIndex = false,
   viewportRef,
   onJumpError,
   visibleMessageIds,
   revealLoadedMessage,
 }: UseChatOutlineInput): ChatOutline {
   const [index, setIndex] = useState<AgentTimelinePromptIndexPayload | null>(null);
+  const indexRef = useRef(index);
+  indexRef.current = index;
   const [pendingJump, setPendingJump] = useState<PendingPromptJump | null>(null);
   const [activePrompt] = useState(createActivePromptPublisher);
   const readingSeqRef = useRef<number | null>(null);
@@ -87,27 +92,48 @@ export function useChatOutline({
     const client = getHostRuntimeStore().getClient(serverId);
     if (!client) return;
     let active = true;
-    const refresh = () => {
+    const refresh = (base: AgentTimelinePromptIndexPayload | null) => {
       const requestId = ++nextIndexRequestIdRef.current;
-      void client
-        .listAgentTimelinePrompts(agentId)
+      // A held index for this epoch only needs the prompts after its newest one; a permanent
+      // thread would otherwise resend its whole history on every new prompt.
+      const afterSeq = base?.prompts.at(-1)?.seq;
+      const request =
+        afterSeq === undefined
+          ? client.listAgentTimelinePrompts(agentId)
+          : client.listAgentTimelinePrompts(agentId, { afterSeq });
+      void request
         .then((payload) => {
           if (
-            active &&
-            requestId === nextIndexRequestIdRef.current &&
-            shouldAcceptPromptIndexEpoch(timelineEpoch, payload.epoch)
+            !active ||
+            requestId !== nextIndexRequestIdRef.current ||
+            !shouldAcceptPromptIndexEpoch(timelineEpoch, payload.epoch)
           ) {
-            setIndex(payload);
+            return undefined;
           }
+          if (!base) {
+            setIndex(payload);
+            return undefined;
+          }
+          if (indexRef.current !== base) {
+            // The held index changed underneath this request; rebuild it from scratch.
+            refresh(null);
+            return undefined;
+          }
+          setIndex({ ...payload, prompts: [...base.prompts, ...payload.prompts] });
           return undefined;
         })
         .catch(() => undefined);
     };
-    refresh();
+    const held = indexRef.current;
+    refresh(
+      supportsIncrementalIndex && held?.epoch === timelineEpoch && held.prompts.length > 0
+        ? held
+        : null,
+    );
     return () => {
       active = false;
     };
-  }, [agentId, enabled, serverId, timelineEpoch, latestPromptSeq]);
+  }, [agentId, enabled, serverId, supportsIncrementalIndex, timelineEpoch, latestPromptSeq]);
 
   // The transcript resolves display rows (including Markdown blocks and plugin cards) to
   // timeline positions. The outline uses the complete index, including unloaded prompts.

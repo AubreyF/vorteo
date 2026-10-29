@@ -27,6 +27,7 @@ import {
   type ChecklistMutation,
 } from "./task-checklist/model.js";
 import { SkillSnapshotSchema } from "@getpaseo/protocol/skill-library";
+import { randomUUID } from "node:crypto";
 import { promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -180,6 +181,13 @@ export class AgentStorage {
   private deleting: Set<string> = new Set();
   private daemonAgentIdsByExecution: Map<string, string> = new Map();
   private daemonExecutionKeysByAgentId: Map<string, string> = new Map();
+  // Entries already durable in each agent's journal sidecar. Journals are append-only.
+  private persistedJournalLength: Map<string, number> = new Map();
+  // Agents whose journal cannot be migrated safely this run: the journal file could not be
+  // read, a corrupt file could not be preserved, or inline entries conflict with it. Each
+  // maps to the inline journal loaded from the record, which record writes keep verbatim.
+  // Appends are refused and the journal file is never written until a later load succeeds.
+  private unavailableJournals: Map<string, AgentJournalEntry[] | undefined> = new Map();
   private loaded = false;
   private baseDir: string;
   private loadPromise: Promise<StoredAgentRecord[]> | null = null;
@@ -252,6 +260,116 @@ export class AgentStorage {
 
   private switchHistoryPath(agentId: string, switchId: string): string {
     return path.join(this.switchHistoryDir(agentId), `${encodeURIComponent(switchId)}.json`);
+  }
+
+  // The journal lives in a sidecar so frequent snapshot writes do not reserialize
+  // it; it is rewritten only when an entry is appended. Older daemons ignore the
+  // sidecar, so after a rollback the journal looks empty until the next upgrade.
+  // Entries an older daemon appends inline are merged on load when their IDs are new;
+  // an inline entry reusing an ID with different content blocks migration instead, and
+  // both copies stay on disk for manual reconciliation.
+  private journalPath(agentId: string): string {
+    return path.join(
+      path.dirname(this.baseDir),
+      "agent-journals",
+      `${encodeURIComponent(agentId)}.json`,
+    );
+  }
+
+  private async readJournalSidecar(agentId: string): Promise<AgentJournalEntry[] | null> {
+    let content: string;
+    try {
+      content = await fs.readFile(this.journalPath(agentId), "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+    try {
+      return z.array(AgentJournalEntrySchema).parse(JSON.parse(content));
+    } catch (error) {
+      throw new CorruptJournalError(error);
+    }
+  }
+
+  private async attachJournal(record: StoredAgentRecord): Promise<StoredAgentRecord> {
+    let sidecar: AgentJournalEntry[] | null;
+    try {
+      sidecar = await this.readJournalSidecar(record.id);
+    } catch (error) {
+      if (!(error instanceof CorruptJournalError)) {
+        this.unavailableJournals.set(record.id, record.journal);
+        this.logger.error(
+          { err: error, agentId: record.id, filePath: this.journalPath(record.id) },
+          "Agent journal could not be read; appends are refused until the daemon reloads it",
+        );
+        return record;
+      }
+      // Only fall back to the inline journal once the corrupt bytes are preserved
+      // elsewhere; otherwise a later save would replace them.
+      const preservedPath = await this.preserveCorruptJournal(record.id);
+      if (preservedPath === null) {
+        this.unavailableJournals.set(record.id, record.journal);
+        this.logger.error(
+          { err: error, agentId: record.id, filePath: this.journalPath(record.id) },
+          "Corrupt agent journal could not be preserved; it is left in place and appends are refused",
+        );
+        return record;
+      }
+      this.logger.error(
+        { err: error, agentId: record.id, preservedPath },
+        "Ignoring corrupt agent journal; it was preserved and the inline journal is used instead",
+      );
+      return record;
+    }
+    if (!sidecar) return record;
+    this.persistedJournalLength.set(record.id, sidecar.length);
+    const known = new Map(sidecar.map((entry) => [entry.id, entry]));
+    const journal = [...sidecar];
+    const conflicts: string[] = [];
+    for (const entry of record.journal ?? []) {
+      const existing = known.get(entry.id);
+      if (existing) {
+        // The same entry retried, or already migrated: append order and timestamps may
+        // differ, but the owner-visible payload must match.
+        if (!sameJournalPayload(existing, entry)) conflicts.push(entry.id);
+        continue;
+      }
+      // Entries an older daemon appended inline restart at sequence 1; renumber them
+      // after the journal file so sequences stay unique and ordered.
+      const merged = { ...entry, sequence: journal.length + 1 };
+      known.set(entry.id, merged);
+      journal.push(merged);
+    }
+    if (conflicts.length > 0) {
+      this.unavailableJournals.set(record.id, record.journal);
+      this.logger.error(
+        {
+          agentId: record.id,
+          conflictingEntryIds: conflicts,
+          filePath: this.journalPath(record.id),
+        },
+        "Inline journal entries reuse IDs with different content; both copies are kept and appends are refused",
+      );
+    }
+    return { ...record, journal: journal.length > 0 ? journal : record.journal };
+  }
+
+  /** Moves a corrupt journal file to a fresh name. Returns null unless it is fully moved. */
+  private async preserveCorruptJournal(agentId: string): Promise<string | null> {
+    const filePath = this.journalPath(agentId);
+    const preservedPath = `${filePath}.unreadable-${Date.now()}-${randomUUID()}`;
+    try {
+      // A hard link refuses an existing destination, unlike rename, which would replace it.
+      await fs.link(filePath, preservedPath);
+      await fs.unlink(filePath);
+      return preservedPath;
+    } catch (error) {
+      this.logger.error(
+        { err: error, agentId, filePath, preservedPath },
+        "Journal preservation failed",
+      );
+      return null;
+    }
   }
 
   async upsert(record: StoredAgentRecord): Promise<void> {
@@ -343,6 +461,11 @@ export class AgentStorage {
       (record) => {
         if (!record || record.archivedAt)
           throw new JournalError("not_found", "Only an active thread can append to its journal.");
+        if (this.unavailableJournals.has(agentId))
+          throw new JournalError(
+            "unavailable",
+            "This thread's journal could not be loaded safely, so new entries are refused. See the daemon log.",
+          );
         const entries = record.journal ?? [];
         const previous = entries.find((entry) => entry.id === entryId);
         if (previous) {
@@ -519,7 +642,26 @@ export class AgentStorage {
     const nextPath = this.buildRecordPath(record);
     const previousPath = this.pathById.get(agentId);
 
-    await writeJsonFileAtomic(nextPath, record);
+    const { journal, ...withoutJournal } = record;
+    const journalLength = journal?.length ?? 0;
+    if (this.unavailableJournals.has(agentId)) {
+      // Migration is blocked; keep the inline journal exactly as it was loaded.
+      const inline = this.unavailableJournals.get(agentId);
+      await writeJsonFileAtomic(
+        nextPath,
+        inline ? { ...withoutJournal, journal: inline } : withoutJournal,
+      );
+    } else if (journalLength !== (this.persistedJournalLength.get(agentId) ?? 0)) {
+      // The sidecar goes first so a crash before the record write loses nothing.
+      // Until the record commits, the sidecar may hold an entry the cache rejected,
+      // so mark it unknown and let the next write restore it from the cache.
+      this.persistedJournalLength.set(agentId, -1);
+      await writeJsonFileAtomic(this.journalPath(agentId), journal ?? []);
+      await writeJsonFileAtomic(nextPath, withoutJournal);
+      this.persistedJournalLength.set(agentId, journalLength);
+    } else {
+      await writeJsonFileAtomic(nextPath, withoutJournal);
+    }
     this.addIndexedPath(agentId, nextPath);
 
     if (previousPath && previousPath !== nextPath) {
@@ -545,6 +687,7 @@ export class AgentStorage {
     this.beginDelete(agentId);
     await (this.pendingWrites.get(agentId) ?? Promise.resolve());
     const paths = Array.from(this.pathsById.get(agentId) ?? []);
+    const failures: unknown[] = [];
     await Promise.all(
       paths.map(async (filePath) => {
         try {
@@ -556,11 +699,20 @@ export class AgentStorage {
               { err: error, agentId, filePath },
               "Failed to remove agent record file",
             );
+            failures.push(error);
           }
         }
       }),
     );
+    // A surviving record reloads after restart, and migrated records hold no journal of
+    // their own. Keep the journal, switch history and indexes until every record is gone.
+    // The delete fence stays in place, so later writes for this agent are still dropped.
+    if (failures.length > 0)
+      throw new AggregateError(failures, `Agent ${agentId} record files could not all be removed`);
     await fs.rm(this.switchHistoryDir(agentId), { recursive: true, force: true });
+    await fs.rm(this.journalPath(agentId), { force: true });
+    this.persistedJournalLength.delete(agentId);
+    this.unavailableJournals.delete(agentId);
 
     this.cache.delete(agentId);
     this.removeOwnerIndex(agentId);
@@ -628,6 +780,8 @@ export class AgentStorage {
     this.pathsById.clear();
     this.daemonAgentIdsByExecution.clear();
     this.daemonExecutionKeysByAgentId.clear();
+    this.persistedJournalLength.clear();
+    this.unavailableJournals.clear();
 
     try {
       const records = await this.scanDisk();
@@ -702,7 +856,7 @@ export class AgentStorage {
     try {
       const content = await fs.readFile(filePath, "utf8");
       const parsed = JSON.parse(content);
-      return parseStoredAgentRecord(parsed);
+      return await this.attachJournal(parseStoredAgentRecord(parsed));
     } catch (error) {
       this.logger.error({ err: error, filePath }, "Skipping invalid agent record");
       return null;
@@ -805,4 +959,15 @@ function preserveOwnedRecordFields({ record, existing, options }: OwnedRecordFie
   if (!options.checklistWrite) preserveManagedChecklist(record, existing);
   if (!options.blockedReviewWrite && existing)
     record.lastBlockedReviewAt = existing.lastBlockedReviewAt;
+}
+
+class CorruptJournalError extends Error {
+  constructor(cause: unknown) {
+    super("Agent journal file is not a valid journal", { cause });
+    this.name = "CorruptJournalError";
+  }
+}
+
+function sameJournalPayload(left: AgentJournalEntry, right: AgentJournalEntry): boolean {
+  return left.text === right.text && left.machineContext === right.machineContext;
 }
