@@ -1180,7 +1180,6 @@ export const zhCN: TranslationResources = {
     },
     focus: {
       focusItem: "聚焦 {{name}}",
-      menuItem: "聚焦",
       allProjects: "所有项目",
       breadcrumb: "侧边栏聚焦路径",
     },

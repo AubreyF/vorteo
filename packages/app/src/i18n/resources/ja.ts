@@ -1204,7 +1204,6 @@ export const ja: TranslationResources = {
     },
     focus: {
       focusItem: "{{name}} にフォーカス",
-      menuItem: "フォーカス",
       allProjects: "すべてのプロジェクト",
       breadcrumb: "サイドバーのフォーカス経路",
     },
