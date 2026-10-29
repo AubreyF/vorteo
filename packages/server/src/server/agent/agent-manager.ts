@@ -1,3 +1,4 @@
+import { pendingCodexAsyncQuestions } from "./providers/codex/async-questions.js";
 import type { HeldRestart } from "@getpaseo/protocol/messages";
 import {
   blockedReviewDue,
@@ -3855,7 +3856,9 @@ export class AgentManager {
         availableModes: [],
         features: record.features,
         currentModeId: record.lastModeId ?? null,
-        pendingPermissions: new Map(),
+        pendingPermissions: new Map(
+          pendingCodexAsyncQuestions(record.persistence).map((request) => [request.id, request]),
+        ),
         bufferedPermissionResolutions: new Map(),
         inFlightPermissionResponses: new Set(),
         pendingReplacement: false,
@@ -6243,7 +6246,9 @@ export class AgentManager {
       activeForegroundTurnId: null,
       activeTurnId: null,
       activeTurnStartedAt: null,
-      pendingPermissions: new Map(),
+      pendingPermissions: new Map(
+        pendingCodexAsyncQuestions(agent.persistence).map((request) => [request.id, request]),
+      ),
       bufferedPermissionResolutions: new Map(),
       inFlightPermissionResponses: new Set(),
       pendingReplacement: false,

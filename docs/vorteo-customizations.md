@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): closed and stored Codex agents keep their unanswered owner questions visible as pending permissions, read back from the saved session state; native execution approvals are never restored. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): integrate the reviewed Optimizer title migration, preserving role identity and idempotent startup behavior. The focused retitling suite passes; installed title verification remains a separate tracked Host delivery check.
 
 Maintenance review (2026-10-29): integrate the reviewed unavailable-provider history view and passive queue handling without changing their source. Preserve native OpenCode fallback refusal, committed-history access and the documented full-transcript pagination cost. Host and Dev delivery and owner UI acceptance remain separate. README overview and onboarding are unchanged.
