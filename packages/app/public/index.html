@@ -227,13 +227,30 @@
           <div id="boot-diagnostics" aria-live="polite"></div>
           <div id="boot-connection-details" hidden></div>
           <p>The page may be cached. These results describe this device only.</p>
-          <button id="boot-check" type="button">Check endpoint</button>
-          <button id="boot-retry-script" type="button" hidden>Retry interface download</button>
-          <button type="button" onclick="window.location.reload()">Reload</button>
-          <button id="boot-data-saver" type="button" aria-pressed="false">
-            <span id="boot-data-saver-check" aria-hidden="true">✓</span> Enable data saver
-          </button>
-          <button id="boot-copy" type="button">Copy diagnostics</button>
+          <div id="boot-actions">
+            <button id="boot-data-saver" type="button" aria-pressed="false">
+              <svg
+                id="boot-data-saver-icon"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path id="boot-data-saver-check" d="m7 12 3 3 7-7" />
+              </svg>
+              Enable data saver
+            </button>
+            <button id="boot-check" type="button">Check endpoint</button>
+            <button id="boot-retry-script" type="button" hidden>Retry interface download</button>
+            <button id="boot-copy" type="button">Copy diagnostics</button>
+            <button type="button" onclick="window.location.reload()">Reload</button>
+          </div>
           <p id="boot-data-saver-feedback" role="status" hidden></p>
           <p id="boot-copy-feedback" role="status"></p>
           <textarea
@@ -292,9 +309,11 @@
         font-size: 12px;
         opacity: 0.8;
       }
+      #boot-data-saver-icon {
+        vertical-align: -3px;
+        margin-right: 4px;
+      }
       #boot-data-saver-check {
-        display: inline-block;
-        width: 1em;
         visibility: hidden;
       }
       #boot-data-saver[aria-pressed="true"] #boot-data-saver-check {
@@ -333,8 +352,6 @@
         height: 72px;
       }
       #boot-status[data-expanded="true"] {
-        margin: 0 auto;
-        height: 100%;
         scrollbar-gutter: stable;
       }
       #boot-status {
@@ -377,8 +394,11 @@
         font: inherit;
         cursor: pointer;
       }
-      #boot-help button {
-        margin: 4px;
+      #boot-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 12px;
       }
       #boot-diagnostics {
         text-align: left;
@@ -754,6 +774,7 @@
               : bootMaintenance.state + "; restart activity cannot be established");
           details.appendChild(maintenance);
         }
+        bootUpdateRevealOrigin();
       }
       function bootResourceError(event) {
         if (event.target instanceof HTMLScriptElement) {
@@ -962,11 +983,28 @@
         }
       }
       var bootRevealDelay = 3000;
+      var bootRevealStart = null;
+      function bootUpdateRevealOrigin() {
+        if (!bootRevealStart) return;
+        var status = document.getElementById("boot-status");
+        var emblem = status.querySelector(".boot-emblem");
+        // A probe response can change the centered panel's height during the reveal.
+        var top =
+          status.getBoundingClientRect().top +
+          parseFloat(getComputedStyle(status).paddingTop) -
+          status.scrollTop;
+        status.style.setProperty("--boot-emblem-y", bootRevealStart.top - top + "px");
+        status.style.setProperty(
+          "--boot-help-y",
+          bootRevealStart.bottom - top - emblem.offsetHeight + "px",
+        );
+      }
       function bootRevealDiagnostics() {
         var status = document.getElementById("boot-status");
         if (status.dataset.expanded === "true") return;
         var emblem = status.querySelector(".boot-emblem");
         var before = emblem.getBoundingClientRect();
+        bootRevealStart = before;
         document.getElementById("boot-help").hidden = false;
         status.dataset.expanded = "true";
         var after = emblem.getBoundingClientRect();
@@ -978,9 +1016,9 @@
       }
       function bootCheckDelay() {
         if (bootFinished || Date.now() - bootStarted < bootRevealDelay) return;
-        bootRevealDiagnostics();
         if (bootEndpointProbe.attempts === 0 || bootEndpointProbe.state === "offline_deferred")
           bootCheckEndpoint("automatic");
+        bootRevealDiagnostics();
       }
       function bootResumeChecks() {
         if (!document.hidden) {

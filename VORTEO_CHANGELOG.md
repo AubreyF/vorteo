@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.911 - 2026-10-29
+
+### Fixed
+
+- Center expanded startup diagnostics when they fit, retain scrolling on short screens and preserve the reveal animation as status text changes. Give recovery buttons equal spacing with Data Saver first and Reload last.
+- Show an empty or checked box for Data Saver. Cover layout and toggle states in browser tests and register the shaded logo primitives in the existing SVG test stub.
+
 ## 0.11.0-beta.3.vorteo.910 - 2026-10-29
 
 ### Fixed
