@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.910 - 2026-10-29
+
+### Changed
+
+- Rename the Vorteo System upkeep workspace from Optimization Runner to Vorteo :: Optimizer. Its role ID, folder and runner scripts are unchanged.
+- Carry a manifest title change onto an existing role workspace at startup, since system workspaces cannot be renamed by clients. Unit coverage checks the rename, the adopted title and that a repeat start changes nothing.
+
 ## 0.11.0-beta.3.vorteo.909 - 2026-10-29
 
 ### Fixed

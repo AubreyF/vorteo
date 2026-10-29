@@ -15,7 +15,7 @@ afterEach(async () => {
 async function systemWorkspace() {
   const { entries } = await ctx.client.fetchWorkspaces();
   const runner = entries.find((entry) => entry.systemMembership?.role === "optimization-runner");
-  if (!runner) throw new Error("Expected the Optimization Runner workspace");
+  if (!runner) throw new Error("Expected the Vorteo :: Optimizer workspace");
   return runner;
 }
 
@@ -23,7 +23,7 @@ test("a fresh daemon advertises and serves the Vorteo System project", async () 
   expect(ctx.client.getLastServerInfoMessage()?.features?.systemProject).toBe(true);
   const runner = await systemWorkspace();
   expect(runner).toMatchObject({
-    name: "Optimization Runner",
+    name: "Vorteo :: Optimizer",
     projectDisplayName: "Vorteo System",
     projectSystem: { kind: "vorteo-system" },
     standing: true,
@@ -47,7 +47,7 @@ test("clients cannot archive, rename, unprotect or remove the system project", a
   );
   expect(await systemWorkspace()).toMatchObject({
     id: runner.id,
-    name: "Optimization Runner",
+    name: "Vorteo :: Optimizer",
     protected: true,
   });
 });

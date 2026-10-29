@@ -1,6 +1,6 @@
 # Vorteo System project
 
-Every Vorteo daemon keeps one protected project named **Vorteo System**. It is where you evolve your own Vorteo installation: its root is the checkout the installation was built from, so new workspaces branch from the code that is running. It also holds the installation's standing upkeep workspaces, such as the Optimization Runner. The daemon creates it at startup, so existing installations get it with their next update and new installations get it on first start.
+Every Vorteo daemon keeps one protected project named **Vorteo System**. It is where you evolve your own Vorteo installation: its root is the checkout the installation was built from, so new workspaces branch from the code that is running. It also holds the installation's standing upkeep workspaces, such as Vorteo :: Optimizer. The daemon creates it at startup, so existing installations get it with their next update and new installations get it on first start.
 
 In the sidebar it is an ordinary project. It shows the Vorteo mark until you pick another icon, sorts and drags with your other projects, and offers new workspaces like any other. Its menu keeps **Remove project** disabled and says why, and its settings explain what it is.
 
