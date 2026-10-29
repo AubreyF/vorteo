@@ -444,7 +444,11 @@ async function main() {
   );
   for (const line of plan.outgoing ?? []) console.log(`  ${line}`);
   if (args["dry-run"]) {
-    console.log("Dry run: up to date with the base, clean tree and secret scanner verified.");
+    console.log(
+      plan.pr
+        ? "Dry run: pull request is open, targets the base, its head matches and contains the base, and the ruleset names its required checks. The local tree and secret scanner were not checked; nothing is pushed for an existing pull request."
+        : "Dry run: up to date with the base, clean tree and secret scanner verified.",
+    );
     return;
   }
   const pr = await openPullRequest(plan, {

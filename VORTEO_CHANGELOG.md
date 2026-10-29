@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.928 - 2026-10-29
+
+### Maintenance
+
+- Merge main with the server-test fixture repair into the pull request delivery branch, keeping both changelog histories, including the two entries that each claimed version 924 on parallel branches.
+- `scripts/publish-main.mjs --pr <number> --dry-run` now says it checked the pull request's state, base, head, ancestry and required-check policy, and that it did not check the local tree or secret scanner, which that path never inspects.
+
 ## 0.11.0-beta.3.vorteo.927 - 2026-10-29
 
 ### Fixed
@@ -42,6 +49,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - `scripts/publish-main.mjs` delivers through a pull request: it pushes the branch, waits for the ruleset's required checks from GitHub Actions on the exact head, merges with a merge commit pinned to that head and proves `main` contains it. Only pull requests opened by the account running Builds merge on their checks; others need a current owner approval on their head, checked again before the merge. Branches are kept unless `--delete-branch` is passed.
 - The pre-push hook refuses direct pushes to `main` from everyone, Builds included, and release tag pushes outside Builds.
 - The agent guide, task delivery and release docs describe pull request delivery, the Level 3 and Level 4 delivery order, release channels and required checks as a floor that never replaces integration checks, review, rollback or installation acceptance. Restart control detail moved to task delivery, alongside the earlier relocation of delivery rules. The release skills follow the Vorteo flow instead of upstream's `v*` releases.
+
+## 0.11.0-beta.3.vorteo.924 - 2026-10-29
+
+### Maintenance
+
+- Send the configured Host header on the wire in preview-monitor and session-host HTTP tests, matching the existing server test helper. Preserve authentication assertions and production origin guards.
 
 ## 0.11.0-beta.3.vorteo.923 - 2026-10-29
 

@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): merge main's server-test fixture repair into the pull request delivery branch, and correct the publisher's dry-run report for existing pull requests. No runtime behavior changed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): approvals from the account agents run as no longer count for pull request delivery, and the release-tag trigger test checks chained workflows and guard structure. Not on GitHub or installed yet. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): approval for pull request delivery comes only from the repository owner or explicitly delegated approvers recorded on the base branch; write access alone no longer delegates it. Not on GitHub or installed yet. README overview and onboarding are unchanged.
@@ -1445,6 +1447,8 @@ Reviewed on October 7, 2026 against integrated Paseo commit `c062280429c2aa894d9
 No complete replacement of these custom workflows was established in this review. Future upstream merges must reassess behavior and tests, narrow the inventory to remaining differences, and update the roadmap under the [maintenance rules](writing.md#maintain-the-vorteo-customizations-inventory).
 
 ## Maintenance review
+
+October 29, 2026: Preview-monitor and session-host HTTP fixtures use the existing native HTTP request convention so the configured Host reaches the origin guard. All authentication assertions and production behavior remain unchanged. README overview and onboarding are unchanged.
 
 October 28, 2026: Preserved the original errored-session release commit in integration history. Its idle-or-error predicate and permission guards remain, with the reviewed atomic closure fix. README overview and onboarding are unchanged.
 
