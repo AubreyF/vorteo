@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.897 - 2026-10-29
+
+### Fixed
+
+- Build the first workspace agent's profile configuration the same way as its draft retry. Retrying a failed startup no longer changes the permission-mode field and triggers `workspace_request_key_conflict`. Restore browser regressions for retry and remount, and cover consecutive workspace creation from the project button.
+- Target the creation tests' injected startup failures at workspace agents so background naming sessions cannot consume them.
+
 ## 0.11.0-beta.3.vorteo.896 - 2026-10-29
 
 ### Maintenance

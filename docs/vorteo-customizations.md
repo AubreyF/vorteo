@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): initial workspace agents and draft retries share the profile configuration builder, leaving profile permissions to the daemon in both paths. This prevents an unchanged retry from conflicting with its original creation request. Browser coverage includes consecutive project workspace creation and failed startup recovery before and after remount. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): the sidebar title-width browser test now selects the exact seeded workspace row by its existing test identifier. The desktop hover, shortcut and width assertions remain unchanged and pass; the pre-existing touch-layout review hold remains. No runtime behavior, README overview or onboarding changed.
 
 Maintenance review (2026-10-29): CI recovery fixtures now use owned protected executables instead of the runner Node binary and require valid baseline digests before negative preflight cases. Protected-grant tests retain POSIX behavior and explicit Windows refusal coverage; default-home skill assertions use asynchronous native realpath consistently. Preview broker changes are formatting only. Nix macOS verification now uses the configured com.vorteo.desktop bundle identifier, preserving executable, launcher-link and plist checks; actual bundle verification remains a CI check. Production guards and user behavior are unchanged; native Windows validation remains a CI check. README overview and onboarding are unchanged.
