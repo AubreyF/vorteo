@@ -193,9 +193,42 @@ test.each([
     expect(status.getBoundingClientRect().left).toBeGreaterThanOrEqual(0);
     const copy = doc.getElementById("boot-copy");
     if (!copy) throw new Error("Copy action missing");
-    copy.scrollIntoView({ block: "nearest" });
-    expect(copy.getBoundingClientRect().bottom).toBeLessThanOrEqual(height);
-    expect(copy.getBoundingClientRect().top).toBeGreaterThanOrEqual(0);
+    const saver = doc.getElementById("boot-data-saver");
+    if (!saver) throw new Error("Data saver action missing");
+    const controls = Array.from(help.querySelectorAll("button")).filter((button) => !button.hidden);
+    expect(controls.map((button) => button.textContent?.replace(/\s+/g, " ").trim())).toEqual([
+      "Check endpoint",
+      "Reload",
+      "✓ Enable data saver",
+      "Copy diagnostics",
+    ]);
+    const measurements = [];
+    // System fonts can place a control on a fractional pixel while scrolling can
+    // round to an integer. Exercise those positions without depending on the host's font.
+    for (const inset of [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875]) {
+      help.style.paddingTop = `${inset}px`;
+      status.scrollTop = 0;
+      copy.scrollIntoView({ block: "nearest" });
+      expect(copy.getBoundingClientRect().bottom).toBeLessThanOrEqual(height);
+      expect(copy.getBoundingClientRect().top).toBeGreaterThanOrEqual(0);
+      measurements.push({
+        inset,
+        bottom: copy.getBoundingClientRect().bottom,
+        scrollTop: status.scrollTop,
+        clientHeight: status.clientHeight,
+      });
+      for (const button of controls) {
+        button.focus();
+        const rect = button.getBoundingClientRect();
+        expect(rect.height).toBeGreaterThanOrEqual(44);
+        expect(rect.left).toBeGreaterThanOrEqual(0);
+        expect(rect.right).toBeLessThanOrEqual(width);
+        expect(rect.top).toBeGreaterThanOrEqual(0);
+        expect(rect.bottom).toBeLessThanOrEqual(height);
+        expect(doc.activeElement).toBe(button);
+      }
+    }
+    console.info("Startup control scroll geometry", { width, height, measurements });
     await page.screenshot({ path: `startup-diagnostics-${width}.png` });
   },
   22000,

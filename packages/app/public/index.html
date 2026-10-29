@@ -263,6 +263,9 @@
         padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
           max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
         overflow-y: auto;
+        /* Keep focused and scrolled controls inside the content's safe-area insets. */
+        scroll-padding-block: max(20px, env(safe-area-inset-top))
+          max(20px, env(safe-area-inset-bottom));
         box-sizing: border-box;
         text-align: center;
         font:

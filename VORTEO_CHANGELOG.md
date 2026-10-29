@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.904 - 2026-10-29
+
+### Fixed
+
+- Keep startup diagnostic controls inside the viewport when scrolling or focusing them on compact displays with fractional layout coordinates. Match the existing safe-area content insets without changing controls or startup behavior.
+- Exercise strict compact and desktop control bounds across fractional positions, retaining all four controls and 44px targets.
+
 ## 0.11.0-beta.3.vorteo.903 - 2026-10-29
 
 ### Changed
