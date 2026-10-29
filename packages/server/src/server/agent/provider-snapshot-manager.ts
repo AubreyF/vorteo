@@ -355,8 +355,10 @@ export class ProviderSnapshotManager {
     await this.refreshSnapshotForCwd(options);
   }
 
-  listRegisteredProviderIds(): AgentProvider[] {
-    return this.getProviderIds();
+  listRegisteredProviderIds(options?: { enabledOnly?: boolean }): AgentProvider[] {
+    return this.getProviderIds().filter(
+      (provider) => !options?.enabledOnly || this.generation.definitions[provider]?.enabled,
+    );
   }
 
   hasProvider(provider: AgentProvider): boolean {

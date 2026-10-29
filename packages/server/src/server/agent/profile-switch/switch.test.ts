@@ -348,6 +348,7 @@ test.each([false, true])(
       logger: createTestLogger(),
     });
     try {
+      expect(snapshots.listRegisteredProviderIds({ enabledOnly: true })).not.toContain(provider);
       const id = randomUUID();
       const now = new Date().toISOString();
       await storage.upsert({
@@ -368,6 +369,33 @@ test.each([false, true])(
         journal: [{ id: randomUUID(), sequence: 1, timestamp: now, text: "Approved scope" }],
       });
       const before = await storage.get(id);
+      if (!before?.persistence) throw new Error("Missing saved thread");
+      const loadHistory = () =>
+        reader.readStoredSwitchHistory(
+          before,
+          snapshots.readSessionHistory(before.persistence!, { provider, cwd: workdir }),
+        );
+      const tail = await reader.fetchSavedTimeline(id, { limit: 1 }, loadHistory);
+      expect(tail.rows.map((row) => row.item)).toMatchObject([
+        { type: "assistant_message", text: "The next step is validation" },
+      ]);
+      const older = await reader.fetchSavedTimeline(
+        id,
+        {
+          direction: "before",
+          cursor: { epoch: tail.epoch, seq: tail.startSeq! },
+          limit: 1,
+        },
+        loadHistory,
+      );
+      expect(older.epoch).toBe(tail.epoch);
+      expect(older.staleCursor).toBe(false);
+      expect(older.rows.map((row) => row.item)).toMatchObject([
+        { type: "user_message", text: "Preserve my approved plan" },
+      ]);
+      expect(reader.getAgent(id)).toBeNull();
+      expect(await storage.get(id)).toEqual(before);
+      expect(codex.created).toHaveLength(0);
       codex.createError = new Error("Replacement failed");
       await expect(
         switchAgentProfileCommand(

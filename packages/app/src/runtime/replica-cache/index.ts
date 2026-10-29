@@ -256,6 +256,7 @@ const StoredAgentSnapshotSchema = z.strictObject({
   goalState: AgentGoalStateSchema.optional(),
   id: z.string(),
   provider: AgentProviderSchema,
+  providerUnavailable: z.boolean().optional(),
   cwd: z.string(),
   workspaceId: z.string().optional(),
   model: z.string().nullable(),
@@ -682,6 +683,7 @@ function serializeAgent(agent: Agent): StoredAgent {
   const snapshot = {
     id: agent.id,
     provider: agent.provider,
+    providerUnavailable: agent.providerUnavailable,
     cwd: agent.cwd,
     ...(agent.workspaceId ? { workspaceId: agent.workspaceId } : {}),
     model: agent.model,

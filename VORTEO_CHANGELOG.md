@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.910 - 2026-10-29
+
+### Fixed
+
+- Keep saved conversation history readable when its provider is unavailable. Show the unavailable-provider message and standard recovery picker below the conversation in place of the composer, then restore the composer after switching.
+- Read legacy local transcripts without registering a live session, preserving stable history pagination and the existing recovery path when a transcript is missing. Cover disabled and removed accounts, snapshot state, desktop and compact history layouts, recovery and reload.
+
 ## 0.11.0-beta.3.vorteo.909 - 2026-10-29
 
 ### Fixed

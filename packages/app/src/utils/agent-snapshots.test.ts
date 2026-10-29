@@ -36,6 +36,16 @@ function createSnapshot(
 }
 
 describe("normalizeAgentSnapshot", () => {
+  it("retains unavailable-provider history state and clears it for a live replacement", () => {
+    const unavailable = normalizeAgentSnapshot(
+      { ...createSnapshot(), providerUnavailable: true },
+      "server-1",
+    );
+    expect(unavailable.providerUnavailable).toBe(true);
+    expect(projectAgentSnapshot(unavailable).providerUnavailable).toBe(true);
+    const replacement = normalizeAgentSnapshot(createSnapshot(), "server-1");
+    expect(replacement.providerUnavailable).toBeUndefined();
+  });
   it("keeps the hosted flag through the snapshot boundary and leaves it out for local agents", () => {
     const hosted = normalizeAgentSnapshot({ ...createSnapshot(), hosted: true }, "server-1");
     expect(hosted.hosted).toBe(true);

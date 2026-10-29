@@ -44,7 +44,7 @@ import { projectTimelineRows } from "./timeline-projection.js";
 import type { PluginLifecycle } from "../plugins/lifecycle/index.js";
 import { describeHookAgent, publishAgentStream } from "../plugins/lifecycle/index.js";
 import type { PluginSessionOpenRequest } from "@getpaseo/plugin/server";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { managedWorkerLimit } from "./worker-limit.js";
 import { countRunningWorkers } from "./worker-activity.js";
@@ -2780,10 +2780,18 @@ export class AgentManager {
   async fetchSavedTimeline(
     id: string,
     options?: AgentTimelineFetchOptions,
+    loadLegacyRows?: () => Promise<AgentTimelineRow[]>,
   ): Promise<AgentTimelineFetchResult> {
     // Reading committed history must not require starting its original provider.
-    if (!this.durableTimelineStore) throw new Error("Saved timeline storage is unavailable");
-    return this.durableTimelineStore.fetchCommitted(id, options);
+    if (this.durableTimelineStore) return this.durableTimelineStore.fetchCommitted(id, options);
+    if (!loadLegacyRows) throw new Error("Saved timeline storage is unavailable");
+    const rows = await loadLegacyRows();
+    // Native transcripts predate durable timelines. Keep pagination stable across reads,
+    // and reset cursors if the transcript changes, without registering a live session.
+    const epoch = createHash("sha256").update(JSON.stringify(rows)).digest("hex");
+    const saved = new InMemoryAgentTimelineStore();
+    saved.initialize(id, { rows, epoch });
+    return saved.fetch(id, options);
   }
 
   listProviderSubagents(parentAgentId: string): ProviderSubagentDescriptor[] {
