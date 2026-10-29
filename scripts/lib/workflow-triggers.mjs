@@ -125,7 +125,8 @@ export function matchesFilters(patterns, ref) {
 
 /** Whether pushing (creating) this tag starts the workflow. */
 export function startsOnTag(events, tag) {
-  if ("create" in events) return true;
+  // A chained workflow inherits its trigger's events; treat it as starting on any tag.
+  if ("create" in events || "workflow_run" in events) return true;
   const push = events.push;
   if (!push) return false;
   if (push.tags) return matchesFilters(push.tags, tag);
@@ -135,7 +136,35 @@ export function startsOnTag(events, tag) {
   return true;
 }
 
-/** Job names and whether each job's `if:` is limited to upstream's repository. */
+const GUARD = "github.repository == 'getpaseo/paseo'";
+
+/**
+ * Whether an `if:` condition requires upstream's repository: the guard must be a top-level
+ * conjunct, so no `||` outside parentheses can bypass it.
+ */
+export function requiresUpstream(condition) {
+  const text = condition
+    .trim()
+    .replace(/^\$\{\{\s*/, "")
+    .replace(/\s*\}\}$/, "");
+  let depth = 0;
+  const conjuncts = [""];
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "(") depth += 1;
+    if (char === ")") depth -= 1;
+    if (depth === 0 && text.startsWith("||", index)) return false;
+    if (depth === 0 && text.startsWith("&&", index)) {
+      conjuncts.push("");
+      index += 1;
+      continue;
+    }
+    conjuncts[conjuncts.length - 1] += char;
+  }
+  return conjuncts.some((part) => part.trim() === GUARD);
+}
+
+/** Job names and whether each job's own `if:` requires upstream's repository. */
 export function jobGuards(source) {
   const lines = source.split("\n");
   const index = lines.findIndex((line) => /^jobs:\s*$/.test(line));
@@ -145,11 +174,10 @@ export function jobGuards(source) {
     const ownIndent = entry.children.length ? indentOf(entry.children[0]) : 0;
     return {
       name,
-      upstreamOnly: entry.children.some(
-        (line) =>
-          indentOf(line) === ownIndent &&
-          /^\s*if:.*github\.repository == 'getpaseo\/paseo'/.test(line),
-      ),
+      upstreamOnly: entry.children.some((line) => {
+        const match = /^\s*if:\s*(.+)$/.exec(line);
+        return indentOf(line) === ownIndent && Boolean(match) && requiresUpstream(match[1]);
+      }),
     };
   });
 }

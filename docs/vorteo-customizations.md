@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): approvals from the account agents run as no longer count for pull request delivery, and the release-tag trigger test checks chained workflows and guard structure. Not on GitHub or installed yet. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): approval for pull request delivery comes only from the repository owner or explicitly delegated approvers recorded on the base branch; write access alone no longer delegates it. Not on GitHub or installed yet. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): review corrections for pull request delivery. Change requests block every merge, reviewer write access comes from GitHub's permission API, skipped checks count only behind a passing path filter, and the release-tag trigger test covers unfiltered pushes. Not on GitHub or installed yet. README overview and onboarding are unchanged.

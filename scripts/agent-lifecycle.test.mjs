@@ -355,9 +355,9 @@ test("reviews count only from writers, by their latest decision, and change requ
     user: "owner",
     ...overrides,
   });
-  const permissions = { owner: "admin", helper: "write", reader: "read" };
+  const permissions = { owner: "admin", helper: "write", reader: "read", "builds-bot": "write" };
   const gh =
-    (reviews, viewer = "owner") =>
+    (reviews, viewer = "builds-bot") =>
     (args) => {
       if (args[1] === "user") return viewer;
       if (args[1] === `repos/${REPO}`) return "owner";
@@ -394,6 +394,11 @@ test("reviews count only from writers, by their latest decision, and change requ
     ]),
     "approved on its head",
   );
+  // The account agents run as cannot approve on the owner's behalf.
+  refuses(fork, [review({})], /other than owner/, { viewer: "owner" });
+  assert.equal(accepts(fork, [review({})], { viewer: "builds-bot" }), "approved on its head");
+  // Deleted users and bots are skipped instead of breaking the permission lookup.
+  refuses(fork, [review({ user: null }), review({ id: 2, user: "ci[bot]" })], /waits for review/);
   // Write access alone does not delegate approval; an explicit delegate does.
   refuses(fork, [review({ user: "helper" })], /owner or a delegated approver/);
   assert.equal(
@@ -410,15 +415,13 @@ test("reviews count only from writers, by their latest decision, and change requ
     /waits for review/,
   );
   const own = { ...fork, isCrossRepository: false, author: { login: "owner" } };
-  assert.equal(
-    assertReviewed(plan, own, { gh: gh([]) }),
-    "authored by this installation's account",
-  );
+  assert.equal(accepts(own, [], { viewer: "owner" }), "authored by this installation's account");
   // Even this installation's own pull request stops on a writer's change request.
   refuses(
     own,
     [review({ user: "helper", state: "CHANGES_REQUESTED" })],
     /changes requested by helper/,
+    { viewer: "owner" },
   );
 });
 

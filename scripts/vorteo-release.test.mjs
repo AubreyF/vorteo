@@ -18,7 +18,13 @@ import {
   summarizeChecks,
 } from "./lib/github.mjs";
 import { contains, loadRulesets, planSync, validateRuleset } from "./sync-github-rulesets.mjs";
-import { jobGuards, matchesFilters, parseTriggers, startsOnTag } from "./lib/workflow-triggers.mjs";
+import {
+  jobGuards,
+  matchesFilters,
+  parseTriggers,
+  requiresUpstream,
+  startsOnTag,
+} from "./lib/workflow-triggers.mjs";
 import {
   createTag,
   latestFor,
@@ -333,4 +339,18 @@ test("the trigger parser reads the workflow shapes GitHub accepts", () => {
     { name: "bad", upstreamOnly: false },
   ]);
   assert.throws(() => triggers("on:\n  push:\n    tags: {a: b}"), /Unsupported/);
+  assert.equal(
+    startsOnTag(triggers("on:\n  workflow_run:\n    workflows: [x]"), "release-1"),
+    true,
+  );
+  assert.deepEqual(
+    jobGuards("jobs:\n  loose:\n    if: github.repository == 'getpaseo/paseo' || true\n"),
+    [{ name: "loose", upstreamOnly: false }],
+  );
+  assert.ok(
+    requiresUpstream(
+      "${{ github.repository == 'getpaseo/paseo' && (github.event_name != 'release' || x) }}",
+    ),
+  );
+  assert.ok(!requiresUpstream("github.repository == 'getpaseo/paseo' && a || b"));
 });

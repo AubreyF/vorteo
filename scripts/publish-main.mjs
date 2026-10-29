@@ -264,7 +264,9 @@ export async function openPullRequest(
  * branch, so a pull request cannot add its own approver. Write access alone never
  * delegates it. A same-repository pull request authored by an approver's own account
  * (an owner installation's Builds) needs no further approval; every other one needs an
- * approver's approval on its exact head.
+ * approver's approval on its exact head from an account other than the one running
+ * Builds, because agents share that account's token and its approval proves no human
+ * decision.
  * GitHub enforces no review gate itself, so a review submitted in the seconds between
  * this check and the merge is not seen.
  */
@@ -282,6 +284,8 @@ export function assertReviewed(plan, pr, { gh = runGh, delegates = readDelegates
   const latest = new Map();
   for (const review of output ? output.split("\n").map((line) => JSON.parse(line)) : []) {
     if (!["APPROVED", "CHANGES_REQUESTED", "DISMISSED"].includes(review.state)) continue;
+    // Deleted users and apps have no collaborator permission to check.
+    if (!review.user || review.user.endsWith("[bot]")) continue;
     const previous = latest.get(review.user);
     if (!previous || review.id > previous.id) latest.set(review.user, review);
   }
@@ -310,13 +314,17 @@ export function assertReviewed(plan, pr, { gh = runGh, delegates = readDelegates
   ) {
     return "authored by this installation's account";
   }
+  // Agents act through the account running Builds, so its approval proves no human decision.
   const approved = trusted.some(
     (review) =>
-      review.state === "APPROVED" && review.commit_id === plan.head && approvers.has(review.user),
+      review.state === "APPROVED" &&
+      review.commit_id === plan.head &&
+      approvers.has(review.user) &&
+      review.user !== viewer,
   );
   if (!approved) {
     throw new PublishRefusal(
-      `Pull request #${pr.number} has no approval on ${plan.head.slice(0, 9)} from the owner or a delegated approver. It waits for review.`,
+      `Pull request #${pr.number} has no approval on ${plan.head.slice(0, 9)} from the owner or a delegated approver other than ${viewer}, the account agents use. It waits for review, or for the owner to merge it on GitHub.`,
     );
   }
   return "approved on its head";

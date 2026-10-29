@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.927 - 2026-10-29
+
+### Fixed
+
+- Pull request delivery ignores approvals from the GitHub account running Builds, because agents share its token; contributors' pull requests wait for the owner to merge them on GitHub or for an approver with a separate account. Builds integrates a contributor's branch only after the owner approves that pull request.
+- Reviews by deleted users or apps are skipped instead of failing the permission lookup.
+- The release-tag trigger test treats `workflow_run` as starting on any tag and accepts a repository guard only as a top-level condition that `||` cannot bypass.
+
 ## 0.11.0-beta.3.vorteo.926 - 2026-10-29
 
 ### Fixed
