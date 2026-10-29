@@ -1906,3 +1906,5 @@ Settings keeps fresh web section jumps pinned through control feedback and non-r
 Daemon-served HTML negotiates Brotli or gzip after injecting its public connection or installation hint; it does not serve sealed HTML sidecars that lack the request-specific hint. Identity and compressed responses vary by Accept-Encoding, HEAD reports the negotiated HTML length without a body, and static asset selection respects available sidecars, quality values and exclusions.
 
 Maintenance review: delayed workspace navigation checks assert the selected profile and resulting agent mode while preserving daemon-owned permission resolution. The recovery browser fixture tolerates teardown before server creation without hiding setup or server-close failures; Metro compilation and timeouts remain unchanged.
+
+Maintenance review: timeline browser helpers serialize geometry reads around the shared worktree-callout handler. The queue orbit regression waits for startup handoff and verifies its draft before submitting, preserving all queue-transition assertions and timeouts. Production code is unchanged.
