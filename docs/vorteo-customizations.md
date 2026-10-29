@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): source documentation clarifies Builds delivery scope, bounded delegation, workspace ownership and filesystem isolation. Existing feature and CI owners retain source work; evidence reuse, compatible batching and reconciled archival preserve existing permission and approval boundaries. No runtime enforcement, product behavior, README overview or onboarding changes.
+
 Maintenance review (2026-10-29): ordinary web comboboxes can flip above a lower-edge trigger so Metadata model selection stays visible. Preserve measured top/above-search anchoring, native presentation, keyboard dismissal and fixed picker sizing; focused browser checks cover lower-edge placement. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): integrate HTML encoding negotiation and startup diagnostic scroll insets without changing their reviewed source. Preserve focused HTTP and browser regression coverage; installed acceptance remains separate.

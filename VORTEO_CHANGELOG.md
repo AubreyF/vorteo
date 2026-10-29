@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.910 - 2026-10-29
+
+### Maintenance
+
+- Clarify Builds delivery ownership, dynamic bounded delegation within the builder workspace, concurrent editing isolation, exact handoffs and reuse of verified evidence. Preserve existing approval gates and distinguish published source, served interface and installed daemon state; no runtime enforcement changes.
+
 ## 0.11.0-beta.3.vorteo.909 - 2026-10-29
 
 ### Fixed
