@@ -109,6 +109,10 @@ def sha256(path):
 def build(args):
     root = Path(args.deployment).absolute()
     config = load(root)
+    # Build with the reviewed Node only. Build commands that select another executable
+    # themselves are outside this check; review them with the commit.
+    if sha256(config['node']) != config['nodeSha256']:
+        raise ValueError('Node executable changed since init; review and run init again')
     commit = subprocess.run(['git', '-C', config['source'], 'rev-parse', '--verify', args.commit + '^{commit}'],
                             capture_output=True, text=True, check=True).stdout.strip()
     if not COMMIT.match(commit):
@@ -135,7 +139,7 @@ def build(args):
         for command in config.get('build', []):
             run(['nice', '-n', '10', *command], cwd=staging, env=env)
         manifest = {'commit': commit, 'builtAt': time.time(), 'build': config.get('build', []),
-                    'node': config['node'], 'nodeSha256': config['nodeSha256']}
+                    'node': config['node'], 'nodeSha256': sha256(config['node'])}
         (staging / '.release.json').write_text(json.dumps(manifest, indent=2) + '\n')
         os.replace(staging, release)
     finally:

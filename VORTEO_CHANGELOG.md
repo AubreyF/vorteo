@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.918 - 2026-10-29
+
+### Fixed
+
+- Automatic idle release reserves the agent in the same synchronous step as its final check, so a prompt or queued delivery cannot start a turn while the provider closes; a refused queue item is delivered after the agent reopens. Durably hosted sessions keep the atomic host close.
+- Idle release passes the observed update time and session to the manager, which refuses an agent that changed after the sample, so a candidate that worked again during an earlier release keeps its full idle period.
+- The session host reuses its private tool bridge only when it is a regular file with exactly the shipped bytes; a modified copy or a link is replaced atomically without following the link.
+- The Dev scratch reaper inspects every Git repository inside an entry, including stashes and all local branches and tags, keeps bare repositories and unreadable subtrees, refuses deletion without full process visibility, rechecks each entry before removing it and reports failed removals.
+- The hosted app tool verifies the pinned Node executable before running build commands and records the verified identity.
+
+### Maintenance
+
+- The core-services plan separates source, owner-reported live and pending status, drops the obsolete gateway identity migration and defers lab setup to the lab installation guide.
+
 ## 0.11.0-beta.3.vorteo.917 - 2026-10-29
 
 ### Added

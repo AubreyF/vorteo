@@ -61,6 +61,17 @@ class HostedAppTests(unittest.TestCase):
         manifest = json.loads((built / '.release.json').read_text())
         self.assertEqual(len(manifest['commit']), 40)
 
+    def test_build_refuses_a_replaced_node_executable(self):
+        record = json.loads((self.root / 'app.json').read_text())
+        fake = Path(self.temp.name) / 'node'
+        fake.write_text('original')
+        record.update(node=str(fake), nodeSha256=app.sha256(fake))
+        (self.root / 'app.json').write_text(json.dumps(record))
+        fake.write_text('replaced')
+        with self.assertRaisesRegex(ValueError, 'Node executable changed'):
+            self.quiet(app.build, commit='HEAD')
+        self.assertEqual([p for p in (self.root / 'releases').iterdir()], [])
+
     def test_deploy_replaces_code_and_never_touches_state(self):
         instance = self.root / 'instance'
         (instance / 'private').mkdir(parents=True)

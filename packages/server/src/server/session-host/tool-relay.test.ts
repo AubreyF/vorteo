@@ -1,5 +1,14 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
@@ -657,6 +666,28 @@ describe("tool relay", () => {
     rmSync(script);
     const next = await relay.open("session-2", daemon.url);
     expect(existsSync(next!.server.args![0]!)).toBe(true);
+  });
+
+  test("replaces a modified or linked bridge copy with the exact shipped bytes", async () => {
+    const daemon = await daemonFor();
+    const shipped = readFileSync(toolRelayBridgePath());
+    const { relay, directory } = await relayFor();
+    const first = await relay.open("session-1", daemon.url);
+    const pinned = first!.server.args![0]!;
+    // A truncated copy under the expected name is rewritten before the next provider uses it.
+    writeFileSync(pinned, "process.exit(1)\n");
+    const second = await relay.open("session-2", daemon.url);
+    expect(second!.server.args![0]).toBe(pinned);
+    expect(readFileSync(pinned)).toEqual(shipped);
+    // A link at that name is replaced by a regular file; its target is left untouched.
+    const elsewhere = path.join(directory, "elsewhere.mjs");
+    writeFileSync(elsewhere, "process.exit(1)\n");
+    rmSync(pinned);
+    symlinkSync(elsewhere, pinned);
+    await relay.open("session-3", daemon.url);
+    expect(lstatSync(pinned).isSymbolicLink()).toBe(false);
+    expect(readFileSync(pinned)).toEqual(shipped);
+    expect(readFileSync(elsewhere, "utf8")).toBe("process.exit(1)\n");
   });
 
   test("recognises only the relay's own stdio form", () => {

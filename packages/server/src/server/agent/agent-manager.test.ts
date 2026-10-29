@@ -15228,6 +15228,65 @@ test("releasing an idle agent closes its provider session and the agent reopens 
   }
 });
 
+test("a prompt or queued delivery during an automatic release is refused instead of racing the close", async () => {
+  const fixture = await idleReleaseFixture();
+  try {
+    // Restore the real close before wrapping it, so the hold delegates to the provider.
+    fixture.close.mockRestore();
+    const original = fixture.session.close.bind(fixture.session);
+    let finishClose = () => {};
+    const closing = new Promise<void>((resolve) => (finishClose = resolve));
+    const close = vi.spyOn(fixture.session, "close").mockImplementation(async () => {
+      await closing;
+      await original();
+    });
+    const release = fixture.manager.releaseIdleSession(fixture.agent.id);
+    await expect.poll(() => close.mock.calls.length).toBe(1);
+    // The agent is reserved while its provider closes: neither admission path may start a turn.
+    expect(() => fixture.manager.streamAgent(fixture.agent.id, "hello")).toThrow(
+      "already has an active run",
+    );
+    const item = { id: "queued-1" } as Parameters<AgentManager["startQueuedMessage"]>[2];
+    expect(fixture.manager.startQueuedMessage(fixture.agent.id, "queued", item)).toBeNull();
+    finishClose();
+    expect(await release).toBe(true);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(fixture.manager.getAgent(fixture.agent.id)).toBeNull();
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("an automatic release refuses an agent that changed after it was observed idle", async () => {
+  const fixture = await idleReleaseFixture();
+  try {
+    const current = fixture.manager.getAgent(fixture.agent.id)!;
+    const stale = { updatedAt: current.updatedAt.getTime() - 1, session: current.session };
+    expect(await fixture.manager.releaseIdleSession(fixture.agent.id, stale)).toBe(false);
+    const reopened = { updatedAt: current.updatedAt.getTime(), session: {} };
+    expect(await fixture.manager.releaseIdleSession(fixture.agent.id, reopened)).toBe(false);
+    expect(fixture.close).not.toHaveBeenCalled();
+    const fresh = { updatedAt: current.updatedAt.getTime(), session: current.session };
+    expect(await fixture.manager.releaseIdleSession(fixture.agent.id, fresh)).toBe(true);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("a failed automatic close releases its reservation so the agent can run again", async () => {
+  const fixture = await idleReleaseFixture();
+  try {
+    fixture.close.mockRejectedValueOnce(new Error("provider close failed"));
+    await expect(fixture.manager.releaseIdleSession(fixture.agent.id)).rejects.toThrow(
+      "provider close failed",
+    );
+    expect(Reflect.get(fixture.manager, "runs").hasRun(fixture.agent.id)).toBe(false);
+  } finally {
+    fixture.close.mockRestore();
+    await fixture.cleanup();
+  }
+});
+
 test.each(["paused queue", "active goal", "watched child", "pending permission"] as const)(
   "an idle agent with a %s keeps its provider session",
   async (condition) => {

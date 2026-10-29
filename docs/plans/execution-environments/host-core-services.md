@@ -1,6 +1,6 @@
 # Core services on the Host
 
-Status: proposed October 28, 2026. Phases 0 to 3 are authorized for preparation in a task branch. Phases 4 and 5 are documented for discussion only. Nothing here is installed, and the current Docker-hosted services keep running until the owner approves a cutover.
+Status: proposed October 28, 2026; updated October 29, 2026. Phases 0 to 2 are implemented in source on the core-services branch, pending integration into `main`. On the owner installation, the owner reports the native gateway and the Vorton Host release live. The server and client fixes still need installation. Phase 3 is owned by the [lab installation guide](../../lab-installation.md). Phases 4 and 5 are documented for discussion only.
 
 ## Goal
 
@@ -56,7 +56,7 @@ Half a day. No restart.
 
 Two to three days, prepared side by side. Cutover is one owner-approved window.
 
-1. **Native edge.** Implemented as the [native gateway](../../private-domain.md#run-the-gateway-natively) and live since October 29, 2026: the custom domains moved to it by DNS, with the Docker gateway kept as rollback. Install Caddy with the Cloudflare DNS plugin as a pinned, digest-verified binary under the installation's private directory, supervised by launchd (systemd on Linux). Install a second `tailscaled` in userspace networking mode with its own state and socket, so the gateway keeps its own tailnet name and address. Migrate the existing gateway node's state at cutover so DNS records do not change.
+1. **Native edge.** Implemented as the [native gateway](../../private-domain.md#run-the-gateway-natively) and live since October 29, 2026: the custom domains moved to it by DNS, with the Docker gateway kept as rollback. Install Caddy with the Cloudflare DNS plugin as a pinned, digest-verified binary under the installation's private directory, supervised by launchd (systemd on Linux). Run a dedicated `tailscaled` in userspace networking mode as its own new node, beside the Docker gateway, and move DNS to it. Do not copy the Docker gateway's node state; see the guide.
 2. **Hosted web apps.** Serve other trusted web applications from a built release on the Host, not from a development checkout or the Dev container. Each app gets its own launchd job, state directory and loopback port behind the native edge. The owner chose this for the Vorton application on October 28, 2026.
 
    A Host release is safe only if the Host never loads code from a folder Dev agents can write. Vorton currently runs from its development checkout and keeps live state in folders that also hold agent scratch and candidate builds. Some of that state is executable: the server imports a private Rolodex bundle and optional adapters from those folders at runtime. A Vorton Host release therefore needs:
@@ -86,26 +86,9 @@ Acceptance: a Host release upgrade during a running Claude turn and a running Co
 
 ## Phase 3: lab installation and promotion
 
-Two to four days, plus the lab machine.
+The [lab installation guide](../../lab-installation.md) on `main` owns this. A lab is an ordinary installation, on a second machine, that develops Vorteo and installs its own changes. Production updates only to a revision the owner chooses. The owner chose a separate Mac for the lab on October 28, 2026; a separate workspace now owns that setup and the promotion workflow.
 
-- **Lab.** A second installation with its own state, Tailscale names, coordinator and accounts. It can run on a laptop that is not always online; the lab needs no availability. A Linux VM is an alternative that also qualifies Linux, but it cannot test launchd, desktop automation or Apple's runtime.
-- **Lab as an environment.** Register the lab's daemon as an environment in the production interface. Vorteo work then runs from the owner's productive installation while its restarts happen on the lab.
-- **Promotion.** Builds installs every integrated revision to the lab first. Production upgrades only when the owner promotes a lab-verified revision. A promotion is a recorded, digest-bound release selection that uses the existing tracked source-update workflow.
-
-Lab setup on a second Mac:
-
-1. Install the container installation and the [Host extension](../../execution-installation.md) on the lab machine with its own installation ID, Tailscale names and owner password. Never copy production state, credentials or the coordinator record.
-2. Connect provider accounts to the lab separately. Lab agents never receive production credentials.
-3. Add the lab's Host daemon to the production interface as a connected host, so Vorteo workspaces can run there.
-4. Point Builds' lab delivery at the lab coordinator. Production delivery waits for a promotion.
-
-The repository instructions currently tell Builds to install each integrated change on production. Changing that policy is a separate instruction change, reviewed with Builds when the lab is ready. Proposed replacement for the Level 4 delivery rule:
-
-> Builds integrates each task branch into `main` and installs it on the lab. Production Host and Dev upgrade only when the owner promotes a lab-verified revision, which installs exactly that revision through the tracked source-update workflow. Interface publication to production follows the same promotion. Until a lab exists, Builds batches production installs into owner-scheduled windows.
-
-Each promotion records the revision, its lab acceptance and the production receipt, so production always equals a known lab-tested build.
-
-Acceptance: a week of Vorteo deliveries causes no production restart except the owner's promotions.
+Acceptance: a week of Vorteo deliveries causes no production restart except the owner's chosen updates.
 
 ## Phase 4: multiple containers (for discussion)
 

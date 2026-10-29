@@ -1,5 +1,5 @@
 import type { Logger } from "pino";
-import type { ManagedAgent } from "./agent-manager.js";
+import type { IdleSessionObservation, ManagedAgent } from "./agent-manager.js";
 
 /**
  * How long a loaded agent stays idle before its provider process (a Codex app-server, a Claude
@@ -9,11 +9,11 @@ import type { ManagedAgent } from "./agent-manager.js";
 export const DEFAULT_IDLE_SESSION_RELEASE_MS = 30 * 60_000;
 const DEFAULT_IDLE_SESSION_CHECK_MS = 60_000;
 
-export type IdleCandidate = Pick<ManagedAgent, "id" | "lifecycle" | "updatedAt">;
+export type IdleCandidate = Pick<ManagedAgent, "id" | "lifecycle" | "updatedAt" | "session">;
 
 export interface IdleSessionReleaseManager {
   listAgents(): IdleCandidate[];
-  releaseIdleSession(agentId: string): Promise<boolean>;
+  releaseIdleSession(agentId: string, expected: IdleSessionObservation): Promise<boolean>;
 }
 
 export interface IdleSessionReleaseOptions {
@@ -33,6 +33,7 @@ export interface IdleSessionRelease {
 interface IdleObservation {
   since: number;
   updatedAt: number;
+  session: unknown;
 }
 
 /**
@@ -48,8 +49,8 @@ export function startIdleSessionRelease(options: IdleSessionReleaseOptions): Idl
   const observations = new Map<string, IdleObservation>();
   let running: Promise<string[]> | null = null;
 
-  function dueAgentIds(at: number): string[] {
-    const due: string[] = [];
+  function dueAgents(at: number): Array<{ id: string; expected: IdleSessionObservation }> {
+    const due: Array<{ id: string; expected: IdleSessionObservation }> = [];
     const loaded = new Set<string>();
     for (const agent of options.manager.listAgents()) {
       loaded.add(agent.id);
@@ -57,10 +58,12 @@ export function startIdleSessionRelease(options: IdleSessionReleaseOptions): Idl
       const seen = observations.get(agent.id);
       if (agent.lifecycle !== "idle") {
         observations.delete(agent.id);
-      } else if (!seen || seen.updatedAt !== updatedAt) {
-        observations.set(agent.id, { since: at, updatedAt });
+      } else if (!seen || seen.updatedAt !== updatedAt || seen.session !== agent.session) {
+        observations.set(agent.id, { since: at, updatedAt, session: agent.session });
       } else if (at - Math.max(seen.since, updatedAt) >= idleMs) {
-        due.push(agent.id);
+        // The manager refuses if the agent changed after this sample, for example while an
+        // earlier release in the same pass was still closing.
+        due.push({ id: agent.id, expected: { updatedAt, session: agent.session } });
       }
     }
     for (const id of observations.keys()) if (!loaded.has(id)) observations.delete(id);
@@ -69,9 +72,9 @@ export function startIdleSessionRelease(options: IdleSessionReleaseOptions): Idl
 
   async function runOnce(): Promise<string[]> {
     const released: string[] = [];
-    for (const agentId of dueAgentIds(now())) {
+    for (const { id: agentId, expected } of dueAgents(now())) {
       try {
-        if (!(await options.manager.releaseIdleSession(agentId))) continue;
+        if (!(await options.manager.releaseIdleSession(agentId, expected))) continue;
         observations.delete(agentId);
         released.push(agentId);
       } catch (error) {

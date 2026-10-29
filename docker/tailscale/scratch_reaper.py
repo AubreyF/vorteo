@@ -3,9 +3,12 @@
 
 Agents create checkouts and build caches under /tmp. A long-lived container
 never clears them, so its writable layer grows without bound. An entry is
-stale only when nothing inside changed within the retention period, no process
-uses it, and any Git checkout in it has no uncommitted or unpushed work.
-The default is a dry run; pass --delete to remove what the report lists.
+stale only when nothing inside changed within the retention period, every part
+of it can be read, no process uses it, and every Git repository inside it, at
+any depth, has no uncommitted, stashed or unpushed work. Bare repositories are
+always kept. The default is a dry run; --delete also requires that every
+process can be inspected, rechecks each entry before removing it and reports
+removals that fail.
 """
 import argparse
 import json
@@ -47,57 +50,81 @@ def busy_paths(proc=Path('/proc')):
     return held
 
 
-def unreadable_processes(proc=Path('/proc')):
-    """Processes whose executable cannot be inspected; their files would look unused."""
-    hidden = 0
-    for entry in proc.iterdir() if proc.is_dir() else []:
-        if entry.name.isdigit():
+def visibility_gaps(proc=Path('/proc')):
+    """Reasons the process table cannot be fully inspected; any gap makes deletion unsafe."""
+    if not proc.is_dir():
+        return ['process table unavailable']
+    gaps = []
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        for probe in (lambda: os.readlink(entry / 'exe'), lambda: list((entry / 'fd').iterdir()),
+                      lambda: (entry / 'maps').read_text()):
             try:
-                os.readlink(entry / 'exe')
+                probe()
             except PermissionError:
-                hidden += 1
+                gaps.append(f'process {entry.name} cannot be inspected')
+                break
             except OSError:
+                # The process exited or is a kernel thread without an executable.
                 continue
-    return hidden
+    return gaps
 
 
-def recently_modified(path, cutoff):
-    """True when the entry or anything beneath it changed after the cutoff."""
+def scan(path, cutoff):
+    """Walk an entry once: a reason to keep it, and every Git repository found inside."""
     try:
-        if path.lstat().st_mtime > cutoff:
-            return True
+        info = path.lstat()
     except OSError:
-        return True
+        return 'cannot be inspected', []
+    if info.st_mtime > cutoff:
+        return 'recently modified', []
     if path.is_symlink() or not path.is_dir():
-        return False
-    for directory, names, files in os.walk(path, onerror=lambda error: None):
+        return None, []
+    errors, repositories = [], []
+
+    def failed(error):
+        errors.append(error)
+
+    for directory, names, files in os.walk(path, onerror=failed):
+        here = Path(directory)
+        if '.git' in names or '.git' in files:
+            repositories.append(here)
+            if '.git' in names:
+                # Git's own metadata is inspected through git, not walked.
+                names.remove('.git')
+        elif {'HEAD', 'objects', 'refs'} <= set(names + files):
+            return 'contains a bare repository', repositories
         for name in names + files:
             try:
                 if os.lstat(os.path.join(directory, name)).st_mtime > cutoff:
-                    return True
+                    return 'recently modified', repositories
             except OSError:
-                return True
-    return False
+                return 'cannot be inspected', repositories
+    if errors:
+        return 'part of it cannot be read', repositories
+    return None, repositories
 
 
-def unsafe_git(path, run=subprocess.run):
-    """Reason to keep a checkout, or None when it holds no unique work."""
-    if not (path / '.git').exists():
-        return None
+def unsafe_git(repository, run=subprocess.run):
+    """Reason to keep a repository, or None when every local commit also exists on a remote."""
     git = shutil.which('git')
     if not git:
-        return 'git unavailable to inspect checkout'
+        return 'git unavailable to inspect a repository'
 
     def ask(*arguments):
-        return run([git, '-C', str(path), *arguments], capture_output=True, text=True, timeout=60)
+        return run([git, '-C', str(repository), *arguments], capture_output=True, text=True, timeout=60)
 
     status = ask('status', '--porcelain')
     if status.returncode != 0:
         return 'git status failed'
     if status.stdout.strip():
         return 'uncommitted changes'
-    # Commits that no remote branch contains exist only here (and in the shared object store).
-    unpushed = ask('log', '--oneline', '-1', 'HEAD', '--not', '--remotes')
+    stash = ask('stash', 'list')
+    if stash.returncode != 0 or stash.stdout.strip():
+        return 'stashed changes'
+    # Any branch, tag or detached HEAD commit missing from every remote exists only here.
+    unpushed = ask('log', '--oneline', '-1', 'HEAD', '--branches', '--tags', '--not', '--remotes')
     if unpushed.returncode != 0 or unpushed.stdout.strip():
         return 'unpushed commits'
     return None
@@ -108,20 +135,53 @@ def inside(held, path):
     return any(item == prefix or item.startswith(prefix + os.sep) for item in held)
 
 
+def keep_reason(entry, cutoff, held, run=subprocess.run):
+    if inside(held, entry):
+        return 'in use by a process'
+    reason, repositories = scan(entry, cutoff)
+    if reason:
+        return reason
+    for repository in repositories:
+        reason = unsafe_git(repository, run)
+        if reason:
+            label = '' if repository == entry else f' in {repository.relative_to(entry)}'
+            return reason + label
+    return None
+
+
 def plan(root, days, now=None, held=None, run=subprocess.run):
     cutoff = (now or time.time()) - days * 86400
     held = busy_paths() if held is None else held
     stale, kept = [], []
     for entry in sorted(Path(root).iterdir()):
-        reason = None
-        if inside(held, entry):
-            reason = 'in use by a process'
-        elif recently_modified(entry, cutoff):
-            reason = 'recently modified'
-        else:
-            reason = unsafe_git(entry, run)
+        reason = keep_reason(entry, cutoff, held, run)
         (kept if reason else stale).append({'path': str(entry), **({'reason': reason} if reason else {})})
     return stale, kept
+
+
+def remove(stale, days, run=subprocess.run, proc=Path('/proc')):
+    """Delete stale entries after rechecking each one; report what could not be removed."""
+    removed, failed = [], []
+    for item in stale:
+        path = Path(item['path'])
+        # Work may have resumed during the scan, so every safety check runs again here.
+        reason = keep_reason(path, time.time() - days * 86400, busy_paths(proc), run)
+        if reason:
+            failed.append({'path': str(path), 'reason': 'kept at deletion: ' + reason})
+            continue
+        errors = []
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path, onerror=lambda function, target, info: errors.append(f'{target}: {info[1]}'))
+        else:
+            try:
+                path.unlink()
+            except OSError as error:
+                errors.append(str(error))
+        if errors or os.path.lexists(path):
+            failed.append({'path': str(path), 'reason': 'removal incomplete', 'errors': errors[:5]})
+        else:
+            removed.append(str(path))
+    return removed, failed
 
 
 def main(argv=None):
@@ -135,25 +195,14 @@ def main(argv=None):
     root = Path(args.root).resolve()
     if root == Path('/'):
         raise ValueError('Refusing to reap the filesystem root')
-    if args.delete and unreadable_processes():
-        # Without visibility into every process, an executable in use could be deleted.
-        raise ValueError('Some processes cannot be inspected; run as their user or with more privileges')
+    gaps = visibility_gaps()
+    if args.delete and gaps:
+        # Without full visibility a running program's files could look unused.
+        raise ValueError('Refusing to delete: ' + '; '.join(gaps[:5]))
     stale, kept = plan(root, args.days)
-    removed = []
-    if args.delete:
-        held = busy_paths()
-        for item in stale:
-            path = Path(item['path'])
-            # Recheck immediately before removal; work may have resumed during the scan.
-            if inside(held, path) or recently_modified(path, time.time() - args.days * 86400):
-                continue
-            if path.is_dir() and not path.is_symlink():
-                shutil.rmtree(path, ignore_errors=True)
-            else:
-                path.unlink(missing_ok=True)
-            removed.append(str(path))
-    json.dump({'root': str(root), 'days': args.days, 'stale': stale, 'kept': kept, 'removed': removed},
-              sys.stdout, indent=2)
+    removed, failed = remove(stale, args.days) if args.delete else ([], [])
+    json.dump({'root': str(root), 'days': args.days, 'visibilityGaps': gaps[:20], 'stale': stale,
+               'kept': kept, 'removed': removed, 'failed': failed}, sys.stdout, indent=2)
     sys.stdout.write('\n')
 
 

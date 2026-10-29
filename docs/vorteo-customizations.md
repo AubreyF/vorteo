@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): independent-review corrections for the core-services branch. Idle release is atomic against run admission and refuses stale samples. The session host verifies its pinned tool bridge bytes. The scratch reaper fails closed on nested repositories, unique refs, stashes and incomplete visibility. Hosted app builds verify Node. The plan status is reconciled. Not installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): integrates the core-services branch. It adds the native custom-domain gateway, the hosted app tool and the Dev scratch reaper. It fixes idle provider processes, slow reconnection after daemon restarts, the session host tool bridge and the preview broker identity check. See the [core services plan](plans/execution-environments/host-core-services.md). The gateway, the Vorton Host release and the broker fix are already live on the owner installation; the daemon and client fixes still need installation. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): integrate corrected browser reliability coverage with functional typography and phone-layout assertions restored. Launcher timing includes visible, editable readiness and rejects the retained hidden-composer probe. Known appearance freezes and the repeated hover failure remain unresolved; the branch has no application runtime changes. README overview and onboarding are unchanged.

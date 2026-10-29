@@ -513,6 +513,19 @@ export type AttentionState =
       attentionTimestamp: Date;
     };
 
+/** What an idle-release pass observed; the release is refused if the agent changed since. */
+export interface IdleSessionObservation {
+  updatedAt: number;
+  session: unknown;
+}
+
+function matchesIdleObservation(
+  agent: { updatedAt: Date; session: unknown },
+  expected: IdleSessionObservation,
+): boolean {
+  return agent.updatedAt.getTime() === expected.updatedAt && agent.session === expected.session;
+}
+
 /** Quota, usage-limit and controller custody each expect the agent's current session to stay. */
 function hasQuotaOrControllerHold(config: AgentSessionConfig): boolean {
   const usageLimitHeld = Boolean(config.usageLimitHold && !config.usageLimitHold.releasedAt);
@@ -3653,33 +3666,40 @@ export class AgentManager {
   /**
    * Closes an idle agent's provider session so its process exits; the agent reopens on demand
    * the way an unloaded agent does after a restart. Leaves the agent loaded, returning false,
-   * whenever something still relies on the live session.
+   * whenever something still relies on the live session or the agent changed since the caller
+   * observed it idle.
    */
-  async releaseIdleSession(agentId: string): Promise<boolean> {
+  async releaseIdleSession(agentId: string, expected?: IdleSessionObservation): Promise<boolean> {
     const queue = this.messageQueueControl;
-    if (!queue?.read || !this.isIdleReleasable(agentId)) return false;
+    if (!queue?.read || !this.isIdleReleasable(agentId, expected)) return false;
     const snapshot = await queue.read(agentId);
     const queueBusy =
       snapshot.paused || snapshot.items.length > 0 || Boolean(snapshot.deliveryError);
     if (queueBusy || (await queue.restartContinuationHeld?.(agentId))) return false;
-    // No await between the last check and the close, which later loads and prompts wait for.
-    if (!this.isIdleReleasable(agentId)) return false;
-    if (this.agents.get(agentId)?.session?.isDurablyHosted?.()) {
-      // The host refuses atomically if a turn started meanwhile; treat that as still in use.
-      try {
-        await this.closeAgent(agentId, { onlyIfIdle: true });
-      } catch {
-        return false;
-      }
+    // Final check, then reserve the agent in the same synchronous step. Run admission
+    // (streamAgent, queued delivery) refuses an agent with a reserved run, so no turn can start
+    // on a session while it closes; a refused queue item is delivered after the agent reopens.
+    if (!this.isIdleReleasable(agentId, expected)) return false;
+    const reservation = this.runs.createPendingRun(agentId);
+    const hosted = Boolean(this.agents.get(agentId)?.session?.isDurablyHosted?.());
+    try {
+      // The host additionally refuses atomically if its session is no longer idle.
+      await this.closeAgent(agentId, hosted ? { onlyIfIdle: true } : undefined);
       return true;
+    } catch (error) {
+      if (!hosted) throw error;
+      return false;
+    } finally {
+      // A completed close clears the agent's runs; otherwise drop only our own reservation.
+      if (this.runs.getRun(agentId) === reservation) this.runs.clearAgentRun(agentId);
     }
-    await this.closeAgent(agentId);
-    return true;
   }
 
-  private isIdleReleasable(agentId: string): boolean {
+  private isIdleReleasable(agentId: string, expected?: IdleSessionObservation): boolean {
     const agent = this.agents.get(agentId);
     if (!agent?.session || agent.lifecycle !== "idle" || agent.internal) return false;
+    // A newer update or a reopened session restarts the idle period the caller measured.
+    if (expected && !matchesIdleObservation(agent, expected)) return false;
     if (this.isRestartDraining() || this.inFlightAgentCloses.has(agentId)) return false;
     if (this.lifecycleMutationTails.has(agentId) || this.hasInFlightRun(agentId)) return false;
     const awaitingPermission =

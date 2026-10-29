@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { chmod, mkdir, rm } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
@@ -123,13 +131,33 @@ export function toolRelayBridgePath(): string {
  */
 export function pinToolRelayBridge(directory: string, source: Buffer): string {
   const digest = createHash("sha256").update(source).digest("hex").slice(0, 16);
-  const target = path.join(directory, `bridge-${digest}`, TOOL_RELAY_BRIDGE_FILE_NAME);
-  if (existsSync(target)) return target;
-  mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
-  const temporary = `${target}.${process.pid}.tmp`;
-  writeFileSync(temporary, source, { mode: 0o600 });
+  const folder = path.join(directory, `bridge-${digest}`);
+  const target = path.join(folder, TOOL_RELAY_BRIDGE_FILE_NAME);
+  // A copy is reused only when it is a regular file, not a link, holding exactly these bytes.
+  if (isExactRegularFile(target, source)) return target;
+  if (lstatOrNull(folder)?.isDirectory() === false) rmSync(folder, { force: true });
+  mkdirSync(folder, { recursive: true, mode: 0o700 });
+  if (!lstatSync(folder).isDirectory())
+    throw new Error("The tool relay bridge folder is not a directory.");
+  const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(temporary, source, { mode: 0o600, flag: "wx" });
+  // rename replaces a stale file or a link itself, never the link's target.
   renameSync(temporary, target);
   return target;
+}
+
+function lstatOrNull(file: string) {
+  try {
+    return lstatSync(file);
+  } catch {
+    return null;
+  }
+}
+
+function isExactRegularFile(file: string, expected: Buffer): boolean {
+  const info = lstatOrNull(file);
+  if (!info?.isFile() || info.size !== expected.length) return false;
+  return readFileSync(file).equals(expected);
 }
 
 /** The socket path for a session; the id is hashed so the path never carries user-chosen text. */
