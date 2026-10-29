@@ -1,6 +1,13 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): integrate the approved desktop updates layout and smoke workspace selector with current source, preserving the exact reviewed source and tests. Existing browser and selector evidence applies unchanged; normal integration hooks and publication hygiene are checked separately. Source only; publication and installation remain separate. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): the App updates row uses local inline actions on desktop and stacks its content and actions at compact widths. Manual update checks and rollout rechecks retain their behavior; restored renderer tests cover both layouts and row geometry. The packaged desktop smoke now selects the exact named sidebar row rather than its drag wrapper, with sandbox checks unchanged. Source only, awaiting review and installation; README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-29): combine reviewed account home resolution and node-pty runtime packaging fixes. Source and test files match their independently reviewed contributions; no installation behavior or settings changed during integration. README overview and onboarding remain unchanged.
+
+Maintenance review (2026-10-28): integrate the reviewed Codex home inheritance and empty-override correction on the accepted Host source. The Accounts source and tests match their reviewed versions exactly, and inventory retains the accepted home boundary. This prepares the later Accounts batch; publication and installation remain separate. README overview and onboarding are unchanged.
+Maintenance review (2026-10-29): the Nix daemon trace resolves node-pty from the server dependency context and retains platform prebuilds, Release fallback binaries and companion assets. Isolated closure tests exercise workspace-local and hoisted layouts with the real native loader. Source only; Linux Nix build and CI acceptance remain pending. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-28): project skill traversal stops before the user's home, preserving explicit personal and account roots without importing the personal Codex bundle as a project scope from git-less working directories. Inventory regressions cover distinct homes, explicit personal roots and Git directory and file boundaries. Source only, awaiting integration; README overview and onboarding are unchanged.
 Maintenance review (2026-10-28): automatic upgrade release of idle or errored hosted sessions uses an atomic conditional close at the host. Active turns, blocking permissions and in-flight provider calls prevent closure; refusal retains the registration, and asynchronous thread questions survive reload. A worker requires the host's conditional-close capability and never substitutes explicit close on an older host. Source awaits integration; README overview and onboarding are unchanged.
@@ -9,6 +16,10 @@ Maintenance review (2026-10-28): recovery browser checks use the explicit Mainte
 
 Maintenance review (2026-10-28): degraded Docker recovery has a separate exact approval, retained paused-Factory baseline, bounded execution and no replay. An explicitly configured native private recovery origin serves the existing authenticated interface without the Docker redirect. Managed supervisors use the selected worker's strict configuration reader. Source validation and installation acceptance are recorded separately; README overview and onboarding are unchanged.
 Maintenance review (2026-10-27): while a session host upgrade is pending, a hosted agent parked in an error with no turn and no pending permission is released like an idle one, so a usage-limit hold no longer keeps the old host alive. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-28): an explicit empty `CODEX_HOME` terminates inheritance and selects the native default home during skill capture, while whitespace remains a literal path. Focused tests cover the real policy inventory boundary, multi-level inheritance, cycles and invalid entries. This source correction awaits later integration and retains project home-boundary discovery as a complementary fix; README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-27): the Codex skill snapshot's `CODEX_HOME` lookup now follows provider inheritance like the launch settings merge. A focused agent-creation test covers the lookup order; README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-26): a coordinator for a systemd Host starts without the launchd coordinator bootstrap ledger instead of crashing. Coordinator bootstrap and renewal remain macOS launchd only. Not yet installed; the current Host uses launchd and is unaffected. README overview and onboarding are unchanged.
 
