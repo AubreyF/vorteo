@@ -451,6 +451,11 @@ test.describe("plugin workspace panels and Command Center", () => {
         await expect(composerPill).toContainText("Review");
         await capture(page, testInfo, "plugin-composer-pill-wide");
         await page.setViewportSize(COMPACT_VIEWPORT);
+        // The phone layout replaces the wide one before the pill can render: measured 4.7 to 9.8 s
+        // locally, so about 16 s on CI runners (1.6 times slower), past the 10 s expect default.
+        await expect(page.getByRole("button", { name: "Open menu" }).first()).toBeVisible({
+          timeout: 30_000,
+        });
         await expect(page.getByRole("button", { name: "Open composer review" })).toBeVisible();
         await capture(page, testInfo, "plugin-composer-pill-compact");
         await page.getByRole("button", { name: "Open composer review" }).click();

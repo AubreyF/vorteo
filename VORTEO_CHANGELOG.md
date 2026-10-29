@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.916 - 2026-10-29
+
+### Maintenance
+
+- Integrate corrected browser synchronization tests with executable typography and phone-layout coverage and visible-composer latency checks
+
 ## 0.11.0-beta.3.vorteo.915 - 2026-10-29
 
 ### Maintenance
@@ -80,6 +86,21 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Let the container installer publish the Dev daemon on host loopback with `PASEO_HOST_LOOPBACK_PORT`, which the macOS Host extension needs. New installations previously published no port, so the Host extension could not pair with them. Default installations still publish nothing.
 - Add a lab installation guide for a second, fully separate installation on another Mac: separation rules, path choices, install steps, acceptance, rollback and removal. Lab delivery and promotion remain planned.
+
+## 0.11.0-beta.3.vorteo.911 - 2026-10-29
+
+### Maintenance
+
+- Address the independent review of the CI flake branch without removing coverage:
+  - The Code font Settings test runs again with all of its checks. It waits for the page to answer after each font commit and gets a 150-second budget for two known freezes of up to 22 seconds on CI.
+  - The chat outline test runs its phone checks again. It waits for the page after each layout switch, with a 120-second budget, instead of skipping that part.
+  - The new agent tab latency still uses its 3000ms budget. Its clock now runs from pressing the New agent menu item until the frame after a new composer is visible and editable. If it fails, the error reports when a composer was first mounted and its visibility at that point. Measured locally at 248 to 331ms. A composer hidden for 4 seconds fails at 4034ms, reported as mounted at 288ms with opacity 0.
+
+## 0.11.0-beta.3.vorteo.910 - 2026-10-29
+
+### Maintenance
+
+- Merge main at 0e1db4743 into the CI flake branch, taking main's manifests. Main's fix for Settings section tracking replaces this branch's known-issue mark in the Vorteo update browser test, which again requires Maintenance to stay selected.
 
 ## 0.11.0-beta.3.vorteo.909 - 2026-10-29
 
@@ -469,6 +490,53 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Validation
 
 - The idle release selection test gains an errored hosted agent with no turn and no pending permission, which is selected, beside one with a pending permission, which is not.
+
+## 0.11.0-beta.3.vorteo.878 - 2026-10-26
+
+### Maintenance
+
+- The custom provider removal browser test waits for the removal confirmation instead of checking right after the click. On a busy CI runner the dialog can arrive after the click returns. Its assertions are unchanged.
+
+## 0.11.0-beta.3.vorteo.877 - 2026-10-26
+
+### Maintenance
+
+- Make four more browser tests reliable on CI without loosening their checks:
+  - The composer whitespace and demo card spacing tests use the shared wait after resizing across the phone breakpoint.
+  - The content width helpers wait for the page to paint after a width change or reset, which re-applies the appearance and can freeze the page.
+  - The repeated model rows test gets a 120-second budget: 15.6 seconds locally and about 77 on CI, where each of its four page loads took 8 to 14 seconds.
+
+## 0.11.0-beta.3.vorteo.876 - 2026-10-26
+
+### Maintenance
+
+- The 1133px interface zoom browser test scrolls the slider back into view before each drag attempt. On CI the settings page drifted up to Agent behavior after the Appearance deep link's pin expired, so the drag pressed off screen.
+
+## 0.11.0-beta.3.vorteo.875 - 2026-10-26
+
+### Maintenance
+
+- Make the browser tests that failed in main's CI run 40250589484 reliable, without loosening their checks:
+  - A shared helper resizes the viewport and waits for the page to paint before assertions start. Crossing the phone/desktop breakpoint blocks the page for seconds while Unistyles rebuilds its stylesheet. The demo workspace, profile picker, provider, permission and queue tests use it.
+  - The launcher test measures the new agent tab's latency inside the page, still against its 3000ms budget (7173342bc).
+  - The queue progress test releases a held request only once one is held. The settings tab test brings the tabs back into view before measuring. The journal test scrolls the new entry into view in every container. The motion test reopens the chooser until it sees a staggered frame, up to three times.
+  - The recovery fixture reuses the app bundle's transform settings, cutting its cold compile from 64 to 9 seconds locally. Its cleanup tolerates a setup that never started.
+  - Longer budgets come with measured durations: shared provider preferences, the demo disclosure and responsive sidebar tests, and the phone plugin panels wait.
+- Mark two product regressions:
+  - The chat outline's phone checks: crossing the phone breakpoint freezes the page for 8 to 12 seconds.
+  - Applying a Code font change in Settings blocks the page for 16 to 22 seconds. The font-loading half of that test still runs.
+
+## 0.11.0-beta.3.vorteo.874 - 2026-10-26
+
+### Maintenance
+
+- Merge main at fae646ab7 into the CI flake branch, taking main's manifests.
+
+## 0.11.0-beta.3.vorteo.864 - 2026-10-26
+
+### Maintenance
+
+- The Vorteo update browser test still requires that the update action without a host stays in Settings and keeps the existing draft. Ending on the Maintenance section becomes a deferred known-issue mark: on Linux CI the settings page can switch to Plugins & integrations while Maintenance is on screen.
 
 ## 0.11.0-beta.3.vorteo.873 - 2026-10-26
 

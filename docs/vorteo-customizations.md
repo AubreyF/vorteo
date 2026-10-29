@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): integrate corrected browser reliability coverage with functional typography and phone-layout assertions restored. Launcher timing includes visible, editable readiness and rejects the retained hidden-composer probe. Known appearance freezes and the repeated hover failure remain unresolved; the branch has no application runtime changes. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): integrate the reviewed Optimizer title migration, preserving role identity and idempotent startup behavior. The focused retitling suite passes; installed title verification remains a separate tracked Host delivery check.
 
 Maintenance review (2026-10-29): integrate the reviewed unavailable-provider history view and passive queue handling without changing their source. Preserve native OpenCode fallback refusal, committed-history access and the documented full-transcript pagination cost. Host and Dev delivery and owner UI acceptance remain separate. README overview and onboarding are unchanged.
@@ -15,6 +17,10 @@ Maintenance review (2026-10-29): the lab installation guide now describes a lab 
 Maintenance review (2026-10-29): the container installer can publish the Dev daemon on host loopback through `PASEO_HOST_LOOPBACK_PORT`, closing a gap where new installations could not pair with the Host extension. A lab installation guide covers a separate installation on another Mac. Installer tests cover the override, its default absence and invalid ports. Nothing is installed; lab delivery and promotion remain planned. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): the Vorteo System upkeep workspace is now titled Vorteo :: Optimizer, and startup carries a manifest title change onto an existing role workspace because clients cannot rename system workspaces. The role ID, folder and runner scripts keep their names. README wording updated; onboarding is unchanged.
+
+Maintenance review (2026-10-29): test-only change. The Code font and chat outline browser tests run all of their checks again instead of skipping them, and the new agent tab latency check measures from the menu press to a visible, editable composer. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-29): merge-only change. The CI flake branch takes main 0e1db4743, whose Settings section tracking fix replaces the branch's known-issue mark in the Vorteo update test. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): ordinary web comboboxes can flip above a lower-edge trigger so Metadata model selection stays visible. Preserve measured top/above-search anchoring, native presentation, keyboard dismissal and fixed picker sizing; focused browser checks cover lower-edge placement. README overview and onboarding are unchanged.
 
@@ -54,6 +60,18 @@ Maintenance review (2026-10-27): while a session host upgrade is pending, a host
 Maintenance review (2026-10-28): an explicit empty `CODEX_HOME` terminates inheritance and selects the native default home during skill capture, while whitespace remains a literal path. Focused tests cover the real policy inventory boundary, multi-level inheritance, cycles and invalid entries. This source correction awaits later integration and retains project home-boundary discovery as a complementary fix; README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-27): the Codex skill snapshot's `CODEX_HOME` lookup now follows provider inheritance like the launch settings merge. A focused agent-creation test covers the lookup order; README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): test-only change. The provider removal browser test waits for its confirmation dialog. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): test-only change. Four more browser tests wait for settled layout or get a measured budget. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): test-only change. The interface zoom browser test keeps its slider in view before dragging. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): test-only change. Browser tests that failed on CI wait for the page to settle after layout switches, and two layout performance regressions are marked. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): merge-only change. The CI flake branch takes main fae646ab7. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-26): test-only change. The Vorteo update browser test marks a settings section tracking issue seen on Linux CI. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-26): a coordinator for a systemd Host starts without the launchd coordinator bootstrap ledger instead of crashing. Coordinator bootstrap and renewal remain macOS launchd only. Not yet installed; the current Host uses launchd and is unaffected. README overview and onboarding are unchanged.
 
