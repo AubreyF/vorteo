@@ -134,17 +134,16 @@ python3 "$HOME/<gateway-native>/native_gateway.py" status --deployment "$HOME/<g
 
 The jobs verify each binary's digest before starting it. Caddy receives the token only through its environment, never through arguments, the Caddyfile or the job definition.
 
-### Cut over from Docker
+### Switch from the Docker gateway
 
-Cutover moves the existing node identity and certificates, so DNS records do not change and no certificate is reissued. Both gateways would claim the same node key, so never run them at the same time. Schedule a short custom-domain interruption; the application's tailnet address is unaffected.
+Run the native gateway as its own new node beside the Docker gateway, then move DNS. Neither gateway goes down, and rollback is moving DNS back. Do not copy the Docker gateway's node state into the native one: two processes sharing a node key conflict, and a migrated node can log in yet never reach a relay. A fresh node avoids both.
 
-1. Back up the gateway deployment directory and both Docker volumes.
-2. Stop the Docker gateway with `docker compose stop` from its deployment directory. Do not remove its containers or volumes.
-3. Copy its state: `docker cp <tailscale-container>:/var/lib/tailscale/. "$HOME/<gateway-native>/tailscale-state/"` and `docker cp <caddy-container>:/data/. "$HOME/<gateway-native>/caddy-data/"`. Keep the copies private.
-4. Run `native_gateway.py activate --deployment "$HOME/<gateway-native>"` from the deployment directory. It refuses to start without the token and the copied node state. Use `--allow-login` only for a new node, then log in with `bin/tailscale --socket "$HOME/<gateway-native>/tailscaled.sock" up --hostname <node-name>` and run `activate` again.
-5. Verify each hostname with `curl --resolve` as above, then from an intended device.
+1. Stage the native gateway with a new `nodeName`, save the DNS token, and run `activate --allow-login`. Approve the printed login, then run `bin/tailscale --socket <deployment>/tailscaled.sock serve --bg --tcp 443 tcp://127.0.0.1:8443`. Disable key expiry for the node in the Tailscale console.
+2. Wait for Caddy to obtain certificates, then test every hostname against the new node with `curl --resolve <hostname>:443:<new-node-ip>`. Certificates come from DNS validation, so they do not depend on where DNS points.
+3. Back up the DNS records, then change each DNS-only A record to the new node's address. Wait out the TTL and verify with ordinary resolution and from an intended device.
+4. Keep the Docker gateway running until the native one has renewed a certificate. Then stop it with `docker compose stop` and retire its node.
 
-To roll back, run `native_gateway.py deactivate --deployment "$HOME/<gateway-native>"`, then `docker compose start` in the Docker gateway directory. Deactivation keeps state, certificates and the token. Remove the Docker gateway only after the native one has renewed a certificate.
+To roll back, point the records back at the Docker gateway's address.
 
 ## Serve a trusted web app from a Host release
 
