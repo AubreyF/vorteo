@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.906 - 2026-10-29
+
+### Fixed
+
+- Keep the loading screen visible until React Native Web layout, Unistyles theme styles and required stylesheet downloads are ready for two consecutive frames. Prevent keyboard focus entering the covered interface.
+- Report pending and failed interface styles in startup diagnostics while retaining Reload and Copy diagnostics. Preserve optional font fallback and Data saver behavior.
+- Cover withheld runtime styles and delayed or failed stylesheet downloads in browser startup regressions.
+
 ## 0.11.0-beta.3.vorteo.905 - 2026-10-29
 
 ### Changed
