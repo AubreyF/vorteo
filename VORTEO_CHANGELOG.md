@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.913 - 2026-10-29
+
+### Changed
+
+- Halve the sidebar's per-level indent from 24px to 12px, so project children sit at 18px instead of 30px. Drag depth projection, the drop indicator and drop hit areas keep using the same shared unit; the 6px row inset is unchanged.
+
 ## 0.11.0-beta.3.vorteo.912 - 2026-10-29
 
 ### Changed
