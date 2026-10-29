@@ -1,3 +1,19 @@
+import { pendingCodexAsyncQuestions } from "./codex/async-questions.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { AgentStorage } from "../agent-storage.js";
+import {
+  buildStoredAgentPayload,
+  toAgentPayload,
+  toStoredAgentRecord,
+} from "../agent-projections.js";
+import { createAgentSessionPort, toHostedJson } from "../../session-host/agent-session-port.js";
+import { HostedAgentSession } from "../../session-host/hosted-agent-session.js";
+import type { HostedSession } from "../../session-host/client.js";
+import {
+  SessionCallSchema,
+  HostedSessionSnapshotSchema,
+} from "../../session-host/session-contract.js";
 import { tmpdir } from "node:os";
 import { expect, test } from "vitest";
 import { CodexAppServerAgentSession } from "./codex-app-server-agent.js";
@@ -8,7 +24,7 @@ import {
 } from "./codex/test-utils/fake-app-server.js";
 import { createTestLogger } from "../../../test-utils/test-logger.js";
 import type { AgentStreamEvent } from "../agent-sdk-types.js";
-import { AgentManager } from "../agent-manager.js";
+import { AgentManager, type AgentManagerEvent } from "../agent-manager.js";
 
 const questionItem = {
   type: "agentMessage",
@@ -433,4 +449,412 @@ test("restores unanswered questions and does not reopen answered questions on du
   } finally {
     await resumed.session.close();
   }
+});
+
+// These records belong only to a stand-in native thread, never a provider account.
+const syntheticCloseQuestions = Array.from({ length: 8 }, (_, index) => ({
+  item: {
+    type: "agentMessage",
+    id: `synthetic-close-question-${index + 1}`,
+    delivery: "async",
+    questions: [{ title: `Synthetic owner decision ${index + 1}?`, options: ["Wait", "Review"] }],
+  },
+}));
+
+async function syntheticCloseSession(metadata: Record<string, unknown>) {
+  const appServer = createFakeCodexAppServer({
+    "thread/read": () => ({ thread: { id: "synthetic-close-thread", turns: [] } }),
+  });
+  const session = new CodexAppServerAgentSession(
+    { provider: "codex", cwd: tmpdir(), model: "gpt-5.4", modeId: "auto" },
+    { sessionId: "synthetic-close-thread", metadata },
+    createTestLogger(),
+    async () => appServer.child,
+  );
+  const events: AgentStreamEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  await session.connect();
+  return { session, appServer, events };
+}
+
+test("synthetic eight async questions survive provider close and same-native-identity resume without a turn", async () => {
+  const first = await syntheticCloseSession({ asyncQuestions: syntheticCloseQuestions });
+  const before = first.session.getPendingPermissions();
+  const events: AgentStreamEvent[] = [];
+  first.session.subscribe((event) => events.push(event));
+  const handle = first.session.describePersistence()!;
+  await first.session.close();
+  expect(handle.sessionId).toBe("synthetic-close-thread");
+  expect(handle.metadata?.asyncQuestions).toEqual(syntheticCloseQuestions);
+  expect(before.map((request) => request.id)).toEqual(
+    syntheticCloseQuestions.map((record) => `permission-${record.item.id}`),
+  );
+  expect(before.map((request) => request.provider)).toEqual(Array(8).fill("codex"));
+  expect(events.filter((event) => event.type === "permission_resolved")).toEqual([]);
+  const resumed = await syntheticCloseSession(handle.metadata!);
+  try {
+    expect(resumed.session.describePersistence()?.sessionId).toBe(handle.sessionId);
+    expect(resumed.session.getPendingPermissions()).toEqual(before);
+    expect(resumed.session.describePersistence()?.metadata?.asyncQuestions).toEqual(
+      syntheticCloseQuestions,
+    );
+    for (const server of [first.appServer, resumed.appServer]) {
+      expect(
+        server
+          .requests()
+          .filter((request) =>
+            ["turn/start", "turn/steer", "turn/interrupt"].includes(String(request.method)),
+          ),
+      ).toEqual([]);
+      server.assertNoErrors();
+    }
+  } finally {
+    await resumed.session.close();
+  }
+});
+
+test("synthetic eight async questions remain visible in the manager closed projection", async () => {
+  const first = await syntheticCloseSession({ asyncQuestions: syntheticCloseQuestions });
+  const { session } = first;
+  const instances = [first];
+  const manager = new AgentManager({
+    clients: {
+      codex: {
+        provider: "codex",
+        capabilities: session.capabilities,
+        createSession: async () => session,
+        resumeSession: async (handle) => {
+          const resumed = await syntheticCloseSession(handle.metadata!);
+          instances.push(resumed);
+          return resumed.session;
+        },
+        isAvailable: async () => true,
+        fetchCatalog: async () => ({ models: [], modes: [] }),
+      },
+    },
+    logger: createTestLogger(),
+  });
+  const agent = await manager.createAgent(
+    { provider: "codex", cwd: tmpdir(), model: "gpt-5.4" },
+    undefined,
+    { workspaceId: undefined },
+  );
+  const events: AgentManagerEvent[] = [];
+  const unsubscribe = manager.subscribe((event) => events.push(event), { replayState: false });
+  const before = session.getPendingPermissions();
+  try {
+    expect([...manager.getAgent(agent.id)!.pendingPermissions.values()]).toEqual(before);
+    await manager.closeAgent(agent.id);
+    const closed = events.filter(
+      (event) => event.type === "agent_state" && event.agent.lifecycle === "closed",
+    );
+    expect(closed).toHaveLength(1);
+    const state = closed[0];
+    if (state.type !== "agent_state") throw new Error("Expected closed agent state");
+    expect(state.agent.persistence?.metadata?.asyncQuestions).toEqual(syntheticCloseQuestions);
+    // The closed projection must preserve unresolved owner questions, not invent resolution.
+    expect.soft([...state.agent.pendingPermissions.values()]).toEqual(before);
+    const handle = state.agent.persistence!;
+    const resumed = await manager.resumeAgentFromPersistence(handle, { cwd: tmpdir() }, agent.id);
+    expect(resumed.id).toBe(agent.id);
+    expect(resumed.persistence?.sessionId).toBe("synthetic-close-thread");
+    expect([...resumed.pendingPermissions.values()]).toEqual(before);
+    expect(resumed.persistence?.metadata?.asyncQuestions).toEqual(syntheticCloseQuestions);
+    expect(
+      events.filter(
+        (event) => event.type === "agent_stream" && event.event.type === "permission_resolved",
+      ),
+    ).toEqual([]);
+    expect(instances).toHaveLength(2);
+    expect(
+      instances
+        .flatMap((instance) => instance.appServer.requests())
+        .filter((request) =>
+          ["turn/start", "turn/steer", "turn/interrupt"].includes(String(request.method)),
+        ),
+    ).toEqual([]);
+    expect(
+      instances
+        .flatMap((instance) => instance.events)
+        .filter((event) => event.type === "permission_resolved"),
+    ).toEqual([]);
+  } finally {
+    unsubscribe();
+    await manager.closeAgent(agent.id);
+  }
+});
+
+test("synthetic execution approval alongside eight async questions blocks automatic queue release", async () => {
+  const { session, appServer } = await syntheticCloseSession({
+    asyncQuestions: syntheticCloseQuestions,
+  });
+  const { manager, agent } = await manage(session);
+  try {
+    const pending = waitForNextEvent(
+      session,
+      "permission_requested",
+      (event) => event.request.kind !== "question",
+    );
+    appServer.requestCommandApproval({
+      itemId: "synthetic-execution-approval",
+      threadId: "synthetic-close-thread",
+      turnId: "synthetic-no-running-turn",
+      command: "synthetic-never-execute",
+      cwd: tmpdir(),
+      reason: "Synthetic blocking approval; never answer",
+    });
+    await pending;
+    await expect.poll(() => manager.getAgent(agent.id)!.pendingPermissions.size).toBe(9);
+    expect(
+      session.getPendingPermissions().filter((request) => request.kind === "question"),
+    ).toHaveLength(8);
+    expect(
+      session.getPendingPermissions().filter((request) => request.kind !== "question"),
+    ).toHaveLength(1);
+    expect(
+      manager.startQueuedMessage(agent.id, "synthetic never activated", {
+        id: "synthetic-queued",
+        revision: 0,
+        createdAt: "2026-10-26T00:00:00Z",
+        text: "synthetic never activated",
+        attachments: [],
+        delivery: { status: "queued" },
+      }),
+    ).toBeNull();
+    expect(
+      appServer
+        .requests()
+        .filter((request) => ["turn/start", "turn/steer"].includes(String(request.method))),
+    ).toEqual([]);
+    expect(session.describePersistence()?.metadata?.asyncQuestions).toEqual(
+      syntheticCloseQuestions,
+    );
+  } finally {
+    await manager.closeAgent(agent.id);
+  }
+});
+
+test("synthetic stored and public closed projections preserve async questions without native approvals", async () => {
+  const { session } = await syntheticCloseSession({ asyncQuestions: syntheticCloseQuestions });
+  const { manager, agent } = await manage(session);
+  const directory = mkdtempSync(join(tmpdir(), "synthetic-closed-projection-"));
+  const storage = new AgentStorage(directory, createTestLogger());
+  const storedManager = new AgentManager({
+    clients: {},
+    registry: storage,
+    logger: createTestLogger(),
+  });
+  const events: AgentManagerEvent[] = [];
+  const unsubscribe = storedManager.subscribe((event) => events.push(event), {
+    replayState: false,
+  });
+  try {
+    const before = session.getPendingPermissions();
+    const record = toStoredAgentRecord(manager.getAgent(agent.id)!);
+    record.lastStatus = "closed";
+    record.requiresAttention = false;
+    const preserved = JSON.stringify(record.persistence);
+    const payload = buildStoredAgentPayload(record, ["codex"]);
+    expect(payload.pendingPermissions).toEqual(before);
+    expect(payload.status).toBe("closed");
+    expect(payload.persistence?.sessionId).toBe("synthetic-close-thread");
+    expect(JSON.stringify(record.persistence)).toBe(preserved);
+    await storage.upsert(record);
+    await storedManager.markAgentUnread(record.id);
+    const state = events.find((event) => event.type === "agent_state");
+    if (!state || state.type !== "agent_state") throw new Error("Missing stored agent projection");
+    expect([...state.agent.pendingPermissions.values()]).toEqual(before);
+    expect(toAgentPayload(state.agent).pendingPermissions).toMatchObject(before);
+    expect(state.agent.persistence).toEqual(record.persistence);
+    expect(events.filter((event) => event.type === "agent_stream")).toEqual([]);
+    expect(storedManager.listAgents()).toEqual([]);
+    const resolvedRecord = structuredClone(record);
+    resolvedRecord.persistence!.metadata!.asyncQuestions = [
+      { ...syntheticCloseQuestions[0], resolution: "dismissed" },
+      { ...syntheticCloseQuestions[1], resolution: ["Wait"] },
+    ];
+    expect(buildStoredAgentPayload(resolvedRecord, ["codex"]).pendingPermissions).toEqual([]);
+  } finally {
+    unsubscribe();
+    await manager.closeAgent(agent.id);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+// This is an injected channel test of the production adapter/contract, not host transport.
+async function syntheticHostedSession(metadata: Record<string, unknown>) {
+  const provider = await syntheticCloseSession(metadata);
+  const port = await createAgentSessionPort(provider.session);
+  let seq = 0;
+  let closes = 0;
+  const calls: string[] = [];
+  const channel: HostedSession = {
+    sessionId: "synthetic-host-session",
+    attach: { provider: "codex", lastSeq: 0, snapshot: port.snapshot() },
+    lastSeq: () => seq,
+    subscribe(listener) {
+      return port.subscribe((event) => listener(toHostedJson(event), ++seq));
+    },
+    onDetached() {},
+    acknowledge() {},
+    async call(input) {
+      const call = SessionCallSchema.parse(input);
+      calls.push(call.method);
+      if (call.method === "close") {
+        await port.close();
+        closes += 1;
+        return null;
+      }
+      return port.call(call);
+    },
+    async history() {
+      throw new Error("Unexpected transport history access");
+    },
+    release() {},
+  };
+  HostedSessionSnapshotSchema.parse(channel.attach.snapshot);
+  const session = new HostedAgentSession({
+    provider: "codex",
+    capabilities: provider.session.capabilities,
+    channel,
+    reattach: async () => {
+      throw new Error("Unexpected reattach");
+    },
+    usage: { env: {} },
+    logger: createTestLogger(),
+  });
+  return { ...provider, hosted: session, calls, closes: () => closes };
+}
+
+test("synthetic hosted adapter contract preserves eight async questions through manager close and native resume", async () => {
+  const first = await syntheticHostedSession({ asyncQuestions: syntheticCloseQuestions });
+  const sessions = [first];
+  const manager = new AgentManager({
+    clients: {
+      codex: {
+        provider: "codex",
+        capabilities: first.hosted.capabilities,
+        createSession: async () => first.hosted,
+        resumeSession: async (handle) => {
+          const resumed = await syntheticHostedSession(handle.metadata!);
+          sessions.push(resumed);
+          return resumed.hosted;
+        },
+        isAvailable: async () => true,
+        fetchCatalog: async () => ({ models: [], modes: [] }),
+      },
+    },
+    logger: createTestLogger(),
+  });
+  const agent = await manager.createAgent({ provider: "codex", cwd: tmpdir() }, undefined, {
+    workspaceId: undefined,
+  });
+  const events: AgentManagerEvent[] = [];
+  const unsubscribe = manager.subscribe((event) => events.push(event), { replayState: false });
+  const before = first.session.getPendingPermissions();
+  try {
+    expect(first.hosted.getPendingPermissions()).toEqual(before);
+    const persistence = first.hosted.describePersistence();
+    await manager.closeAgent(agent.id);
+    expect(first.closes()).toBe(1);
+    expect(manager.listAgents()).toEqual([]);
+    const closed = events.find(
+      (event) => event.type === "agent_state" && event.agent.lifecycle === "closed",
+    );
+    if (!closed || closed.type !== "agent_state")
+      throw new Error("Missing hosted closed projection");
+    expect([...closed.agent.pendingPermissions.values()]).toEqual(before);
+    expect(closed.agent.persistence).toEqual(persistence);
+    const resumed = await manager.resumeAgentFromPersistence(
+      persistence!,
+      { cwd: tmpdir() },
+      agent.id,
+    );
+    expect(resumed.id).toBe(agent.id);
+    expect(resumed.persistence?.sessionId).toBe("synthetic-close-thread");
+    expect([...resumed.pendingPermissions.values()]).toEqual(before);
+    expect(resumed.persistence?.metadata?.asyncQuestions).toEqual(syntheticCloseQuestions);
+    expect(
+      events.filter(
+        (event) => event.type === "agent_stream" && event.event.type === "permission_resolved",
+      ),
+    ).toEqual([]);
+    expect(
+      sessions
+        .flatMap((session) => session.calls)
+        .filter((method) =>
+          ["respondToPermission", "startTurn", "steerActiveTurn", "interrupt"].includes(method),
+        ),
+    ).toEqual([]);
+    expect(
+      sessions
+        .flatMap((session) => session.appServer.requests())
+        .filter((request) =>
+          ["turn/start", "turn/steer", "turn/interrupt"].includes(String(request.method)),
+        ),
+    ).toEqual([]);
+  } finally {
+    unsubscribe();
+    await manager.closeAgent(agent.id);
+  }
+  expect(sessions.map((session) => session.closes())).toEqual([1, 1]);
+});
+
+test("synthetic closed question parser preserves account aliases and rejects unrelated or resolved state read-only", () => {
+  const handle = {
+    provider: "codex-account-synthetic",
+    sessionId: "synthetic-close-thread",
+    nativeHandle: "synthetic-close-thread",
+    metadata: { provider: "codex", asyncQuestions: syntheticCloseQuestions },
+  };
+  const preserved = JSON.stringify(handle);
+  const canonical = pendingCodexAsyncQuestions({ ...handle, provider: "codex" });
+  expect(pendingCodexAsyncQuestions(handle)).toEqual(canonical);
+  expect(canonical.map((request) => request.id)).toEqual(
+    syntheticCloseQuestions.map((record) => `permission-${record.item.id}`),
+  );
+  expect(canonical.map((request) => request.provider)).toEqual(Array(8).fill("codex"));
+  expect(canonical.map((request) => request.input?.questions)).toEqual(
+    syntheticCloseQuestions.map((record) => [
+      {
+        id: "0",
+        header: "Question 1",
+        question: record.item.questions[0].title,
+        options: [{ label: "Wait" }, { label: "Review" }],
+        isOther: true,
+      },
+    ]),
+  );
+  expect(
+    pendingCodexAsyncQuestions({ ...handle, metadata: { ...handle.metadata, provider: "claude" } }),
+  ).toEqual([]);
+  expect(
+    pendingCodexAsyncQuestions({
+      ...handle,
+      metadata: { provider: "codex", asyncQuestions: [{ item: { id: "malformed" } }] },
+    }),
+  ).toEqual([]);
+  expect(
+    pendingCodexAsyncQuestions({
+      ...handle,
+      metadata: { provider: "codex", asyncQuestions: "malformed" },
+    }),
+  ).toEqual([]);
+  expect(pendingCodexAsyncQuestions({ ...handle, metadata: undefined })).toEqual([]);
+  expect(pendingCodexAsyncQuestions(null)).toEqual([]);
+  const resolved = {
+    ...handle,
+    metadata: {
+      provider: "codex",
+      asyncQuestions: [
+        { ...syntheticCloseQuestions[0], resolution: "dismissed" },
+        { ...syntheticCloseQuestions[1], resolution: ["Wait"] },
+        ...syntheticCloseQuestions.slice(2),
+      ],
+    },
+  };
+  const resolvedBefore = JSON.stringify(resolved);
+  expect(pendingCodexAsyncQuestions(resolved)).toEqual(canonical.slice(2));
+  expect(JSON.stringify(resolved)).toBe(resolvedBefore);
+  expect(JSON.stringify(handle)).toBe(preserved);
 });
