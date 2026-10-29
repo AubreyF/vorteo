@@ -1,11 +1,16 @@
 #!/usr/bin/env node
-// Publishes the current commit to the integration branch with a normal
-// fast-forward push, then proves the remote contains it.
-// Usage: node scripts/publish-main.mjs [--remote origin] [--branch main] [--dry-run]
-// Exit status 0 means published (or ready, for a dry run); 1 means refused.
+// Delivers the current branch to main through a pull request: pushes the branch, opens or
+// reuses its pull request, waits for the required checks named in .github/rulesets/main.json,
+// merges with a merge commit pinned to the tested head, then proves main contains that head.
+// A merge commit keeps the exact commit an installation already runs in main's history.
+// Usage: node scripts/publish-main.mjs [--no-merge] [--pr <number>] [--title <text>]
+//   [--body-file <path>] [--remote origin] [--branch main] [--repo owner/name] [--dry-run]
+// Exit status 0 means merged (or opened, or ready for a dry run); 1 means refused.
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
+  currentBranch,
   findGitleaks,
   git,
   isAncestor,
@@ -13,30 +18,110 @@ import {
   repositoryRoot,
   workingTreeChanges,
 } from "./lib/delivery-git.mjs";
+import {
+  checkRunsFor,
+  ghJson,
+  readMainRuleset,
+  requiredCheckApp,
+  requiredChecks,
+  resolveRepository,
+  runGh,
+  summarizeChecks,
+} from "./lib/github.mjs";
 import { isMainModule } from "./is-main-module.mjs";
 import { assertBuildsCoordinator } from "./lib/builds-guard.mjs";
 
 export class PublishRefusal extends Error {}
 
-export function preparePublication({ cwd, remote = "origin", branch = "main", env = process.env }) {
+const TRUSTED_REVIEWERS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+
+function fetchBase(root, remote, branch) {
+  git(root, ["fetch", "--quiet", remote, branch]);
+  return git(root, ["rev-parse", "FETCH_HEAD"]);
+}
+
+function requireUpToDate(root, base, head, remote, branch) {
+  if (!isAncestor(root, base, head)) {
+    throw new PublishRefusal(
+      `${remote}/${branch} moved to ${base.slice(0, 9)}, which ${head.slice(0, 9)} does not contain. ` +
+        `Merge ${remote}/${branch} into the branch, prepare a fresh version with npm run version:vorton, ` +
+        "commit, and publish again. Never force-push.",
+    );
+  }
+}
+
+/**
+ * Checks a branch delivery locally before anything reaches GitHub. With `pr`, plans the
+ * merge of an existing pull request (for example a contributor's) instead.
+ */
+export function preparePublication({
+  cwd,
+  remote = "origin",
+  branch = "main",
+  env = process.env,
+  repository,
+  pr,
+  gh = runGh,
+  required = undefined,
+  checkApp = undefined,
+}) {
   const root = repositoryRoot(cwd);
+  const remoteHead = fetchBase(root, remote, branch);
+  const repo = resolveRepository({ root, remote, explicit: repository, gh });
+  if (!required) {
+    const ruleset = readMainRuleset(root);
+    required = requiredChecks(ruleset);
+    checkApp = requiredCheckApp(ruleset);
+  }
+  if (pr) {
+    const view = ghJson(gh, [
+      "pr",
+      "view",
+      String(pr),
+      "-R",
+      repo,
+      "--json",
+      "number,state,baseRefName,headRefOid,isCrossRepository,url,author",
+    ]);
+    if (view.state !== "OPEN") throw new PublishRefusal(`Pull request #${pr} is ${view.state}.`);
+    if (view.baseRefName !== branch) {
+      throw new PublishRefusal(`Pull request #${pr} targets ${view.baseRefName}, not ${branch}.`);
+    }
+    git(root, ["fetch", "--quiet", remote, `refs/pull/${view.number}/head`]);
+    const head = git(root, ["rev-parse", "FETCH_HEAD"]);
+    if (head !== view.headRefOid) {
+      throw new PublishRefusal(`Pull request #${pr} moved while it was being read; run again.`);
+    }
+    requireUpToDate(root, remoteHead, head, remote, branch);
+    return {
+      root,
+      remote,
+      branch,
+      head,
+      remoteHead,
+      repository: repo,
+      required,
+      checkApp,
+      pr: view,
+    };
+  }
   const changes = workingTreeChanges(root);
   if (changes.tracked.length || changes.untracked.length) {
     throw new PublishRefusal(
       `Commit or remove local changes first: ${[...changes.tracked, ...changes.untracked].join(", ")}`,
     );
   }
-  git(root, ["fetch", "--quiet", remote, branch]);
-  const remoteHead = git(root, ["rev-parse", "FETCH_HEAD"]);
+  const headBranch = currentBranch(root);
+  if (headBranch === "HEAD" || headBranch === branch) {
+    throw new PublishRefusal(
+      `Publish from a named task or integration branch, not ${headBranch === "HEAD" ? "a detached HEAD" : branch}.`,
+    );
+  }
   const head = git(root, ["rev-parse", "HEAD"]);
   if (head === remoteHead) {
     throw new PublishRefusal(`${remote}/${branch} already points at ${head.slice(0, 9)}`);
   }
-  if (!isAncestor(root, remoteHead, head)) {
-    throw new PublishRefusal(
-      `${remote}/${branch} moved to ${remoteHead.slice(0, 9)}, which this commit does not contain. Rebase or merge it, then publish again. Never force-push.`,
-    );
-  }
+  requireUpToDate(root, remoteHead, head, remote, branch);
   // The pre-push hook runs the secret scan and fails when Gitleaks is missing.
   const gitleaks = findGitleaks(env);
   if (!gitleaks) {
@@ -45,53 +130,303 @@ export function preparePublication({ cwd, remote = "origin", branch = "main", en
     );
   }
   const outgoing = git(root, ["log", "--format=%h %s", `${remoteHead}..${head}`]).split("\n");
-  return { root, remote, branch, head, remoteHead, gitleaks, outgoing };
+  return {
+    root,
+    remote,
+    branch,
+    head,
+    headBranch,
+    remoteHead,
+    gitleaks,
+    outgoing,
+    repository: repo,
+    required,
+    checkApp,
+  };
 }
 
-export function publish(plan, env = process.env) {
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export const PR_FIELDS = "number,state,baseRefName,headRefOid,isCrossRepository,url,author";
+
+function viewPullRequest(gh, repository, number) {
+  return ghJson(gh, ["pr", "view", String(number), "-R", repository, "--json", PR_FIELDS]);
+}
+
+/**
+ * GitHub moves an existing pull request's head a few seconds after a push. Waits until
+ * it reports the pushed commit rather than refusing a correct push.
+ */
+async function waitForHead(gh, plan, pr, { pollMs = 2_000, attempts = 15 } = {}) {
+  let current = pr;
+  for (let attempt = 0; current.headRefOid !== plan.head && attempt < attempts; attempt += 1) {
+    await sleep(pollMs);
+    current = viewPullRequest(gh, plan.repository, pr.number);
+  }
+  if (current.headRefOid !== plan.head) {
+    throw new PublishRefusal(`Pull request #${pr.number} head is not ${plan.head.slice(0, 9)}.`);
+  }
+  return current;
+}
+
+/** Pushes the branch without force and returns its open pull request, creating one if needed. */
+export async function openPullRequest(
+  plan,
+  { env = process.env, gh = runGh, title, body, pollMs } = {},
+) {
+  if (plan.pr) return plan.pr;
   const pathWithGitleaks = [path.dirname(plan.gitleaks), env.PATH ?? ""].join(path.delimiter);
-  execFileSync("git", ["push", plan.remote, `HEAD:refs/heads/${plan.branch}`], {
+  execFileSync("git", ["push", plan.remote, `HEAD:refs/heads/${plan.headBranch}`], {
     cwd: plan.root,
     env: { ...env, PATH: pathWithGitleaks },
     stdio: "inherit",
   });
-  const published = git(plan.root, ["ls-remote", plan.remote, `refs/heads/${plan.branch}`]).split(
+  const pushed = git(plan.root, ["ls-remote", plan.remote, `refs/heads/${plan.headBranch}`]).split(
     /\s+/,
   )[0];
-  if (published !== plan.head) {
+  if (pushed !== plan.head) {
     throw new PublishRefusal(
-      `${plan.remote}/${plan.branch} reports ${published?.slice(0, 9) ?? "nothing"} after the push, not ${plan.head.slice(0, 9)}`,
+      `${plan.remote}/${plan.headBranch} reports ${pushed?.slice(0, 9) || "nothing"} after the push, not ${plan.head.slice(0, 9)}`,
     );
   }
-  return published;
+  // --head matches branch names in forks too; only this repository's branch counts.
+  const open = (
+    ghJson(gh, [
+      "pr",
+      "list",
+      "-R",
+      plan.repository,
+      "--head",
+      plan.headBranch,
+      "--base",
+      plan.branch,
+      "--state",
+      "open",
+      "--json",
+      PR_FIELDS,
+    ]) ?? []
+  ).filter((pr) => !pr.isCrossRepository);
+  if (open.length) return waitForHead(gh, plan, open[0], { pollMs });
+  const subject = git(plan.root, ["log", "-1", "--format=%s", plan.head]);
+  const description =
+    body ??
+    [
+      "(AI Generated).",
+      "",
+      `Delivers ${plan.outgoing.length} commit(s) to ${plan.branch}:`,
+      "",
+      ...plan.outgoing.map((line) => `- ${line}`),
+    ].join("\n");
+  const url = gh(
+    [
+      "pr",
+      "create",
+      "-R",
+      plan.repository,
+      "--base",
+      plan.branch,
+      "--head",
+      plan.headBranch,
+      "--title",
+      title ?? subject,
+      "--body-file",
+      "-",
+    ],
+    { input: description },
+  );
+  const number = /\/pull\/(\d+)/.exec(url)?.[1];
+  if (!number) throw new PublishRefusal(`gh pr create did not report a pull request: ${url}`);
+  return waitForHead(gh, plan, viewPullRequest(gh, plan.repository, number), { pollMs });
 }
 
-function main() {
+/**
+ * Decides whether a pull request may merge without waiting for the owner. Only a
+ * same-repository pull request opened by the account running Builds merges on its checks.
+ * Every other one needs an approval on its exact head from a reviewer with write access,
+ * judged by each reviewer's latest decision, and no outstanding change request.
+ */
+export function assertReviewed(plan, pr, { gh = runGh } = {}) {
+  const viewer = gh(["api", "user", "--jq", ".login"]);
+  if (!pr.isCrossRepository && pr.author?.login && pr.author.login === viewer) {
+    return "opened by this installation";
+  }
+  const output = gh([
+    "api",
+    "--paginate",
+    `repos/${plan.repository}/pulls/${pr.number}/reviews`,
+    "--jq",
+    ".[] | {id, state, commit_id, author_association, user: .user.login}",
+  ]);
+  const latest = new Map();
+  for (const review of output ? output.split("\n").map((line) => JSON.parse(line)) : []) {
+    if (!TRUSTED_REVIEWERS.has(review.author_association)) continue;
+    if (!["APPROVED", "CHANGES_REQUESTED", "DISMISSED"].includes(review.state)) continue;
+    const previous = latest.get(review.user);
+    if (!previous || review.id > previous.id) latest.set(review.user, review);
+  }
+  const decisions = [...latest.values()];
+  const blocking = decisions.filter((review) => review.state === "CHANGES_REQUESTED");
+  const approved = decisions.some(
+    (review) => review.state === "APPROVED" && review.commit_id === plan.head,
+  );
+  if (blocking.length || !approved) {
+    throw new PublishRefusal(
+      blocking.length
+        ? `Pull request #${pr.number} has changes requested by ${blocking.map((r) => r.user).join(", ")}.`
+        : `Pull request #${pr.number} has no owner approval on ${plan.head.slice(0, 9)}. It waits for review.`,
+    );
+  }
+  return "approved on its head";
+}
+
+/**
+ * Waits until every required check passes on the head. A failure refuses at once. A
+ * cancelled newest run gets a few polls for its replacement to appear, then refuses.
+ */
+export async function waitForChecks(
+  plan,
+  { gh = runGh, pollMs = 20_000, timeoutMs = 90 * 60_000, cancelledPolls = 3, log = () => {} } = {},
+) {
+  const deadline = Date.now() + timeoutMs;
+  let cancelledFor = 0;
+  for (;;) {
+    const runs = checkRunsFor(gh, plan.repository, plan.head).filter(
+      (run) => plan.checkApp === undefined || run.app === plan.checkApp,
+    );
+    const summary = summarizeChecks(runs, plan.required);
+    const onlyCancelled = summary.failed.every((entry) => entry.endsWith("(cancelled)"));
+    cancelledFor = summary.failed.length && onlyCancelled ? cancelledFor + 1 : 0;
+    if (summary.failed.length && (!onlyCancelled || cancelledFor > cancelledPolls)) {
+      throw new PublishRefusal(
+        `Required checks failed on ${plan.head.slice(0, 9)}: ${summary.failed.join(", ")}. Fix forward or rerun them; a cancelled run is not evidence.`,
+      );
+    }
+    if (!summary.pending.length && !summary.failed.length) return summary;
+    if (Date.now() >= deadline) {
+      throw new PublishRefusal(
+        `Timed out waiting for ${[...summary.pending, ...summary.failed].join(", ")}.`,
+      );
+    }
+    log(`Waiting for ${[...summary.pending, ...summary.failed].join(", ")}`);
+    await sleep(pollMs);
+  }
+}
+
+/** Merges with a merge commit pinned to the tested head, then proves main contains it. */
+export function mergePullRequest(plan, pr, { gh = runGh } = {}) {
+  requireUpToDate(
+    plan.root,
+    fetchBase(plan.root, plan.remote, plan.branch),
+    plan.head,
+    plan.remote,
+    plan.branch,
+  );
+  gh([
+    "pr",
+    "merge",
+    String(pr.number),
+    "-R",
+    plan.repository,
+    "--merge",
+    "--match-head-commit",
+    plan.head,
+  ]);
+  const merged = ghJson(gh, [
+    "pr",
+    "view",
+    String(pr.number),
+    "-R",
+    plan.repository,
+    "--json",
+    "state,mergeCommit",
+  ]);
+  if (merged.state !== "MERGED" || !merged.mergeCommit?.oid) {
+    throw new PublishRefusal(`Pull request #${pr.number} is ${merged.state}, not merged.`);
+  }
+  const mainHead = fetchBase(plan.root, plan.remote, plan.branch);
+  if (
+    !isAncestor(plan.root, merged.mergeCommit.oid, mainHead) ||
+    !isAncestor(plan.root, plan.head, mainHead)
+  ) {
+    throw new PublishRefusal(
+      `${plan.remote}/${plan.branch} at ${mainHead.slice(0, 9)} does not contain merge ${merged.mergeCommit.oid.slice(0, 9)} and head ${plan.head.slice(0, 9)}.`,
+    );
+  }
+  return { mergeCommit: merged.mergeCommit.oid, main: mainHead };
+}
+
+/**
+ * With --delete-branch, deletes the merged same-repository branch. Branches are kept by
+ * default so recovery branches and preservation holds survive delivery. Leaves the branch
+ * when it moved after the merge.
+ */
+export function deleteMergedBranch(plan, env = process.env) {
+  if (!plan.headBranch) return false;
+  const ref = `refs/heads/${plan.headBranch}`;
+  const current = git(plan.root, ["ls-remote", plan.remote, ref]).split(/\s+/)[0];
+  if (current !== plan.head) return false;
+  // The pre-push secret scan runs for deletions too.
+  const pathWithGitleaks = [path.dirname(plan.gitleaks), env.PATH ?? ""].join(path.delimiter);
+  execFileSync("git", ["push", `--force-with-lease=${ref}:${plan.head}`, plan.remote, `:${ref}`], {
+    cwd: plan.root,
+    env: { ...env, PATH: pathWithGitleaks },
+    stdio: "inherit",
+  });
+  return true;
+}
+
+async function main() {
   const args = parseArgs(process.argv.slice(2), {
-    flags: ["dry-run"],
-    options: ["remote", "branch"],
+    flags: ["dry-run", "no-merge", "delete-branch"],
+    options: ["remote", "branch", "repo", "pr", "title", "body-file"],
   });
   const plan = preparePublication({
     cwd: process.cwd(),
     remote: args.remote ?? "origin",
     branch: args.branch ?? "main",
+    repository: args.repo,
+    pr: args.pr ? Number(args.pr) : undefined,
   });
-  console.log(`Publishing ${plan.outgoing.length} commit(s) to ${plan.remote}/${plan.branch}:`);
-  for (const line of plan.outgoing) console.log(`  ${line}`);
+  const target = plan.pr ? `pull request #${plan.pr.number}` : `${plan.headBranch}`;
+  console.log(
+    `Delivering ${target} (${plan.head.slice(0, 9)}) to ${plan.repository} ${plan.branch}; required checks: ${plan.required.join(", ")}`,
+  );
+  for (const line of plan.outgoing ?? []) console.log(`  ${line}`);
   if (args["dry-run"]) {
-    console.log("Dry run: fast-forward, clean tree and secret scanner verified; nothing pushed.");
+    console.log("Dry run: up to date with the base, clean tree and secret scanner verified.");
     return;
   }
-  publish(plan);
+  const pr = await openPullRequest(plan, {
+    title: args.title,
+    body: args["body-file"] ? readFileSync(args["body-file"], "utf8") : undefined,
+  });
+  console.log(`Pull request: ${pr.url}`);
+  if (args["no-merge"]) return;
+  console.log(`Review: ${assertReviewed(plan, pr)}.`);
+  const checks = await waitForChecks(plan, { log: (line) => console.log(line) });
+  console.log(`Passed: ${checks.passed.join(", ") || "none"}.`);
+  if (checks.skipped.length) {
+    console.log(`Skipped by CI's path filter, not validated: ${checks.skipped.join(", ")}.`);
+  }
+  // Revalidate right before merging: a review can change while checks run.
+  assertReviewed(plan, viewPullRequest(runGh, plan.repository, pr.number));
+  const result = mergePullRequest(plan, pr);
   console.log(
-    `Verified: ${plan.remote}/${plan.branch} is ${plan.head} and contains every outgoing commit.`,
+    `Verified: merge ${result.mergeCommit} is on ${plan.remote}/${plan.branch} (${result.main}) and contains ${plan.head}.`,
   );
+  if (args["delete-branch"]) {
+    try {
+      if (deleteMergedBranch(plan)) console.log(`Deleted the merged branch ${plan.headBranch}.`);
+    } catch (error) {
+      console.warn(`The merge is verified, but deleting ${plan.headBranch} failed: ${error}`);
+    }
+  }
 }
 
 if (isMainModule(import.meta.url)) {
   try {
-    assertBuildsCoordinator("Publishing GitHub main");
-    main();
+    assertBuildsCoordinator("Merging pull requests into main");
+    await main();
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

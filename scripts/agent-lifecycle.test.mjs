@@ -18,7 +18,15 @@ import {
   resolveVersionOnlyConflicts,
   unionConflicts,
 } from "./prepare-host-delivery.mjs";
-import { PublishRefusal, preparePublication, publish } from "./publish-main.mjs";
+import {
+  PublishRefusal,
+  assertReviewed,
+  deleteMergedBranch,
+  mergePullRequest,
+  openPullRequest,
+  preparePublication,
+  waitForChecks,
+} from "./publish-main.mjs";
 import { createTaskWorktree, planTaskWorktree } from "./task-worktree.mjs";
 import { applyCleanup, classifyWorktrees } from "./worktree-cleanup.mjs";
 
@@ -132,43 +140,245 @@ function fakeGitleaks(root) {
   return { ...process.env, PASEO_GITLEAKS_BIN: bin };
 }
 
-test("publishing refuses a dirty tree, a stale base and a missing secret scanner", () => {
-  const { clone, root } = fixture();
+const REPO = "owner/vorteo";
+const REQUIRED = ["format", "scan"];
+const ACTIONS = 15368;
+
+// A fake gh backed by the fixture's bare origin. Merging creates a real merge commit on main.
+function fakeGh({ root, origin, checks = [], reviews = [], viewer = "owner", author = "owner" }) {
+  const calls = [];
+  const prs = [];
+  const gh = (args, { input } = {}) => {
+    calls.push({ args, input });
+    const [group, verb] = args;
+    if (group === "api" && verb === "user") return viewer;
+    if (group === "pr" && verb === "list") {
+      return JSON.stringify(prs.filter((pr) => pr.state === "OPEN"));
+    }
+    if (group === "pr" && verb === "create") {
+      const branch = args[args.indexOf("--head") + 1];
+      const head = run(root, "--git-dir", origin, "rev-parse", `refs/heads/${branch}`).trim();
+      prs.push({
+        number: prs.length + 1,
+        state: "OPEN",
+        baseRefName: "main",
+        headRefName: branch,
+        headRefOid: head,
+        isCrossRepository: false,
+        author: { login: author },
+        url: `https://github.com/${REPO}/pull/${prs.length + 1}`,
+      });
+      return prs.at(-1).url;
+    }
+    if (group === "pr" && verb === "view") {
+      return JSON.stringify(prs.find((entry) => String(entry.number) === args[2]));
+    }
+    if (group === "pr" && verb === "merge") {
+      const pr = prs.find((entry) => String(entry.number) === args[2]);
+      assert.equal(args[args.indexOf("--match-head-commit") + 1], pr.headRefOid);
+      assert.ok(args.includes("--merge"));
+      const merger = path.join(root, `merger-${pr.number}`);
+      run(root, "clone", "--quiet", origin, merger);
+      run(merger, "config", "user.name", "GitHub");
+      run(merger, "config", "user.email", "noreply@example.invalid");
+      run(
+        merger,
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "-m",
+        `Merge pull request #${pr.number}`,
+        pr.headRefOid,
+      );
+      run(merger, "push", "--quiet", "origin", "HEAD:main");
+      pr.state = "MERGED";
+      pr.mergeCommit = { oid: run(merger, "rev-parse", "HEAD").trim() };
+      return "";
+    }
+    if (group === "api" && args.at(-3).includes("/check-runs")) {
+      return checks.map((check) => JSON.stringify({ app: ACTIONS, ...check })).join("\n");
+    }
+    if (group === "api" && args.at(-3).includes("/reviews")) {
+      return reviews.map((review) => JSON.stringify(review)).join("\n");
+    }
+    throw new Error(`unexpected gh ${args.join(" ")}`);
+  };
+  return { gh, calls, prs };
+}
+
+function branchFixture() {
+  const setup = fixture();
+  run(setup.clone, "checkout", "--quiet", "-b", "feat/a");
+  return setup;
+}
+
+const planFor = (clone, env, gh) =>
+  preparePublication({
+    cwd: clone,
+    env,
+    gh,
+    repository: REPO,
+    required: REQUIRED,
+    checkApp: ACTIONS,
+  });
+
+const passing = REQUIRED.map((name, index) => ({
+  id: index + 1,
+  name,
+  status: "completed",
+  conclusion: "success",
+}));
+
+test("publishing refuses a dirty tree, main, a stale base and a missing secret scanner", () => {
+  const { clone, root, origin } = fixture();
   const env = fakeGitleaks(root);
-  writeFileSync(path.join(clone, "draft.txt"), "x\n");
-  assert.throws(() => preparePublication({ cwd: clone, env }), PublishRefusal);
-  rmSync(path.join(clone, "draft.txt"));
-  assert.throws(() => preparePublication({ cwd: clone, env }), /already points at/);
+  const { gh } = fakeGh({ root, origin });
+  const prepare = (extra = {}) =>
+    preparePublication({ cwd: clone, env, gh, repository: REPO, required: REQUIRED, ...extra });
   commit(clone, "a.txt", "a\n", "Add a");
+  assert.throws(() => prepare(), /named task or integration branch/);
+  run(clone, "checkout", "--quiet", "-b", "feat/a");
+  writeFileSync(path.join(clone, "draft.txt"), "x\n");
+  assert.throws(() => prepare(), PublishRefusal);
+  rmSync(path.join(clone, "draft.txt"));
   assert.throws(
-    () =>
-      preparePublication({
-        cwd: clone,
-        env: { ...env, PASEO_GITLEAKS_BIN: path.join(root, "none") },
-      }),
+    () => prepare({ env: { ...env, PASEO_GITLEAKS_BIN: path.join(root, "none") } }),
     /Gitleaks/,
   );
-  // Someone else pushes first: this commit no longer fast-forwards.
+  // Someone else merges first: the branch must take main and a fresh version.
   const other = path.join(root, "other");
-  run(root, "clone", "--quiet", path.join(root, "origin.git"), other);
+  run(root, "clone", "--quiet", origin, other);
   run(other, "config", "user.name", "Test");
   run(other, "config", "user.email", "test@example.invalid");
   commit(other, "b.txt", "b\n", "Add b");
   run(other, "push", "--quiet", "origin", "HEAD:main");
-  assert.throws(() => preparePublication({ cwd: clone, env }), /Never force-push/);
+  assert.throws(() => prepare(), /version:vorton/);
 });
 
-test("publishing fast-forwards main and verifies the remote head", () => {
-  const { clone, root } = fixture();
+test("publishing opens a pull request, waits for required checks and merges with a merge commit", async () => {
+  const { clone, root, origin } = branchFixture();
   const env = fakeGitleaks(root);
   const head = commit(clone, "a.txt", "a\n", "Add a");
-  const plan = preparePublication({ cwd: clone, env });
-  assert.deepEqual(
-    plan.outgoing.map((line) => line.split(" ").slice(1).join(" ")),
-    ["Add a"],
+  const checks = [{ id: 1, name: "format", status: "in_progress", conclusion: null }];
+  const { gh, calls } = fakeGh({ root, origin, checks });
+  const plan = planFor(clone, env, gh);
+  const pr = await openPullRequest(plan, { env, gh, pollMs: 0 });
+  assert.equal(pr.headRefOid, head);
+  assert.equal(run(clone, "ls-remote", "origin", "refs/heads/feat/a").split(/\s+/)[0], head);
+  assert.match(calls.find((call) => call.args[1] === "create").input, /^\(AI Generated\)\./);
+  // Reusing the branch finds the same pull request instead of opening another.
+  assert.equal((await openPullRequest(plan, { env, gh, pollMs: 0 })).number, pr.number);
+  assert.equal(assertReviewed(plan, pr, { gh }), "opened by this installation");
+  let polls = 0;
+  await waitForChecks(plan, {
+    gh,
+    pollMs: 0,
+    log: () => {
+      polls += 1;
+      checks.splice(0, checks.length, ...passing);
+    },
+  });
+  assert.equal(polls, 1);
+  const result = mergePullRequest(plan, pr, { gh });
+  const parents = run(clone, "rev-list", "--parents", "-n", "1", result.mergeCommit)
+    .trim()
+    .split(" ");
+  assert.equal(parents.length, 3);
+  assert.equal(parents[2], head);
+  assert.equal(
+    run(clone, "ls-remote", "origin", "refs/heads/main").split(/\s+/)[0],
+    result.mergeCommit,
   );
-  assert.equal(publish(plan, env), head);
-  assert.equal(run(clone, "ls-remote", "origin", "refs/heads/main").split(/\s+/)[0], head);
+  // The branch stays unless deletion is requested.
+  assert.equal(run(clone, "ls-remote", "origin", "refs/heads/feat/a").split(/\s+/)[0], head);
+  assert.equal(deleteMergedBranch(plan, env), true);
+  assert.equal(run(clone, "ls-remote", "origin", "refs/heads/feat/a"), "");
+});
+
+test("required checks refuse failures, neutral results and other apps' runs", async () => {
+  const { clone, root, origin } = branchFixture();
+  const env = fakeGitleaks(root);
+  commit(clone, "a.txt", "a\n", "Add a");
+  const checks = [
+    { id: 1, name: "format", status: "completed", conclusion: "success" },
+    { id: 2, name: "scan", status: "completed", conclusion: "neutral" },
+  ];
+  const { gh } = fakeGh({ root, origin, checks });
+  const plan = planFor(clone, env, gh);
+  await assert.rejects(waitForChecks(plan, { gh, pollMs: 0 }), /scan \(neutral\)/);
+  // A run from another app with a required name is ignored, so scan stays pending.
+  checks.splice(1, 1, { id: 3, name: "scan", status: "completed", conclusion: "success", app: 1 });
+  await assert.rejects(
+    waitForChecks(plan, { gh, pollMs: 0, timeoutMs: 0 }),
+    /Timed out waiting for scan/,
+  );
+});
+
+test("a cancelled run waits briefly for its replacement before refusing", async () => {
+  const { clone, root, origin } = branchFixture();
+  const env = fakeGitleaks(root);
+  commit(clone, "a.txt", "a\n", "Add a");
+  const checks = [
+    { id: 1, name: "format", status: "completed", conclusion: "success" },
+    { id: 2, name: "scan", status: "completed", conclusion: "cancelled" },
+  ];
+  const { gh } = fakeGh({ root, origin, checks });
+  const plan = planFor(clone, env, gh);
+  await assert.rejects(
+    waitForChecks(plan, { gh, pollMs: 0, cancelledPolls: 2 }),
+    /scan \(cancelled\)/,
+  );
+  let polls = 0;
+  await waitForChecks(plan, {
+    gh,
+    pollMs: 0,
+    cancelledPolls: 2,
+    log: () => {
+      polls += 1;
+      checks.push({ id: 3, name: "scan", status: "completed", conclusion: "success" });
+    },
+  });
+  assert.equal(polls, 1);
+});
+
+test("other pull requests wait for an owner approval that is current on their head", () => {
+  const plan = { repository: REPO, head: "abc" };
+  const fork = { number: 7, isCrossRepository: true, author: { login: "contributor" } };
+  const review = (overrides) => ({
+    id: 1,
+    state: "APPROVED",
+    commit_id: "abc",
+    author_association: "OWNER",
+    user: "owner",
+    ...overrides,
+  });
+  const gh =
+    (reviews, viewer = "owner") =>
+    (args) =>
+      args[1] === "user" ? viewer : reviews.map((entry) => JSON.stringify(entry)).join("\n");
+  assert.throws(() => assertReviewed(plan, fork, { gh: gh([]) }), /waits for review/);
+  assert.throws(
+    () => assertReviewed(plan, fork, { gh: gh([review({ commit_id: "old" })]) }),
+    /waits for review/,
+  );
+  assert.throws(
+    () => assertReviewed(plan, fork, { gh: gh([review({ author_association: "CONTRIBUTOR" })]) }),
+    /waits for review/,
+  );
+  // A later change request from the same reviewer supersedes the approval.
+  assert.throws(
+    () =>
+      assertReviewed(plan, fork, {
+        gh: gh([review({}), review({ id: 2, state: "CHANGES_REQUESTED" })]),
+      }),
+    /changes requested by owner/,
+  );
+  assert.equal(assertReviewed(plan, fork, { gh: gh([review({})]) }), "approved on its head");
+  // A same-repository branch from another account is not this installation's own work.
+  const collaborator = { ...fork, isCrossRepository: false, author: { login: "collaborator" } };
+  assert.throws(() => assertReviewed(plan, collaborator, { gh: gh([]) }), /waits for review/);
+  const own = { ...fork, isCrossRepository: false, author: { login: "owner" } };
+  assert.equal(assertReviewed(plan, own, { gh: gh([]) }), "opened by this installation");
 });
 
 test("finds Gitleaks through an explicit override", () => {
