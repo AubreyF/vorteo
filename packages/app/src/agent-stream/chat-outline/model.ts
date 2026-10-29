@@ -83,3 +83,73 @@ export function createActivePromptPublisher(): ActivePromptPublisher {
     },
   };
 }
+
+/**
+ * One rail mark. It stands for a single prompt while the rail has room, and for a run of
+ * consecutive prompts once a long conversation outgrows it.
+ */
+export interface ChatOutlineGroup {
+  /** The mark's position on the rail, oldest first. */
+  slot: number;
+  /** Index of the group's first prompt in the complete index. */
+  start: number;
+  /** Number of prompts the mark stands for. */
+  count: number;
+  /** The prompt a click jumps to and the preview describes: the group's first. */
+  first: ChatOutlinePrompt;
+  last: ChatOutlinePrompt;
+  /** True only when every prompt in the group was sent by another agent. */
+  isAgentMessage: boolean;
+}
+
+/**
+ * Splits the index into at most `maxMarks` runs of near-equal length, oldest first. The
+ * rail renders one interactive mark per run, so its cost stays bounded by the rail's
+ * height however long a permanent thread grows. Runs split by count rather than by time:
+ * a quiet week would otherwise become a column of empty marks.
+ */
+export function groupOutlinePrompts(
+  prompts: readonly ChatOutlinePrompt[],
+  maxMarks: number,
+): ChatOutlineGroup[] {
+  const total = prompts.length;
+  if (total === 0) return [];
+  const marks = Math.max(1, Math.min(total, Math.floor(maxMarks)));
+  const groups: ChatOutlineGroup[] = [];
+  for (let mark = 0; mark < marks; mark += 1) {
+    const start = Math.floor((mark * total) / marks);
+    const end = Math.floor(((mark + 1) * total) / marks);
+    let isAgentMessage = true;
+    for (let index = start; index < end; index += 1) {
+      if (prompts[index].origin !== "agent") {
+        isAgentMessage = false;
+        break;
+      }
+    }
+    groups.push({
+      slot: mark,
+      start,
+      count: end - start,
+      first: prompts[start],
+      last: prompts[end - 1],
+      isAgentMessage,
+    });
+  }
+  return groups;
+}
+
+/** The group holding `seq`, found by binary search over the groups' first prompts. */
+export function findOutlineGroupIndex(
+  groups: readonly ChatOutlineGroup[],
+  seq: number | null,
+): number | null {
+  if (seq === null || groups.length === 0 || seq < groups[0].first.seq) return null;
+  let low = 0;
+  let high = groups.length - 1;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (groups[middle].first.seq <= seq) low = middle;
+    else high = middle - 1;
+  }
+  return seq <= groups[low].last.seq ? low : null;
+}

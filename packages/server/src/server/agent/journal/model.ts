@@ -1,6 +1,6 @@
 export class JournalError extends Error {
   constructor(
-    public readonly code: "not_found" | "conflict",
+    public readonly code: "not_found" | "conflict" | "unavailable",
     message: string,
   ) {
     super(message);

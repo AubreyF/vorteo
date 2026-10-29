@@ -264,6 +264,165 @@ describe("AgentStorage", () => {
     expect((await new AgentStorage(storagePath, logger).get(agent.id))?.journal).toEqual([entry]);
   });
 
+  describe("journal sidecar", () => {
+    const idAndSequence = (item: { id: string; sequence: number }) => [item.id, item.sequence];
+    const entryText = (item: { text: string }) => item.text;
+    const isPreservedCorruptJournal = (name: string) =>
+      name.startsWith("sidecar-corrupt.json.unreadable-");
+    // Root ignores file permissions, so an unreadable file cannot be simulated.
+    const runningAsRoot = process.getuid?.() === 0;
+    const journalFile = (agentId: string) =>
+      path.join(tmpDir, "agent-journals", `${encodeURIComponent(agentId)}.json`);
+    const recordFile = (agentId: string) =>
+      path.join(storagePath, "tmp-project", `${agentId}.json`);
+    const readJson = async (filePath: string) => JSON.parse(await fs.readFile(filePath, "utf8"));
+    const entry = (n: number) => ({
+      id: `${n}${n}${n}${n}${n}${n}${n}${n}-${n}${n}${n}${n}-4${n}${n}${n}-8${n}${n}${n}-${String(n).repeat(12)}`,
+      sequence: n,
+      timestamp: `2026-10-0${n}T00:00:00.000Z`,
+      text: `Entry ${n}`,
+    });
+
+    test("keeps the journal out of record writes and reloads it from the sidecar", async () => {
+      const agent = createManagedAgent({ id: "sidecar" });
+      await storage.applySnapshot(agent);
+      const first = await storage.appendJournal(agent.id, {
+        entryId: "11111111-1111-4111-8111-111111111111",
+        text: "First",
+      });
+      await storage.applySnapshot(agent);
+      expect(await readJson(recordFile(agent.id))).not.toHaveProperty("journal");
+      expect(await readJson(journalFile(agent.id))).toEqual([first]);
+      expect((await storage.get(agent.id))?.journal).toEqual([first]);
+      expect((await new AgentStorage(storagePath, logger).get(agent.id))?.journal).toEqual([first]);
+    });
+
+    test("ordinary writes do not rewrite an unchanged journal", async () => {
+      const agent = createManagedAgent({ id: "sidecar-unchanged" });
+      await storage.applySnapshot(agent);
+      await storage.appendJournal(agent.id, {
+        entryId: "11111111-1111-4111-8111-111111111111",
+        text: "First",
+      });
+      const past = new Date("2020-01-01T00:00:00Z");
+      await fs.utimes(journalFile(agent.id), past, past);
+      await storage.applySnapshot(agent);
+      const record = await storage.get(agent.id);
+      await storage.upsert({ ...record!, title: "Renamed" });
+      expect((await fs.stat(journalFile(agent.id))).mtimeMs).toBe(past.getTime());
+    });
+
+    test("migrates a legacy inline journal on the next write", async () => {
+      const agent = createManagedAgent({ id: "sidecar-legacy" });
+      await storage.applySnapshot(agent);
+      const legacy = { ...(await readJson(recordFile(agent.id))), journal: [entry(1), entry(2)] };
+      await fs.writeFile(recordFile(agent.id), JSON.stringify(legacy));
+      const reopened = new AgentStorage(storagePath, logger);
+      expect((await reopened.get(agent.id))?.journal).toEqual([entry(1), entry(2)]);
+      await reopened.applySnapshot(agent);
+      expect(await readJson(recordFile(agent.id))).not.toHaveProperty("journal");
+      expect(await readJson(journalFile(agent.id))).toEqual([entry(1), entry(2)]);
+      expect((await new AgentStorage(storagePath, logger).get(agent.id))?.journal).toEqual([
+        entry(1),
+        entry(2),
+      ]);
+    });
+
+    test("merges a newer sidecar and inline-only entries without duplicates", async () => {
+      const agent = createManagedAgent({ id: "sidecar-merge" });
+      await storage.applySnapshot(agent);
+      const base = await readJson(recordFile(agent.id));
+      await fs.mkdir(path.dirname(journalFile(agent.id)), { recursive: true });
+      await fs.writeFile(journalFile(agent.id), JSON.stringify([entry(1), entry(2)]));
+      await fs.writeFile(recordFile(agent.id), JSON.stringify({ ...base, journal: [entry(1)] }));
+      expect((await new AgentStorage(storagePath, logger).get(agent.id))?.journal).toEqual([
+        entry(1),
+        entry(2),
+      ]);
+
+      await fs.writeFile(
+        recordFile(agent.id),
+        JSON.stringify({ ...base, journal: [entry(1), entry(3)] }),
+      );
+      const reopened = new AgentStorage(storagePath, logger);
+      expect((await reopened.get(agent.id))?.journal).toEqual([entry(1), entry(2), entry(3)]);
+      await reopened.applySnapshot(agent);
+      expect(await readJson(journalFile(agent.id))).toEqual([entry(1), entry(2), entry(3)]);
+    });
+
+    test("renumbers entries an older daemon appended inline after a rollback", async () => {
+      const agent = createManagedAgent({ id: "sidecar-rollback" });
+      await storage.applySnapshot(agent);
+      const base = await readJson(recordFile(agent.id));
+      await fs.mkdir(path.dirname(journalFile(agent.id)), { recursive: true });
+      await fs.writeFile(journalFile(agent.id), JSON.stringify([entry(1), entry(2)]));
+      const rolledBack = { ...entry(3), sequence: 1 };
+      await fs.writeFile(recordFile(agent.id), JSON.stringify({ ...base, journal: [rolledBack] }));
+      const journal = (await new AgentStorage(storagePath, logger).get(agent.id))?.journal;
+      expect(journal?.map(idAndSequence)).toEqual([
+        [entry(1).id, 1],
+        [entry(2).id, 2],
+        [entry(3).id, 3],
+      ]);
+    });
+
+    test.skipIf(runningAsRoot)(
+      "keeps an unreadable journal untouched and refuses appends until it can be read",
+      async () => {
+        const agent = createManagedAgent({ id: "sidecar-unreadable" });
+        await storage.applySnapshot(agent);
+        await storage.appendJournal(agent.id, {
+          entryId: "11111111-1111-4111-8111-111111111111",
+          text: "First",
+        });
+        const saved = await fs.readFile(journalFile(agent.id), "utf8");
+        await fs.chmod(journalFile(agent.id), 0o000);
+        try {
+          const reopened = new AgentStorage(storagePath, logger);
+          await reopened.applySnapshot(agent);
+          await expect(
+            reopened.appendJournal(agent.id, {
+              entryId: "22222222-2222-4222-8222-222222222222",
+              text: "Second",
+            }),
+          ).rejects.toMatchObject({ code: "unavailable" });
+        } finally {
+          await fs.chmod(journalFile(agent.id), 0o644);
+        }
+        expect(await fs.readFile(journalFile(agent.id), "utf8")).toBe(saved);
+        expect(
+          (await new AgentStorage(storagePath, logger).get(agent.id))?.journal?.map(entryText),
+        ).toEqual(["First"]);
+      },
+    );
+
+    test("falls back to the inline journal when the sidecar is corrupt", async () => {
+      const agent = createManagedAgent({ id: "sidecar-corrupt" });
+      await storage.applySnapshot(agent);
+      const base = await readJson(recordFile(agent.id));
+      await fs.writeFile(recordFile(agent.id), JSON.stringify({ ...base, journal: [entry(1)] }));
+      await fs.mkdir(path.dirname(journalFile(agent.id)), { recursive: true });
+      await fs.writeFile(journalFile(agent.id), "{not json");
+      const reopened = new AgentStorage(storagePath, logger);
+      expect((await reopened.get(agent.id))?.journal).toEqual([entry(1)]);
+      const names = await fs.readdir(path.dirname(journalFile(agent.id)));
+      expect(names.filter(isPreservedCorruptJournal)).toHaveLength(1);
+      await reopened.applySnapshot(agent);
+      expect(await readJson(journalFile(agent.id))).toEqual([entry(1)]);
+    });
+
+    test("remove deletes the sidecar", async () => {
+      const agent = createManagedAgent({ id: "sidecar-remove" });
+      await storage.applySnapshot(agent);
+      await storage.appendJournal(agent.id, {
+        entryId: "11111111-1111-4111-8111-111111111111",
+        text: "First",
+      });
+      await storage.remove(agent.id);
+      await expect(fs.access(journalFile(agent.id))).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
   test("checklist commits survive stale snapshots, deletion, and fresh storage instances", async () => {
     const agent = createManagedAgent({ id: "checklist" });
     await storage.applySnapshot(agent);

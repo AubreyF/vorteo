@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.923 - 2026-10-29
+
+### Changed
+
+- Fit the conversation navigation rail to its height. When prompts would get less than 6 pixels each, consecutive prompts share a mark; hovering a shared mark shows how many prompts it covers, their time span and the first prompt, and clicking jumps to that first prompt.
+- Fetch only prompts newer than the ones already shown when the daemon advertises `agentTimelinePromptIndexAfterSeq`, instead of resending the whole prompt index after every new prompt.
+- Store each thread's journal in its own file under `agent-journals`, written only when an entry is added. Ordinary thread updates no longer rewrite the journal. Existing inline journals migrate on the next save, entries from both locations are merged by ID and renumbered after the file's entries, and a corrupt journal file is kept beside the original for recovery. A journal file that exists but cannot be read, such as after a permission error, is left untouched and new entries for that thread are refused until it can be read. An older daemon after a rollback shows no journal until the upgrade is reinstalled; nothing is deleted.
+- Copy thread journals along with agent records when seeding worktree development state and startup benchmark homes.
+
 ## 0.11.0-beta.3.vorteo.922 - 2026-10-29
 
 ### Maintenance

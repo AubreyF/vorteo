@@ -3537,13 +3537,15 @@ export class DaemonClient {
 
   async listAgentTimelinePrompts(
     agentId: string,
-    options: { requestId?: string; timeout?: number } = {},
+    options: { requestId?: string; timeout?: number; afterSeq?: number } = {},
   ): Promise<AgentTimelinePromptIndexPayload> {
     const requestId = this.createRequestId(options.requestId);
+    // Callers send afterSeq only to daemons advertising agentTimelinePromptIndexAfterSeq.
     const message = SessionInboundMessageSchema.parse({
       type: "agent.timeline.list_prompts.request",
       agentId,
       requestId,
+      ...(options.afterSeq === undefined ? {} : { afterSeq: options.afterSeq }),
     });
     const payload = await this.sendRequest({
       requestId,
