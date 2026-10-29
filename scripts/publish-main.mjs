@@ -146,6 +146,22 @@ export function preparePublication({
   };
 }
 
+export const DELEGATES_FILE = ".github/delivery-approvers.json";
+
+/** Delegated approvers as recorded on the base branch, not on the pull request. */
+export function readDelegates(plan) {
+  if (!plan.root || !plan.remoteHead) return [];
+  const text = git(plan.root, ["show", `${plan.remoteHead}:${DELEGATES_FILE}`], {
+    allowFailure: true,
+  });
+  if (text === null) return [];
+  const approvers = JSON.parse(text).approvers;
+  if (!Array.isArray(approvers) || approvers.some((login) => typeof login !== "string")) {
+    throw new PublishRefusal(`${DELEGATES_FILE} must list approver logins.`);
+  }
+  return approvers;
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const PR_FIELDS = "number,state,baseRefName,headRefOid,isCrossRepository,url,author";
@@ -243,14 +259,19 @@ export async function openPullRequest(
 /**
  * Decides whether a pull request may merge. Reviewers count only with write access,
  * checked through GitHub's permission API, and each reviewer's latest decision counts.
- * An outstanding change request blocks every merge. A same-repository pull request
- * authored by the account running Builds needs no approval: anyone who can push to its
- * branch already has write access. Every other one needs an approval on its exact head.
+ * An outstanding change request from any writer blocks every merge. Approval authority is
+ * explicit: the repository owner plus the delegates listed in DELEGATES_FILE on the base
+ * branch, so a pull request cannot add its own approver. Write access alone never
+ * delegates it. A same-repository pull request authored by an approver's own account
+ * (an owner installation's Builds) needs no further approval; every other one needs an
+ * approver's approval on its exact head.
  * GitHub enforces no review gate itself, so a review submitted in the seconds between
  * this check and the merge is not seen.
  */
-export function assertReviewed(plan, pr, { gh = runGh } = {}) {
+export function assertReviewed(plan, pr, { gh = runGh, delegates = readDelegates(plan) } = {}) {
   const viewer = gh(["api", "user", "--jq", ".login"]);
+  const owner = gh(["api", `repos/${plan.repository}`, "--jq", ".owner.login"]);
+  const approvers = new Set([owner, ...delegates]);
   const output = gh([
     "api",
     "--paginate",
@@ -281,15 +302,21 @@ export function assertReviewed(plan, pr, { gh = runGh } = {}) {
       `Pull request #${pr.number} has changes requested by ${blocking.map((r) => r.user).join(", ")}.`,
     );
   }
-  if (!pr.isCrossRepository && pr.author?.login && pr.author.login === viewer) {
+  if (
+    !pr.isCrossRepository &&
+    pr.author?.login === viewer &&
+    approvers.has(viewer) &&
+    canWrite(viewer)
+  ) {
     return "authored by this installation's account";
   }
   const approved = trusted.some(
-    (review) => review.state === "APPROVED" && review.commit_id === plan.head,
+    (review) =>
+      review.state === "APPROVED" && review.commit_id === plan.head && approvers.has(review.user),
   );
   if (!approved) {
     throw new PublishRefusal(
-      `Pull request #${pr.number} has no approval on ${plan.head.slice(0, 9)} from a reviewer with write access. It waits for review.`,
+      `Pull request #${pr.number} has no approval on ${plan.head.slice(0, 9)} from the owner or a delegated approver. It waits for review.`,
     );
   }
   return "approved on its head";

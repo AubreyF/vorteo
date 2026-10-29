@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -22,6 +23,7 @@ import {
   PublishRefusal,
   assertReviewed,
   deleteMergedBranch,
+  readDelegates,
   mergePullRequest,
   openPullRequest,
   preparePublication,
@@ -153,6 +155,7 @@ function fakeGh({ root, origin, checks = [], reviews = [], viewer = "owner", aut
     const [group, verb] = args;
     if (group === "api" && verb === "user") return viewer;
     if (group === "api" && verb.endsWith("/permission")) return "admin";
+    if (group === "api" && verb === `repos/${REPO}`) return "owner";
     if (group === "pr" && verb === "list") {
       return JSON.stringify(prs.filter((pr) => pr.state === "OPEN"));
     }
@@ -353,14 +356,29 @@ test("reviews count only from writers, by their latest decision, and change requ
     ...overrides,
   });
   const permissions = { owner: "admin", helper: "write", reader: "read" };
-  const gh = (reviews) => (args) => {
-    if (args[1] === "user") return "owner";
-    const permission = /collaborators\/([^/]+)\/permission/.exec(args[1]);
-    if (permission) return permissions[permission[1]] ?? "none";
-    return reviews.map((entry) => JSON.stringify(entry)).join("\n");
-  };
-  const refuses = (pr, reviews, pattern) =>
-    assert.throws(() => assertReviewed(plan, pr, { gh: gh(reviews) }), pattern);
+  const gh =
+    (reviews, viewer = "owner") =>
+    (args) => {
+      if (args[1] === "user") return viewer;
+      if (args[1] === `repos/${REPO}`) return "owner";
+      const permission = /collaborators\/([^/]+)\/permission/.exec(args[1]);
+      if (permission) return permissions[permission[1]] ?? "none";
+      return reviews.map((entry) => JSON.stringify(entry)).join("\n");
+    };
+  const refuses = (pr, reviews, pattern, options = {}) =>
+    assert.throws(
+      () =>
+        assertReviewed(plan, pr, {
+          gh: gh(reviews, options.viewer),
+          delegates: options.delegates ?? [],
+        }),
+      pattern,
+    );
+  const accepts = (pr, reviews, options = {}) =>
+    assertReviewed(plan, pr, {
+      gh: gh(reviews, options.viewer),
+      delegates: options.delegates ?? [],
+    });
   refuses(fork, [], /waits for review/);
   refuses(fork, [review({ commit_id: "old" })], /waits for review/);
   refuses(fork, [review({ user: "reader" })], /waits for review/);
@@ -368,16 +386,23 @@ test("reviews count only from writers, by their latest decision, and change requ
   refuses(fork, [review({}), review({ id: 2, state: "CHANGES_REQUESTED" })], /changes requested/);
   // A dismissed change request no longer blocks; a reader's request never did.
   assert.equal(
-    assertReviewed(plan, fork, {
-      gh: gh([
-        review({}),
-        review({ id: 2, user: "helper", state: "CHANGES_REQUESTED" }),
-        review({ id: 3, user: "helper", state: "DISMISSED" }),
-        review({ id: 4, user: "reader", state: "CHANGES_REQUESTED" }),
-      ]),
-    }),
+    accepts(fork, [
+      review({}),
+      review({ id: 2, user: "helper", state: "CHANGES_REQUESTED" }),
+      review({ id: 3, user: "helper", state: "DISMISSED" }),
+      review({ id: 4, user: "reader", state: "CHANGES_REQUESTED" }),
+    ]),
     "approved on its head",
   );
+  // Write access alone does not delegate approval; an explicit delegate does.
+  refuses(fork, [review({ user: "helper" })], /owner or a delegated approver/);
+  assert.equal(
+    accepts(fork, [review({ user: "helper" })], { delegates: ["helper"] }),
+    "approved on its head",
+  );
+  // A writer who is not an approver cannot self-merge as "this installation".
+  const helperOwn = { ...fork, isCrossRepository: false, author: { login: "helper" } };
+  refuses(helperOwn, [], /waits for review/, { viewer: "helper" });
   // A same-repository branch from another account is not this installation's own work.
   refuses(
     { ...fork, isCrossRepository: false, author: { login: "helper" } },
@@ -395,6 +420,27 @@ test("reviews count only from writers, by their latest decision, and change requ
     [review({ user: "helper", state: "CHANGES_REQUESTED" })],
     /changes requested by helper/,
   );
+});
+
+test("delegated approvers come from the base branch, not the pull request", () => {
+  const { clone, root, origin } = branchFixture();
+  const env = fakeGitleaks(root);
+  run(clone, "checkout", "--quiet", "main");
+  mkdirSync(path.join(clone, ".github"), { recursive: true });
+  const file = path.join(clone, ".github", "delivery-approvers.json");
+  writeFileSync(file, JSON.stringify({ approvers: ["delegate"] }));
+  run(clone, "add", ".github");
+  run(clone, "commit", "--quiet", "-m", "Delegate");
+  run(clone, "push", "--quiet", "origin", "HEAD:main");
+  run(clone, "checkout", "--quiet", "-B", "feat/a");
+  commit(
+    clone,
+    ".github/delivery-approvers.json",
+    JSON.stringify({ approvers: ["intruder"] }),
+    "Self-approve",
+  );
+  const { gh } = fakeGh({ root, origin });
+  assert.deepEqual(readDelegates(planFor(clone, env, gh)), ["delegate"]);
 });
 
 test("finds Gitleaks through an explicit override", () => {

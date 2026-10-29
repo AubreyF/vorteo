@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.926 - 2026-10-29
+
+### Fixed
+
+- Pull request approval authority is explicit: the repository owner plus delegates listed in `.github/delivery-approvers.json`, read from the base branch so a pull request cannot add its own approver. Write access alone no longer counts as delegated owner approval, and only an approver's own account can merge its pull requests without further review. The list starts empty.
+
 ## 0.11.0-beta.3.vorteo.925 - 2026-10-29
 
 ### Fixed

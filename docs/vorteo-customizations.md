@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): approval for pull request delivery comes only from the repository owner or explicitly delegated approvers recorded on the base branch; write access alone no longer delegates it. Not on GitHub or installed yet. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): review corrections for pull request delivery. Change requests block every merge, reviewer write access comes from GitHub's permission API, skipped checks count only behind a passing path filter, and the release-tag trigger test covers unfiltered pushes. Not on GitHub or installed yet. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): every merge to `main` now goes through a pull request with a merge commit, and beta and stable release tags are added. The rulesets are checked in but not applied on GitHub, and no tags exist yet. Release tags use the `release-` prefix because `vorteo-*` matches upstream's `v*` release triggers. Restart control detail moved from the agent guide to task delivery. README overview and onboarding are unchanged.
