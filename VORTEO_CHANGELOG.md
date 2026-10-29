@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.913 - 2026-10-29
+
+### Maintenance
+
+- Integrate the optional loopback installer port and separate-installation guide while retaining prior startup and workflow changes
+
 ## 0.11.0-beta.3.vorteo.912 - 2026-10-29
 
 ### Maintenance
@@ -28,6 +34,19 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Clarify Builds delivery ownership, dynamic bounded delegation within the builder workspace, concurrent editing isolation, exact handoffs and reuse of verified evidence. Preserve existing approval gates and distinguish published source, served interface and installed daemon state; no runtime enforcement changes.
+
+## 0.11.0-beta.3.vorteo.911 - 2026-10-29
+
+### Maintenance
+
+- Describe a lab as an ordinary installation that modifies itself and then pushes or opens a pull request, while production updates to a revision you choose. Explain why the lab needs a second machine. Updating from a chosen tag or `main` revision remains planned.
+
+## 0.11.0-beta.3.vorteo.910 - 2026-10-29
+
+### Added
+
+- Let the container installer publish the Dev daemon on host loopback with `PASEO_HOST_LOOPBACK_PORT`, which the macOS Host extension needs. New installations previously published no port, so the Host extension could not pair with them. Default installations still publish nothing.
+- Add a lab installation guide for a second, fully separate installation on another Mac: separation rules, path choices, install steps, acceptance, rollback and removal. Lab delivery and promotion remain planned.
 
 ## 0.11.0-beta.3.vorteo.909 - 2026-10-29
 

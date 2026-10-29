@@ -88,7 +88,7 @@ Optional `redirectOrigins` lists previous protected HTTPS origins. They redirect
 
 Use the [host handoff workflow](host-handoff.md). The container session prepares source and validation; the host session gathers current Docker mounts, daemon identities, private networking, provider setup and service-context macOS permissions. Do not infer current deployment details from an old report.
 
-Prerequisites are an existing container installation with an authenticated loopback endpoint, an authenticated host Tailscale installation, Node and npm, and an available signed-in macOS launchd session. The container origin allowlist must be explicit. The setup does not install Docker, Tailscale or provider accounts, and does not recreate or restart the primary container.
+Prerequisites are an existing container installation with an authenticated loopback endpoint (a new container installation gets one from `PASEO_HOST_LOOPBACK_PORT=<containerPort>` at install time), an authenticated host Tailscale installation, Node and npm, and an available signed-in macOS launchd session. The container origin allowlist must be explicit. The setup does not install Docker, Tailscale or provider accounts, and does not recreate or restart the primary container.
 
 Prepare a private JSON plan outside Git:
 

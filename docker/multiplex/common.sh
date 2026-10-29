@@ -7,6 +7,9 @@ paseo_compose() {
   if [[ -f "$deployment/projects-folder.compose.json" ]]; then
     files+=(-f "$deployment/projects-folder.compose.json")
   fi
+  if [[ -f "$deployment/host-loopback.compose.json" ]]; then
+    files+=(-f "$deployment/host-loopback.compose.json")
+  fi
   if [[ -f "$deployment/shared-folders.compose.json" ]]; then
     files+=(-f "$deployment/shared-folders.compose.json")
   fi
@@ -26,6 +29,17 @@ paseo_projects_folder_compose() {
     return 1
   fi
   printf '{\n  "services": {\n    "paseo": {\n      "environment": { "PASEO_PROJECTS_ROOT": "%s" },\n      "volumes": [\n        { "type": "bind", "source": "%s", "target": "%s", "bind": { "create_host_path": false } }\n      ]\n    }\n  }\n}\n' "$folder" "$folder" "$folder"
+}
+
+# Publishes the daemon on host loopback only, for the macOS Host extension's container
+# endpoint. See docs/execution-installation.md#setup-on-the-host.
+paseo_host_loopback_compose() {
+  local port="$1"
+  if [[ ! "$port" =~ ^[1-9][0-9]{3,4}$ ]] || (( port < 1024 || port > 65535 )); then
+    echo 'Use an unprivileged host loopback port between 1024 and 65535.' >&2
+    return 1
+  fi
+  printf '{\n  "services": {\n    "paseo": {\n      "environment": { "PASEO_LISTEN": "0.0.0.0:6767" },\n      "ports": [\n        { "host_ip": "127.0.0.1", "published": "%s", "target": 6767, "protocol": "tcp" }\n      ]\n    }\n  }\n}\n' "$port"
 }
 
 paseo_image() {
