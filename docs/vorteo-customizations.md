@@ -1884,3 +1884,5 @@ Maintenance review: the keyboard-corrected sidebar retains the published Clear g
 Maintenance review: unavailable-provider recovery is integrated with the published interface. Retained server, confirmation and browser checks passed; independent review records untested shutdown and later persistence-failure cases.
 
 Maintenance review: integrated the home-boundary inventory correction after independent source review and sixteen passing inventory tests. The provider recovery and published interface remain included.
+
+Primary web builds support an explicit retained prepared-checkout mode during preservation holds, with exclusive claims, source and dependency bindings, no install fallback, and unchanged artifact sealing and publication checks.

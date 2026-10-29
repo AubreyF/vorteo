@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.898 - 2026-10-29
+
+### Maintenance
+
+- Add an explicit retained primary web build mode that reuses validated app dependencies in an exclusively claimed dedicated checkout, retains source snapshots and failures, and refuses stale inputs without installing or cloning dependencies. Keep source, deployment and artifact sealing checks.
+
 ## 0.11.0-beta.3.vorteo.897 - 2026-10-29
 
 ### Fixed
