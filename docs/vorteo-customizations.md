@@ -1904,3 +1904,5 @@ Project status and cross-host grouping browser checks select the seeded workspac
 Settings keeps fresh web section jumps pinned through control feedback and non-reader scroll displacement, while wheel, touch, keyboard and background/scrollbar input still release the pin. The update-task policy and disconnected-host feedback remain unchanged.
 
 Daemon-served HTML negotiates Brotli or gzip after injecting its public connection or installation hint; it does not serve sealed HTML sidecars that lack the request-specific hint. Identity and compressed responses vary by Accept-Encoding, HEAD reports the negotiated HTML length without a body, and static asset selection respects available sidecars, quality values and exclusions.
+
+Maintenance review: delayed workspace navigation checks assert the selected profile and resulting agent mode while preserving daemon-owned permission resolution. The recovery browser fixture tolerates teardown before server creation without hiding setup or server-close failures; Metro compilation and timeouts remain unchanged.

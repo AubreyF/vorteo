@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "../fixtures";
 import { readFile } from "node:fs/promises";
+import { E2E_MOCK_PROFILE } from "./agent-profiles";
 import { buildHostWorkspaceRoute } from "@/utils/host-routes";
 import { gotoAppShell } from "./app";
 import { scrollTimelineToOldestLoadedEdge } from "./timeline-pagination";
@@ -135,17 +136,26 @@ export async function verifyDelayedWorkspaceCreation(
         if (!upload) throw new Error("The create request did not contain the submitted file");
         expect(await readFile(upload.path)).toEqual(CONTEXT.buffer);
         const agents = await client.fetchAgents();
-        expect(
-          agents.entries.find((entry) => entry.agent.workspaceId === created.id)?.agent,
-        ).toMatchObject({
+        const agent = agents.entries.find((entry) => entry.agent.workspaceId === created.id)?.agent;
+        expect(agent).toMatchObject({
           cwd: created.workspaceDirectory,
+          currentModeId: "load-test",
+          profile: { name: E2E_MOCK_PROFILE.name },
         });
+        // The daemon accepts both the canonical workflow ID and its legacy profile alias.
+        const expectedProfiles = [
+          `shared-workflow/${E2E_MOCK_PROFILE.provider}/${E2E_MOCK_PROFILE.id}`,
+          `shared-profile/${E2E_MOCK_PROFILE.provider}/${E2E_MOCK_PROFILE.id}`,
+        ];
+        expect(expectedProfiles).toContain(agent?.profile?.id);
+        expect(expectedProfiles).toContain(delay.agentRequests[0].config.profileId);
+        // Profile permissions resolve on the daemon, not as an override in the wire request.
+        expect(delay.agentRequests[0].config).not.toHaveProperty("modeId");
         expect(delay.agentRequests[0]).toMatchObject({
           initialPrompt: PROMPT,
           config: {
             provider: "mock",
             model: "ten-second-stream",
-            modeId: "load-test",
             thinkingOptionId: "low",
             cwd: repo.path,
           },

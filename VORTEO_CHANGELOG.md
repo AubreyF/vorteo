@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.907 - 2026-10-29
+
+### Maintenance
+
+- Check the selected profile and resolved agent mode in delayed workspace navigation tests while leaving profile-owned permissions out of the wire request. Retain navigation, resource and attachment assertions.
+- Skip fixture-server teardown when recovery-fixture compilation fails before server creation, preserving the original setup error and ordinary server-close failures. Keep compilation timeouts and warmup unchanged.
+
 ## 0.11.0-beta.3.vorteo.906 - 2026-10-29
 
 ### Fixed
