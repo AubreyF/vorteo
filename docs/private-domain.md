@@ -146,4 +146,28 @@ Cutover moves the existing node identity and certificates, so DNS records do not
 
 To roll back, run `native_gateway.py deactivate --deployment "$HOME/<gateway-native>"`, then `docker compose start` in the Docker gateway directory. Deactivation keeps state, certificates and the token. Remove the Docker gateway only after the native one has renewed a certificate.
 
+## Serve a trusted web app from a Host release
+
+A web application behind the gateway should run from a reviewed release on the Host, not from a development checkout that container agents can write. The [hosted app tool](../docker/private-domain/native/hosted_app.py) builds a release from one Git commit, keeps live state in a Host-owned instance directory, and runs the release as a login job. It is macOS-only for now.
+
+Applications that refuse symlinked state run from one real instance directory. `deploy` synchronises release code into it and never copies over or deletes a configured state path. List every folder or file the application writes in `statePaths`. When a state folder also holds scratch, `stateSubpaths` limits imports to its live entries while deploys still leave the whole folder alone. `stateExcludes` skips tooling such as dependency folders during import.
+
+```sh
+python3 docker/private-domain/native/hosted_app.py init --deployment "$HOME/<app-host>" --config app.json --node <node>
+python3 docker/private-domain/native/hosted_app.py build --deployment "$HOME/<app-host>" --commit <reviewed-commit>
+python3 docker/private-domain/native/hosted_app.py stage --deployment "$HOME/<app-host>"
+```
+
+Only committed content enters a release, and tracked files under a state path stay with the state. Build commands run at low priority with the pinned Node. Rehearse with a separate deployment on another port and a state copy that leaves out credentials and outbound integrations, then compare its responses with the running copy.
+
+### Cut over an application
+
+1. Stop the container copy and any watchdog that would restart it. Two writers must never run at once.
+2. Run `import-state --source <checkout>` to copy the live state into the instance. It refuses to overwrite existing state; `--replace` is for a repeated, approved cutover only.
+3. Run `deploy --release <release>`, then `activate`. Activation refuses without a deployed release and imported state.
+4. Point the gateway site at the application's loopback port and verify each route.
+5. Update the application's agent instructions: its checkout is now a development copy, and reviewed changes reach live state through the application or a promotion.
+
+To roll back, run `deactivate`, restore the gateway route and start the container copy again. The instance keeps its state for diagnosis. Changes made on the Host after cutover are not copied back automatically.
+
 References: [Tailscale containers](https://tailscale.com/docs/features/containers/docker), [Caddy DNS validation](https://caddyserver.com/docs/automatic-https#dns-challenge), [Cloudflare Caddy plugin](https://github.com/caddy-dns/cloudflare), [Cloudflare DNS-only records](https://developers.cloudflare.com/dns/proxy-status/).

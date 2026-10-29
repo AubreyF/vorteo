@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.885 - 2026-10-28
+
+### Added
+
+- Hosted app tool for trusted web applications behind the custom-domain gateway: builds a release from one Git commit, keeps live state in a Host-owned instance directory that deploys never overwrite, imports only the live entries of folders that also hold scratch, and stages a login job that refuses to start without a deployed release and imported state. Not activated for any application.
+
 ## 0.11.0-beta.3.vorteo.884 - 2026-10-28
 
 ### Fixed
