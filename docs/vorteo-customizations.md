@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): themed brand marks and the startup loader retain the original loop shading with their existing palettes. Browser coverage checks the rendered crossing in all four tinted themes. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): ordinary web comboboxes can flip above a lower-edge trigger so Metadata model selection stays visible. Preserve measured top/above-search anchoring, native presentation, keyboard dismissal and fixed picker sizing; focused browser checks cover lower-edge placement. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): integrate HTML encoding negotiation and startup diagnostic scroll insets without changing their reviewed source. Preserve focused HTTP and browser regression coverage; installed acceptance remains separate.
@@ -1046,7 +1048,7 @@ Project workspace rows and their group controls share an icon-width inset beneat
 
 Reset-label and theme-logo integration preserves the installed embedded-card spacing and viewport height limits.
 
-Embedded logos share theme-aware selection: Starship uses the original rainbow artwork, Dark Star retains shaded white, and Scriptorium, Midas, Ember and Neon use sepia, gold, warm orange and violet-blue gradients from the existing vector mark. The early loader remembers validated display colors for its artwork, ring and recovery text, with neutral dark fallback when storage is unavailable. Loader geometry and the stationary inner mark are unchanged.
+Embedded logos share theme-aware selection: Starship uses the original rainbow artwork, Dark Star retains shaded white, and Scriptorium, Midas, Ember and Neon use sepia, gold, warm orange and violet-blue gradients shaded by the approved raster master, preserving the shadow where the ribbon loops under itself. The early loader remembers validated display colors for its artwork, ring and recovery text, with neutral dark fallback when storage is unavailable. Loader geometry and the stationary inner mark are unchanged.
 
 Compact account reset controls draw their border on the button itself, keeping labels centered when touch accessibility enlarges the tap target. Account rows reserve the full control height rather than a text-line-sized slot. Phone and tablet browser checks cover the alignment and existing reset review flow. README overview and onboarding are unchanged.
 

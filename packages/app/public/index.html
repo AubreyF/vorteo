@@ -208,7 +208,7 @@
       <div id="boot-status" hidden>
         <div class="boot-emblem" role="progressbar" aria-label="Loading Vorteo">
           <div class="boot-spinner" aria-hidden="true"></div>
-          <!-- Keep the original shaded white mark available before external assets load. -->
+          <!-- Keep a lightweight white silhouette available before external assets load. -->
           <img
             class="boot-mark"
             src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NDAgNjQwIj48ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwLjAwMDAwMCw2NDAuMDAwMDAwKSBzY2FsZSgwLjEwMDAwMCwtMC4xMDAwMDApIgpmaWxsPSIjZmZmZmZmIiBzdHJva2U9Im5vbmUiPgo8cGF0aCBkPSJNNDc0MSA1MDQwIGMtMTYxIC00MyAtMzMwIC0xNTcgLTUyMSAtMzQ5IC0zODIgLTM4MyAtNzAzIC05OTIgLTExMzYKLTIxNTUgbC04OSAtMjQwIC03IDE1NSBjLTEzIDMwNyAtNDAgNjAzIC03OSA4ODkgLTc4IDU2OSAtMjU4IDk0MiAtNTQ3IDExMzQKLTE1MCA5OSAtMjg4IDEzOSAtNDc3IDEzOCAtMTk1IC0xIC0zNTYgLTU0IC01MDUgLTE2NiAtMTYzIC0xMjMgLTI1MCAtMjg5Ci0yNTAgLTQ3NyAxIC0zNDMgMzAyIC02NjcgNzMyIC03ODggMTUzIC00MyAyNTAgLTU1IDM5OSAtNDkgbDEyNyA2IDEyIC0xMDIKYzQ4IC00MTggMTE1IC05MzEgMTQwIC0xMDgxIDYxIC0zNjUgMTI0IC01MDQgMjYyIC01ODEgNDUgLTI1IDY0IC0yOSAxMjggLTI5CjY0IDAgODIgNCAxMjIgMjggNTcgMzMgMTExIDg3IDE0NSAxNDQgMzAgNTIgOTYgMjE2IDE1OCAzOTMgMzQ2IDk5NCA0ODUgMTMxNgo2OTMgMTYwNSAxODYgMjU4IDMyNCAzOTEgNzIxIDY5MCAxMDIgNzcgMjE0IDE2NiAyNDkgMTk5IDIwNiAxOTMgMjQ5IDM5NyAxMTYKNTQ1IC05MSAxMDEgLTIzNSAxMzQgLTM5MyA5MXogbS0yNzM3IC05MzkgYzExNiAtNTcgMTkxIC0xNjUgMjYyIC0zNzYgMTkgLTU2CjM0IC0xMDggMzQgLTExNSAwIC0xNyAtMTgyIC03IC0yNTkgMTQgLTIwNiA1NiAtMzcyIDE3NSAtNDE4IDI5OSAtNiAxOCAtMTIKNTMgLTEyIDc4IC0xIDUxIDkgNjQgNzYgOTggMTAyIDUxIDIxNiA1MiAzMTcgMnoiLz4KPC9nPjwvc3ZnPg=="
@@ -470,7 +470,16 @@
           tint.setAttribute("aria-hidden", "true");
           mark.parentElement.appendChild(tint);
         }
-        tint.style.background = "linear-gradient(135deg, " + brand.start + ", " + brand.end + ")";
+        // Multiply the palette by the approved master's shading before masking its silhouette.
+        tint.style.backgroundImage =
+          'url("/vorteo-logo-white-fa002b83cde0.png"), linear-gradient(135deg, ' +
+          brand.start +
+          ", " +
+          brand.end +
+          ")";
+        tint.style.backgroundSize = "contain";
+        tint.style.backgroundRepeat = "no-repeat";
+        tint.style.backgroundBlendMode = "multiply";
         tint.style.webkitMask = 'url("' + white + '") center / contain no-repeat';
         tint.style.mask = 'url("' + white + '") center / contain no-repeat';
         tint.hidden = brand.mode !== "gradient";
