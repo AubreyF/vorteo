@@ -4,13 +4,27 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
-## 0.11.0-beta.3.vorteo.907 - 2026-10-29
+## 0.11.0-beta.3.vorteo.909 - 2026-10-29
 
 ### Fixed
 
 - Let ordinary web comboboxes flip above their trigger when the dropdown would leave the viewport. Preserve intentional top/above-search anchoring and native behavior.
 - Cover Metadata model selection near the lower viewport edge, including picker geometry, sizing, Escape dismissal and keyboard focus restoration.
 - Make Settings browser helpers release a fresh section jump with a reader scroll gesture before revealing a pane.
+
+## 0.11.0-beta.3.vorteo.908 - 2026-10-29
+
+### Maintenance
+
+- Read timeline geometry sequentially so concurrent Playwright locator checks cannot strand a shared worktree-callout handler. Retain scroll and resume assertions.
+- Wait for the queue test's startup overlay and inert root to finish handing off, then verify its typed draft before clicking Queue. Retain held-request and orbit-transition assertions without changing timeouts or production behavior.
+
+## 0.11.0-beta.3.vorteo.907 - 2026-10-29
+
+### Maintenance
+
+- Check the selected profile and resolved agent mode in delayed workspace navigation tests while leaving profile-owned permissions out of the wire request. Retain navigation, resource and attachment assertions.
+- Skip fixture-server teardown when recovery-fixture compilation fails before server creation, preserving the original setup error and ordinary server-close failures. Keep compilation timeouts and warmup unchanged.
 
 ## 0.11.0-beta.3.vorteo.906 - 2026-10-29
 

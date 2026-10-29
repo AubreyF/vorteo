@@ -571,6 +571,9 @@ async function checkQueueOrbitTransition({ page }: { page: Page }) {
     await page.clock.install();
     await openAgentRoute(page, agent);
     await expectComposerVisible(page, { timeout: 30_000 });
+    // A visible composer can still belong to the covered, inert startup root.
+    await expect(page.locator("#root")).not.toHaveAttribute("inert", "");
+    await expect(page.locator("#boot-overlay")).toHaveCount(0);
     await page.evaluate(() => {
       const original = WebSocket.prototype.send;
       document.addEventListener(
@@ -595,6 +598,9 @@ async function checkQueueOrbitTransition({ page }: { page: Page }) {
       };
     });
     await fillComposerDraft(page, "Watch the orbit settle");
+    await expect(page.getByRole("textbox", { name: "Message agent..." })).toHaveValue(
+      "Watch the orbit settle",
+    );
     await page.getByRole("button", { name: "Queue message", exact: true }).click();
     const row = page.getByTestId(/^queue-message-/).filter({ hasText: "Watch the orbit settle" });
     const orbit = row.getByTestId("queue-local-indicator");
