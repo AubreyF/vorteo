@@ -25,6 +25,7 @@ const PLAN_OPTIONS = [
   ["factory-runtime-plan", "factoryRuntimePlanSha256"],
   ["factory-runtime-recovery-of", "factoryRuntimeRecoveryOf"],
   ["engine-restart-plan", "engineRestartPlanSha256"],
+  ["engine-recovery-plan", "engineRecoveryPlanSha256"],
   ["host-launcher-plan", "hostLauncherPlanSha256"],
 ];
 
@@ -115,6 +116,7 @@ if (
       "supervisor-plan": { type: "string" },
       "factory-runtime-plan": { type: "string" },
       "engine-restart-plan": { type: "string" },
+      "engine-recovery-plan": { type: "string" },
       "host-launcher-plan": { type: "string" },
       "factory-runtime-recovery-of": { type: "string" },
       repository: { type: "string" },
@@ -241,6 +243,34 @@ if (
     if (!capability?.available || capability.sha256 !== values["engine-restart-plan"])
       throw new Error(
         "Reviewed Docker restart plan is unavailable or changed. No request submitted.",
+      );
+  }
+  if (values["engine-recovery-plan"]) {
+    if (
+      config.kind !== "host-agent" ||
+      values.update ||
+      values["engine-restart-plan"] ||
+      values["host-launcher-plan"] ||
+      values["supervisor-plan"] ||
+      values["factory-runtime-plan"] ||
+      values["require-owner-approval"] ||
+      values.target !== "container-daemon" ||
+      positionals[0] !== "request-restart"
+    )
+      throw new Error("--engine-recovery-plan requires a separate trusted Host Dev request");
+    const response = await fetch(new URL("/api/installation/capabilities", base), {
+      headers: { Authorization: `Bearer ${config.token}` },
+      redirect: "error",
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!response.ok)
+      throw new Error(
+        "Coordinator cannot advertise a degraded Docker recovery. No request submitted.",
+      );
+    const capability = (await response.json()).engineRecovery;
+    if (!capability?.available || capability.sha256 !== values["engine-recovery-plan"])
+      throw new Error(
+        "Reviewed degraded Docker recovery plan is unavailable or changed. No request submitted.",
       );
   }
   if (values["supervisor-plan"]) {
@@ -573,6 +603,7 @@ if (
   if (["request-restart", "restart-status", "contribution-status"].includes(positionals[0])) {
     requestUrl.searchParams.set("requireOwnerApproval", "1");
     requestUrl.searchParams.set("engineRestart", "1");
+    requestUrl.searchParams.set("engineRecovery", "1");
     requestUrl.searchParams.set("hostLauncherUpdate", "1");
   }
   const requestOptions = {

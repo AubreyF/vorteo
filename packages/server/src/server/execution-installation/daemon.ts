@@ -18,6 +18,10 @@ import {
   awaitEngineReadiness,
   engineRestartPlanDigest,
   engineRestartPreflight,
+  engineRecoveryPlanDigest,
+  engineRecoveryPreflight,
+  engineRecoveryBudget,
+  verifyFactoryAfterRecovery,
   restartDockerEngine,
   verifyFactoryAfterRestart,
 } from "./engine-restart.js";
@@ -523,6 +527,39 @@ export function createInstallationRestartExecutor(
       );
     },
     engineRestartPlan: () => engineRestartPlanDigest(config.container.engineRestart),
+    engineRecoveryPlan: () =>
+      config.container.persistentRegistration
+        ? undefined
+        : engineRecoveryPlanDigest(config.container.engineRecovery),
+    async recoverEngine(job) {
+      const plan = config.container.engineRecovery;
+      if (
+        !plan ||
+        config.container.persistentRegistration ||
+        job.target !== "container-daemon" ||
+        !job.engineRecoveryPlanSha256 ||
+        job.engineRecoveryPlanSha256 !== engineRecoveryPlanDigest(plan)
+      )
+        throw new Error("Degraded Docker recovery plan is unavailable or changed");
+      const hostPid = await probeDaemonPid("host");
+      const budget = engineRecoveryBudget(plan);
+      const preflight = await engineRecoveryPreflight(plan, job.engineRecoveryPlanSha256, budget);
+      // The queue persisted running before this executor. No unavailable Dev RPC or
+      // live Factory preflight can gate the explicitly approved unknown-work interruption.
+      await restartDockerEngine(plan, budget);
+      const checks = await awaitEngineReadiness(plan, preflight, budget);
+      const factory = await verifyFactoryAfterRecovery(plan, budget);
+      const dev = await waitForReplacement("container-daemon", "container", null);
+      if ((await probeDaemonPid("host")) !== hostPid)
+        throw new Error("Host identity changed during Docker recovery");
+      return [
+        "Degraded Docker recovery verified against retained evidence.",
+        ...checks,
+        dev,
+        factory,
+        "Pre-recovery volatile work was unknown; no idle or creation-continuity claim.",
+      ].join(" ");
+    },
     async restartEngine(job) {
       assertReady("container-daemon");
       if (config.container.persistentRegistration)

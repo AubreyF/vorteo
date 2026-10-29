@@ -1,10 +1,13 @@
 import { expect, test } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createTestLogger } from "../../../test-utils/test-logger.js";
 import { AgentManager } from "../agent-manager.js";
+import { ProviderSnapshotManager } from "../provider-snapshot-manager.js";
+import { claudeProjectDirSync } from "../providers/claude/project-dir.js";
+import { switchAgentProfileCommand } from "./command.js";
 import { AgentStorage } from "../agent-storage.js";
 import type {
   AgentClient,
@@ -84,6 +87,7 @@ class FakeClient implements AgentClient {
   readonly created: AgentSessionConfig[] = [];
   readonly resumed: AgentPersistenceHandle[] = [];
   history: AgentTimelineItem[] = [];
+  createError: Error | null = null;
 
   constructor(readonly provider: AgentProvider) {}
 
@@ -96,6 +100,7 @@ class FakeClient implements AgentClient {
   }
 
   async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+    if (this.createError) throw this.createError;
     this.created.push(config);
     return new FakeSession(this.provider, []);
   }
@@ -236,6 +241,209 @@ test("a thread whose retained history is missing still loads with its switch mar
       marker,
       { type: "assistant_message", text: "later" },
     ]);
+  } finally {
+    await manager.flush();
+    cleanup();
+  }
+});
+
+test("an unloaded thread switches without the previous provider and retains its history", async () => {
+  const { workdir, storage, manager, claude, cleanup } = await fixture();
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: "original-workspace",
+      labels: { purpose: "recovery" },
+    });
+    await manager.closeAgent(agent.id);
+    const record = await storage.get(agent.id);
+    if (!record) throw new Error("Missing source record");
+    const reader = new AgentManager({
+      clients: { claude },
+      registry: storage,
+      logger: createTestLogger(),
+    });
+    const rows = [
+      {
+        seq: 1,
+        timestamp: record.createdAt,
+        item: { type: "user_message" as const, text: "Keep the existing plan" },
+      },
+    ];
+    const switched = await reader.switchAgentProfile(agent.id, {
+      config: { provider: "claude", cwd: workdir },
+      reason: "manual",
+      carriedContextChars: 22,
+      storedSource: { record, rows },
+    });
+    expect(switched).toMatchObject({
+      id: agent.id,
+      provider: "claude",
+      workspaceId: "original-workspace",
+      labels: { purpose: "recovery" },
+    });
+    expect((await reader.getTimelineRows(agent.id)).map((row) => row.item)).toEqual([
+      rows[0].item,
+      expect.objectContaining({
+        type: "profile_switch",
+        from: expect.objectContaining({ provider: "codex" }),
+      }),
+    ]);
+    await reader.flush();
+    await reader.reloadAgentSession(agent.id, undefined, { rehydrateFromDisk: true });
+    await reader.hydrateTimelineFromProvider(agent.id);
+    expect((await reader.getTimelineRows(agent.id))[0]?.item).toEqual(rows[0].item);
+    await reader.closeAgent(agent.id);
+  } finally {
+    await manager.flush();
+    cleanup();
+  }
+});
+
+test.each([false, true])(
+  "recovery reads a disabled Claude account transcript (removed: %s)",
+  async (removed) => {
+    const { workdir, storage, codex, cleanup, manager } = await fixture();
+    const configDir = join(workdir, "old-claude-account");
+    const transcriptDir = claudeProjectDirSync(workdir, { configDir });
+    mkdirSync(transcriptDir, { recursive: true });
+    const sessionId = randomUUID();
+    writeFileSync(
+      join(transcriptDir, `${sessionId}.jsonl`),
+      [
+        {
+          type: "user",
+          uuid: randomUUID(),
+          sessionId,
+          cwd: workdir,
+          message: { role: "user", content: "Preserve my approved plan" },
+        },
+        {
+          type: "assistant",
+          uuid: randomUUID(),
+          sessionId,
+          cwd: workdir,
+          message: { role: "assistant", content: "The next step is validation" },
+        },
+      ]
+        .map((entry) => JSON.stringify(entry))
+        .join("\n"),
+    );
+    const provider = "claude-retired";
+    const snapshots = new ProviderSnapshotManager({
+      logger: createTestLogger(),
+      providerOverrides: {
+        [provider]: {
+          extends: "claude",
+          label: "Retired account",
+          enabled: false,
+          removed,
+          env: { CLAUDE_CONFIG_DIR: configDir },
+        },
+      },
+      extraClients: { codex },
+    });
+    const reader = new AgentManager({
+      clients: { codex },
+      registry: storage,
+      logger: createTestLogger(),
+    });
+    try {
+      const id = randomUUID();
+      const now = new Date().toISOString();
+      await storage.upsert({
+        id,
+        provider,
+        cwd: workdir,
+        workspaceId: "retained-workspace",
+        title: "Original task",
+        labels: {},
+        createdAt: now,
+        updatedAt: now,
+        lastStatus: "closed",
+        config: null,
+        persistence: { provider, sessionId, metadata: { cwd: workdir } },
+        tasks: [
+          { id: "task", text: "Validate", completed: false, source: "vorteo", status: "pending" },
+        ],
+        journal: [{ id: randomUUID(), sequence: 1, timestamp: now, text: "Approved scope" }],
+      });
+      const before = await storage.get(id);
+      codex.createError = new Error("Replacement failed");
+      await expect(
+        switchAgentProfileCommand(
+          {
+            agentManager: reader,
+            agentStorage: storage,
+            providerSnapshotManager: snapshots,
+            logger: createTestLogger(),
+          },
+          { agentId: id, provider: "codex" },
+        ),
+      ).rejects.toThrow("Replacement failed");
+      expect(await storage.get(id)).toEqual(before);
+      codex.createError = null;
+      await switchAgentProfileCommand(
+        {
+          agentManager: reader,
+          agentStorage: storage,
+          providerSnapshotManager: snapshots,
+          logger: createTestLogger(),
+        },
+        { agentId: id, provider: "codex" },
+      );
+      expect(codex.created.at(-1)?.systemPrompt).toContain("Preserve my approved plan");
+      expect(codex.created.at(-1)?.systemPrompt).toContain("The next step is validation");
+      expect(reader.getAgent(id)).toMatchObject({
+        workspaceId: "retained-workspace",
+        tasks: before?.tasks,
+        journal: before?.journal,
+      });
+      expect(await storage.get(id)).toMatchObject({
+        title: "Original task",
+        provider: "codex",
+        tasks: before?.tasks,
+        journal: before?.journal,
+      });
+      expect(
+        (await snapshots.listProviders()).find((entry) => entry.provider === provider)?.enabled,
+      ).not.toBe(true);
+      await reader.closeAgent(id);
+    } finally {
+      await snapshots.shutdown();
+      await manager.flush();
+      cleanup();
+    }
+  },
+);
+
+test("recovery refuses a stale source and unreadable transcript without changing the thread", async () => {
+  const { workdir, storage, manager, claude, cleanup } = await fixture();
+  const reader = new AgentManager({
+    clients: { claude },
+    registry: storage,
+    logger: createTestLogger(),
+  });
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    await manager.closeAgent(agent.id);
+    const record = await storage.get(agent.id);
+    if (!record) throw new Error("Missing record");
+    await expect(reader.readStoredSwitchHistory(record, (async function* () {})())).rejects.toThrow(
+      "transcript could not be read",
+    );
+    await storage.setTitle(agent.id, "Changed while selecting");
+    await expect(
+      reader.switchAgentProfile(agent.id, {
+        config: { provider: "claude", cwd: workdir },
+        reason: "manual",
+        carriedContextChars: 0,
+        storedSource: { record, rows: [] },
+      }),
+    ).rejects.toThrow("thread changed");
+    expect(claude.created).toHaveLength(0);
+    expect((await storage.get(agent.id))?.provider).toBe("codex");
   } finally {
     await manager.flush();
     cleanup();

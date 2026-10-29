@@ -18,6 +18,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { expect, test } from "vitest";
 import { resolveManagedWorker } from "./managed-release.js";
+import { supervisorPersistedConfig } from "./supervisor-persisted-config.js";
 import {
   resolveSherpaLoaderEnv,
   sherpaLoaderEnvKey,
@@ -384,6 +385,10 @@ posixTest.each([false, true])(
         JSON.stringify({ sourceCommit: commit }),
       );
       await writeFile(
+        path.join(path.dirname(entry), "persisted-config.js"),
+        "exports.readPersistedConfig = () => ({}); exports.loadPersistedConfig = () => ({});",
+      );
+      await writeFile(
         entry,
         `
       const fs = require("fs");
@@ -603,4 +608,60 @@ test.each(["VORTEO_INSTALLATION_CLIENT_CONFIG", "VORTEO_COORDINATOR_BOOTSTRAP_SE
     }
   },
   20000,
+);
+
+posixTest.each(["selected schema", "reader alias", "selection changes", "missing reader"])(
+  "retained supervisor configuration follows the protected worker release: %s",
+  async (mode) => {
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), "supervisor-config-release-")));
+    const releases = path.join(root, "releases");
+    const release = path.join(releases, "selected");
+    const worker = path.join(release, "packages/server/dist/server/server/daemon-worker.js");
+    const reader = path.join(path.dirname(worker), "persisted-config.js");
+    const selected = path.join(root, "current");
+    const home = path.join(root, "home");
+    await mkdir(path.dirname(worker), { recursive: true });
+    await mkdir(home);
+    await writeFile(worker, "// Never executed by configuration validation");
+    await writeFile(
+      path.join(release, ".installation-source.json"),
+      JSON.stringify({ sourceCommit: "a".repeat(40) }),
+    );
+    await writeFile(path.join(release, "package.json"), JSON.stringify({ type: "module" }));
+    await symlink(release, selected);
+    const config = { futureWorkerSetting: true };
+    await writeFile(path.join(home, "config.json"), JSON.stringify(config));
+    const readerCode = `
+      import {readFileSync, unlinkSync} from 'node:fs';
+      import path from 'node:path';
+      ${mode === "selection changes" ? `unlinkSync(${JSON.stringify(selected)});` : ""}
+      export function readPersistedConfig(home) {
+        const value = JSON.parse(readFileSync(path.join(home, 'config.json'), 'utf8'));
+        if (value.futureWorkerSetting !== true || Object.keys(value).length !== 1) throw Error('Invalid selected-release config');
+        return value;
+      }
+      export const loadPersistedConfig = readPersistedConfig;
+    `;
+    if (mode !== "missing reader") await writeFile(reader, readerCode);
+    if (mode === "reader alias") {
+      await rename(reader, path.join(root, "outside.js"));
+      await symlink(path.join(root, "outside.js"), reader);
+    }
+    const env = { PASEO_MANAGED_RELEASE_LINK: selected, PASEO_MANAGED_RELEASE_ROOT: releases };
+    try {
+      if (mode === "selected schema") {
+        const local = await supervisorPersistedConfig({});
+        expect(() => local.readPersistedConfig(home)).toThrow();
+        const selectedReader = await supervisorPersistedConfig(env);
+        expect(selectedReader.readPersistedConfig(home)).toEqual(config);
+        await writeFile(path.join(home, "config.json"), JSON.stringify({ invalid: true }));
+        expect(() => selectedReader.readPersistedConfig(home)).toThrow(
+          "Invalid selected-release config",
+        );
+        expect(await readdir(home)).toEqual(["config.json"]);
+      } else await expect(supervisorPersistedConfig(env)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
 );

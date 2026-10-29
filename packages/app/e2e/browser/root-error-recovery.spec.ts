@@ -39,7 +39,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  // A failed beforeAll never creates the server; its own error is the one to report.
+  // Compilation can fail before the fixture has created a server.
   const fixtureServer = server;
   if (!fixtureServer) return;
   await new Promise<void>((resolve, reject) =>

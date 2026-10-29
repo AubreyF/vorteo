@@ -15,7 +15,9 @@ test("native helper selects the pinned daemon and retains a shell-safe wrapper",
     const calls = join(home, "calls.json");
     writeFileSync(
       cli,
-      `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(calls)}, JSON.stringify(process.argv.slice(2))); console.log('[]');`,
+      `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(
+        calls,
+      )}, JSON.stringify(process.argv.slice(2))); console.log('[]');`,
     );
     writeFileSync(
       join(channel, "installed.json"),
@@ -78,6 +80,55 @@ test("preview wrapper goes to paseo.local.json when the daemon merges it", async
     assert.equal(
       JSON.parse(readFileSync(join(cwd, "paseo.json"), "utf8")).scripts.web.command,
       `${prefix}/bin/sh -lc 'npm run dev'`,
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("a service declared only in paseo.local.json is wrapped in place", async () => {
+  const { wrapPreviewCommand } = await import("./preview-broker-client.mjs");
+  const cwd = mkdtempSync(join(tmpdir(), "preview-local-only-"));
+  try {
+    const project = JSON.stringify({ scripts: {} });
+    writeFileSync(join(cwd, "paseo.json"), project);
+    writeFileSync(
+      join(cwd, "paseo.local.json"),
+      JSON.stringify({
+        scripts: { mock: { type: "service", command: "node serve.mjs" } },
+      }),
+    );
+    const prefix = "helper env 'mock' --workspace 'wks_x' -- ";
+
+    wrapPreviewCommand(cwd, "mock", prefix, true);
+
+    assert.equal(readFileSync(join(cwd, "paseo.json"), "utf8"), project);
+    assert.deepEqual(JSON.parse(readFileSync(join(cwd, "paseo.local.json"), "utf8")), {
+      scripts: {
+        mock: {
+          type: "service",
+          command: `${prefix}/bin/sh -lc 'node serve.mjs'`,
+        },
+      },
+    });
+    assert.throws(
+      () => wrapPreviewCommand(cwd, "absent", prefix, true),
+      /configuration is missing/,
+    );
+
+    // An older pinned CLI may not report local config support; the listed
+    // local-only service still proves the daemon merges paseo.local.json.
+    writeFileSync(
+      join(cwd, "paseo.local.json"),
+      JSON.stringify({
+        scripts: { mock: { type: "service", command: "node serve.mjs" } },
+      }),
+    );
+    wrapPreviewCommand(cwd, "mock", prefix, false);
+    assert.equal(readFileSync(join(cwd, "paseo.json"), "utf8"), project);
+    assert.equal(
+      JSON.parse(readFileSync(join(cwd, "paseo.local.json"), "utf8")).scripts.mock.command,
+      `${prefix}/bin/sh -lc 'node serve.mjs'`,
     );
   } finally {
     rmSync(cwd, { recursive: true, force: true });

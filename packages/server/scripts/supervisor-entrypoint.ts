@@ -13,7 +13,7 @@ import { daemonLogPath } from "../src/server/daemon-instance.js";
 import { resolveManagedWorker } from "./managed-release.js";
 import { writePrivateFileAtomicSync } from "../src/server/private-files.js";
 import { PRIVATE_FILE_MODE } from "../src/server/private-files.js";
-import { loadPersistedConfig, readPersistedConfig } from "../src/server/persisted-config.js";
+import { supervisorPersistedConfig } from "./supervisor-persisted-config.js";
 import { parseControllerLifetimeFd, runSupervisor } from "./supervisor.js";
 import { resolveSupervisorLogFile } from "./supervisor-log-config.js";
 
@@ -109,6 +109,7 @@ function resolvePackagedNodeEntrypointRunnerPath(currentScriptPath: string): str
 }
 
 async function main(): Promise<void> {
+  const { loadPersistedConfig, readPersistedConfig } = await supervisorPersistedConfig(process.env);
   if (process.env.PASEO_VALIDATE_STARTUP === "1") {
     readPersistedConfig(resolvePaseoHome(process.env));
     resolveWorkerEntry();

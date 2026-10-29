@@ -16,6 +16,7 @@ import { memo, useMemo, useCallback, useState, type ReactNode } from "react";
 import { Text, View, type ViewStyle } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { CircleAlert, Folder, FolderGit2, Monitor } from "lucide-react-native";
+import { sidebarIndent } from "@/components/sidebar/indent";
 import { ProjectStatusIndicator } from "@/components/sidebar/project-leading-visual";
 import type { SidebarSurfaceBackdrop } from "@/styles/surface-backdrop";
 import {
@@ -328,9 +329,9 @@ function getStatusDotColorStyle(bucket: SidebarStateBucket) {
 }
 
 export const sidebarWorkspaceRowStyles = StyleSheet.create((theme) => ({
-  // Project children sit one icon column inside the project heading. Keep the
+  // Project children sit one hierarchy level inside the project heading. Keep the
   // full-width row background while making the parent-child hierarchy visible.
-  projectIndented: { paddingLeft: 14 + theme.iconSize.md },
+  projectIndented: { paddingLeft: sidebarIndent(1) },
   // How far a workspace row sits inside the group header above it — a project row or a
   // status group header. Both groupings share this one indent, so every grouped workspace row
   // in the sidebar sits on the same rail regardless of how the list is grouped. Pinned rows

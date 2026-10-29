@@ -58,6 +58,8 @@ import { RestartJobSchema } from "@getpaseo/protocol/execution-installation";
 
 let claudeAuthorizationStarts = 0;
 const helperInstallations: string[] = [];
+const engineRecoveries: string[] = [];
+let failEngineRecovery = false;
 const helperFailures = new Set<string>();
 const helperVerificationFailures = new Set<string>();
 let root: string;
@@ -244,6 +246,13 @@ test.beforeAll(async () => {
         return "Fixture recovery verified";
       },
 
+      engineRecoveryPlan: () => "e".repeat(64),
+      recoverEngine: async (job) => {
+        engineRecoveries.push(job.id);
+        if (failEngineRecovery)
+          throw new Error("Fixture recovery remains unverified; inspect retained outcome");
+        return "Fixture pinned containers and paused Factory custody verified";
+      },
       supervisorPlan: () => "a".repeat(64),
       restartSupervisor: async () => {
         throw new Error("The UI fixture must not dispatch supervisor maintenance");
@@ -4554,3 +4563,52 @@ test("automatic maintenance shows readiness and preserves owner opt-in across re
   await expect(control).toHaveAttribute("aria-checked", "false");
   await expect(page.getByTestId("maintenance-readiness")).toContainText("manual");
 });
+
+for (const failed of [false, true]) {
+  test(`degraded recovery exact approval displays ${failed ? "retained failure" : "verified success"} without replay`, async ({
+    page,
+  }, info) => {
+    failEngineRecovery = failed;
+    const response = await request("restart-requests?engineRecovery=1", hostToken, {
+      target: "container-daemon",
+      reason: "Fixture engine unavailable; volatile work unknown",
+      engineRecoveryPlanSha256: "e".repeat(64),
+    });
+    expect(response.status).toBe(201);
+    const job = RestartJobSchema.parse(await response.json());
+    expect(job.engineRecoveryPlanSha256).toBe("e".repeat(64));
+    await page.goto(`${origin}/settings/maintenance?installation=1&restart=${job.id}`);
+    await page.getByTestId("installation-password").fill(ownerPassword);
+    await page.getByTestId("installation-unlock").click();
+    await expect(page.getByTestId("installation-lock")).toBeVisible();
+    const card = page.getByTestId(`restart-request-${job.id}`);
+    await expect(card).toBeVisible();
+    await expect(page.getByTestId(`restart-finish-${job.id}`)).toHaveCount(0);
+    await expect(page.getByTestId(`restart-queue-${job.id}`)).toHaveCount(0);
+    await card.getByRole("button", { name: "Details", exact: true }).click();
+    await expect(card).toContainText("Volatile Dev work may be interrupted");
+    await page.getByTestId(`restart-recover-${job.id}`).click();
+    await expect(card).toContainText(failed ? "Failed" : "Restarted");
+    const terminal = await fetch(
+      `${origin}/api/installation/restart-requests/${job.id}?engineRecovery=1`,
+      { headers: { Authorization: `Bearer ${hostToken}` } },
+    );
+    expect(terminal.status).toBe(200);
+    expect(await terminal.json()).toMatchObject({
+      status: failed ? "failed" : "succeeded",
+      detail: expect.stringContaining(
+        failed
+          ? "Fixture recovery remains unverified"
+          : "Fixture pinned containers and paused Factory custody verified",
+      ),
+    });
+    expect(engineRecoveries.filter((id) => id === job.id)).toHaveLength(1);
+    await page.reload();
+    await expect(page.getByTestId(`restart-recover-${job.id}`)).toHaveCount(0);
+    expect(engineRecoveries.filter((id) => id === job.id)).toHaveLength(1);
+    await page.screenshot({
+      path: info.outputPath(`degraded-recovery-${failed ? "failure" : "success"}.png`),
+      fullPage: true,
+    });
+  });
+}

@@ -12,7 +12,7 @@ interface ProfileSwitchSheetProps {
   profileName: string;
   /** Resolves once the daemon accepts the switch; the owner then closes the sheet. */
   onSwitch: () => Promise<void>;
-  onNewTask: () => void;
+  onNewTask?: () => void;
   onClose: () => void;
 }
 
@@ -36,7 +36,7 @@ export function ProfileSwitchSheet({
     if (!pending) onClose();
   }, [pending, onClose]);
   const startNewTask = useCallback(() => {
-    if (!pending) onNewTask();
+    if (!pending) onNewTask?.();
   }, [pending, onNewTask]);
   const submit = useCallback(() => {
     if (pending) return;
@@ -51,14 +51,16 @@ export function ProfileSwitchSheet({
         <Button variant="ghost" onPress={close} disabled={pending}>
           {t("common.actions.cancel")}
         </Button>
-        <Button
-          variant="outline"
-          onPress={startNewTask}
-          disabled={pending}
-          testID="profile-switch-new-task"
-        >
-          {t("message.profileSwitch.confirm.newTask")}
-        </Button>
+        {onNewTask ? (
+          <Button
+            variant="outline"
+            onPress={startNewTask}
+            disabled={pending}
+            testID="profile-switch-new-task"
+          >
+            {t("message.profileSwitch.confirm.newTask")}
+          </Button>
+        ) : null}
         <Button onPress={submit} loading={pending} testID="profile-switch-confirm">
           {pending
             ? t("message.profileSwitch.confirm.switching")
@@ -66,7 +68,7 @@ export function ProfileSwitchSheet({
         </Button>
       </ActionFooter>
     ),
-    [close, startNewTask, submit, pending, t],
+    [close, startNewTask, submit, pending, t, onNewTask],
   );
   return (
     <AdaptiveModalSheet

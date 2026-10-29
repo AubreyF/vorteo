@@ -286,7 +286,10 @@ export async function connectSessionHost(
           sessionId,
           call: hostCall,
         }));
-        if (hostCall.method === "close" && channels.get(sessionId) === channel)
+        if (
+          (hostCall.method === "close" || hostCall.method === "closeIfIdle") &&
+          channels.get(sessionId) === channel
+        )
           channels.delete(sessionId);
         return value;
       },

@@ -106,30 +106,17 @@ test("Vorteo checks main and requires a connected installation host before prepa
   await expect(
     page.getByText("Connect this installation's host environment before preparing an update task."),
   ).toBeVisible();
-  // Without a host the action must not leave Settings or start a workspace draft.
-  await expect(page).toHaveURL(/\/settings\//);
-  const stayedOnMaintenance = await expect(page)
-    .toHaveURL(/\/settings\/maintenance$/, { timeout: 3_000 })
-    .then(
-      () => true,
-      () => false,
-    );
+  await expect(page).toHaveURL(/\/settings\/maintenance$/);
   const oldDraft = await page.evaluate(
     () =>
       JSON.parse(localStorage.getItem("paseo-drafts") ?? "{}").state.drafts["new-workspace"].input
         .text,
   );
   expect(oldDraft).toBe("Keep my existing draft");
-  // Product regression, reported to Builds on 2026-10-26: on Linux CI, pressing the update action
-  // leaves the Maintenance heading at y 210 of 720 with the page already at its end, so the
-  // settings sidebar and URL switch to Plugins & integrations while Maintenance is on screen.
-  // First seen on CI after main b08980d36; it passes on macOS (commit not identified). The
-  // trailing space below the last section is sized from a measurement read during render, a
-  // likely cause. Remove the fixme once the page keeps Maintenance selected.
-  test.fixme(
-    !stayedOnMaintenance,
-    "Settings switched to Plugins & integrations while Maintenance was shown",
-  );
+  // A deliberate scroll still hands section tracking back to the reader.
+  await page.getByTestId("settings-scroll-page").hover();
+  await page.mouse.wheel(0, -400);
+  await expect(page).toHaveURL(/\/settings\/plugins$/);
 });
 
 test("a failed update check exposes a retry and recovers", async ({ page }) => {

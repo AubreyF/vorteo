@@ -145,6 +145,7 @@ import type { RequestedSpeechProviders } from "./speech/speech-types.js";
 import { createSpeechService } from "./speech/speech-runtime.js";
 import { AgentManager } from "./agent/agent-manager.js";
 import { AgentStorage } from "./agent/agent-storage.js";
+import { migrateMovedPaths } from "./migrations/moved-paths.migration.js";
 import { reconcileQuotaReserveStartup } from "./agent/quota-reserve/reconcile-startup.js";
 import { QuotaReservePolling } from "./agent/quota-reserve/polling.js";
 import { ProviderUsageService } from "../services/quota-fetcher/service.js";
@@ -681,6 +682,21 @@ function startIdleReleaseForUpgrade(
   });
 }
 
+// Before agent storage and the registries load, so they read the moved paths.
+// A failed move keeps the earlier records, which stay usable through their old paths.
+async function migrateMovedCheckouts(config: PaseoDaemonConfig, logger: Logger): Promise<void> {
+  const moves = config.projectsFolder?.movedPaths;
+  if (!moves?.length) return;
+  await migrateMovedPaths({
+    paseoHome: config.paseoHome,
+    agentStoragePath: config.agentStoragePath,
+    moves,
+    logger,
+  }).catch((error: unknown) => {
+    logger.warn({ err: error }, "Could not move records for relocated checkouts");
+  });
+}
+
 export async function createPaseoDaemon(
   config: PaseoDaemonConfig,
   rootLogger: Logger,
@@ -1011,6 +1027,7 @@ export async function createPaseoDaemon(
     serviceProxyListenTarget = parseListenString(config.serviceProxy.standaloneListen);
   }
 
+  await migrateMovedCheckouts(config, logger);
   const agentStorage = new AgentStorage(config.agentStoragePath, logger);
   // Before any registry parses a path, so alias paths load and store in logical form.
   setActiveProjectsFolder(config.projectsFolder);

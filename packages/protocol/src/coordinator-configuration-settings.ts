@@ -2,6 +2,8 @@ import { z } from "zod";
 import type { CoordinatorBootstrapPlan } from "./coordinator-bootstrap.js";
 import {
   EngineRestartConfigurationSchema,
+  EngineRecoveryConfigurationSchema,
+  RecoveryOriginSchema,
   FactoryGateConfigurationSchema,
   FactoryRuntimeAdoptionConfigurationSchema,
   HostLauncherUpdateConfigurationSchema,
@@ -55,6 +57,16 @@ export const REVIEWED_CONFIGURATION_SETTINGS = {
     value: EngineRestartConfigurationSchema,
     renewal: true,
     legacyField: "engineRestartConfiguration",
+  },
+  engineRecovery: {
+    path: ["container", "engineRecovery"],
+    value: EngineRecoveryConfigurationSchema,
+    renewal: true,
+  },
+  recoveryOrigin: {
+    path: ["recoveryOrigin"],
+    value: RecoveryOriginSchema,
+    renewal: true,
   },
   factoryGate: {
     path: ["container", "factoryGate"],

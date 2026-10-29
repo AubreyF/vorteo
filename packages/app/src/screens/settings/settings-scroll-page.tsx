@@ -343,16 +343,27 @@ export function SettingsScrollPage({
     programmatic.current = false;
   }, []);
 
-  // Wheel, touch, pointer and key input mean the reader is scrolling, even in
-  // the middle of an animated jump.
+  // Scroll gestures and keyboard navigation hand control back to the reader.
+  // A desktop control press keeps a fresh jump pinned while panes settle.
   useEffect(() => {
     if (!isWeb) return;
     const node = scrollRef.current?.getScrollableNode() as HTMLElement | undefined;
     if (!node) return;
-    const events = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    const releaseOnPointerDown = (event: Event) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest("button, a, input, textarea, select, [role='button']")
+      )
+        return;
+      releaseToReader();
+    };
+    const events = ["wheel", "touchstart", "keydown"] as const;
     for (const name of events) node.addEventListener(name, releaseToReader, { passive: true });
+    node.addEventListener("pointerdown", releaseOnPointerDown, { passive: true });
     return () => {
       for (const name of events) node.removeEventListener(name, releaseToReader);
+      node.removeEventListener("pointerdown", releaseOnPointerDown);
     };
   }, [releaseToReader]);
 
@@ -363,6 +374,9 @@ export function SettingsScrollPage({
       // An instant jump lands exactly where the page put it; any other
       // position means the reader, keyboard focus or a script moved the page.
       const own = ownScrollY.current;
+      // Focus or late layout can move a fresh web jump without a reader gesture.
+      // Let smooth scrolling run, then keep its target until it settles or the reader takes over.
+      if (isWeb && (own !== null || !programmatic.current) && holdPinnedTarget()) return;
       // A jump past the current end of the content lands short while sections
       // below are still mounting. That is the page, not the reader, so keep the
       // target pinned and let layout finish the jump.
@@ -374,7 +388,7 @@ export function SettingsScrollPage({
       updateActive();
       recordAnchor(activeSection.current);
     },
-    [markProgrammatic, recordAnchor, releaseToReader, updateActive],
+    [holdPinnedTarget, markProgrammatic, recordAnchor, releaseToReader, updateActive],
   );
 
   const handleViewportLayout = useCallback((event: LayoutChangeEvent) => {

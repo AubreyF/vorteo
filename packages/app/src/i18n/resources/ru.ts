@@ -254,6 +254,9 @@ export const ru: TranslationResources = {
   },
   agentPanel: {
     states: {
+      providerUnavailable: en.agentPanel.states.providerUnavailable,
+      providerRecovery: en.agentPanel.states.providerRecovery,
+      loadingProviders: en.agentPanel.states.loadingProviders,
       notFound: "Агент не найден",
       failedToLoad: "Не удалось загрузить агента",
       reconnecting: "Повторное подключение к хосту",
@@ -1202,6 +1205,12 @@ export const ru: TranslationResources = {
       description:
         "Добавьте команды настройки для автоматической установки зависимостей и подготовки новых worktree.",
       openProjectSettings: "Открыть настройки проекта",
+    },
+    focus: {
+      focusItem: "Сфокусироваться на {{name}}",
+      menuItem: "Фокус",
+      allProjects: "Все проекты",
+      breadcrumb: "Путь фокуса боковой панели",
     },
     folders: {
       actions: {

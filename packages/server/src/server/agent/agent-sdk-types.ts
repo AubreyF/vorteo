@@ -842,6 +842,8 @@ export interface AgentSession {
   interrupt(): Promise<void>;
   /** Release live runtime resources without archiving or deleting the durable native session. */
   close(): Promise<void>;
+  /** Hosted-only automatic release; rejects unless the host atomically admits an idle close. */
+  closeIfIdle?(): Promise<void>;
   /**
    * Runtime-only: true while the provider runs outside this worker, in the durable session host,
    * and this worker is attached. A worker restart then leaves its turn running.

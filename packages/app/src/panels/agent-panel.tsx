@@ -1,3 +1,5 @@
+import { AgentLoadRecovery } from "@/profile-switch/load-recovery";
+import { useHostFeature } from "@/runtime/host-features";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardDock } from "@/components/keyboard-dock";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
@@ -200,13 +202,33 @@ function buildChatAgentFromState(
   };
 }
 
-function AgentLoadErrorView({ message, onRetry }: { message: string; onRetry: () => void }) {
+function AgentLoadErrorView({
+  message,
+  onRetry,
+  serverId,
+  agentId,
+}: {
+  message: string;
+  onRetry: () => void;
+  serverId: string;
+  agentId?: string;
+}) {
+  const canRecover = useHostFeature(serverId, "agentProviderRecovery");
+  const providerUnavailable =
+    /references unavailable provider|provider .* (?:is disabled|is not available)/i.test(message);
   const { t } = useTranslation();
   return (
     <View style={styles.container} testID="agent-load-error">
       <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>{t("agentPanel.states.failedToLoad")}</Text>
-        <Text style={styles.statusText}>{message}</Text>
+        <Text style={styles.errorText}>
+          {providerUnavailable
+            ? t("agentPanel.states.providerUnavailable")
+            : t("agentPanel.states.failedToLoad")}
+        </Text>
+        {providerUnavailable ? null : <Text style={styles.statusText}>{message}</Text>}
+        {canRecover && agentId ? (
+          <AgentLoadRecovery serverId={serverId} agentId={agentId} onRecovered={onRetry} />
+        ) : null}
         <View style={styles.errorAction}>
           <Button size="sm" variant="secondary" onPress={onRetry} testID="agent-load-error-retry">
             {t("common.actions.retry")}
@@ -222,6 +244,8 @@ function renderChatAgentNonReadyView(args: {
   effectiveAgent: AgentScreenAgent | null;
   t: TFunction;
   onRetryLoad: () => void;
+  serverId: string;
+  agentId?: string;
 }): React.ReactElement | null {
   const { viewState, effectiveAgent, t, onRetryLoad } = args;
   if (viewState.tag === "not_found") {
@@ -234,7 +258,14 @@ function renderChatAgentNonReadyView(args: {
     );
   }
   if (viewState.tag === "error") {
-    return <AgentLoadErrorView message={viewState.message} onRetry={onRetryLoad} />;
+    return (
+      <AgentLoadErrorView
+        message={viewState.message}
+        onRetry={onRetryLoad}
+        serverId={args.serverId}
+        agentId={args.agentId}
+      />
+    );
   }
   if (viewState.tag === "boot" || !effectiveAgent) {
     return (
@@ -632,7 +663,8 @@ function AgentPanelBody({
     if (!client || !isConnected || !hasSession) {
       return;
     }
-    if (lookupState.tag === "loading" || lookupState.tag === "not_found") {
+    // Keep a failed lookup stable while the owner chooses recovery or Retry.
+    if (lookupState.tag !== "idle") {
       return;
     }
 
@@ -681,7 +713,14 @@ function AgentPanelBody({
   }
 
   if (lookupState.tag === "error") {
-    return <AgentLoadErrorView message={lookupState.message} onRetry={retryAgentLookup} />;
+    return (
+      <AgentLoadErrorView
+        message={lookupState.message}
+        onRetry={retryAgentLookup}
+        serverId={serverId}
+        agentId={agentId}
+      />
+    );
   }
 
   const agent: AgentScreenAgent | null =
@@ -1056,6 +1095,8 @@ function ChatAgentContent({
     effectiveAgent,
     t,
     onRetryLoad: retryAgentLoad,
+    serverId,
+    agentId,
   });
   if (nonReadyView) return nonReadyView;
   invariant(agentId, "agent id is defined when agent content is ready");

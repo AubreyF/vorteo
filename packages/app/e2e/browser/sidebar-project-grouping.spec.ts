@@ -46,6 +46,13 @@ interface ProjectDirectoryScenario {
 
 interface CreatedProject {
   projectId: string;
+  serverId: string;
+  workspaceId: string;
+  workspaceName: string;
+}
+
+interface GroupedProjectScenario extends ProjectDirectoryScenario {
+  workspaces: CreatedProject[];
 }
 
 async function createProject(
@@ -67,7 +74,12 @@ async function createProject(
   if (input.projectName) {
     await client.renameProject(created.workspace.projectId, input.projectName);
   }
-  return { projectId: created.workspace.projectId };
+  return {
+    projectId: created.workspace.projectId,
+    serverId: input.serverId,
+    workspaceId: created.workspace.id,
+    workspaceName: input.workspaceName,
+  };
 }
 
 async function removePersistedProjectKeys(host: IsolatedHostDaemon): Promise<void> {
@@ -80,10 +92,10 @@ async function removePersistedProjectKeys(host: IsolatedHostDaemon): Promise<voi
 }
 
 const test = base.extend<{
-  crossHostProject: ProjectDirectoryScenario;
-  reconciledCrossHostProject: ProjectDirectoryScenario;
+  crossHostProject: GroupedProjectScenario;
+  reconciledCrossHostProject: GroupedProjectScenario;
   rootAndSubdirectoryProjects: ProjectDirectoryScenario;
-  crossHostSubdirectoryProject: ProjectDirectoryScenario;
+  crossHostSubdirectoryProject: GroupedProjectScenario;
   sameHostClones: ProjectDirectoryScenario;
 }>({
   crossHostProject: async ({ page: _page }, provide) => {
@@ -115,6 +127,7 @@ const test = base.extend<{
         projectName: GROUPED_PROJECT_NAME,
       });
       await provide({
+        workspaces: [primary, secondary],
         primaryLabel: PRIMARY_HOST_LABEL,
         hosts: [
           {
@@ -156,13 +169,13 @@ const test = base.extend<{
     });
 
     try {
-      await createProject(primaryClient, {
+      const primary = await createProject(primaryClient, {
         projectPath: primaryRepo.path,
         serverId: primaryHost.serverId,
         workspaceName: "Recovered primary workspace",
         projectName: GROUPED_PROJECT_NAME,
       });
-      await createProject(secondaryClient, {
+      const secondary = await createProject(secondaryClient, {
         projectPath: secondaryRepo.path,
         serverId: secondaryHost.serverId,
         workspaceName: "Recovered secondary workspace",
@@ -175,6 +188,7 @@ const test = base.extend<{
       await Promise.all([primaryHost.restart(), secondaryHost.restart()]);
 
       await provide({
+        workspaces: [primary, secondary],
         hosts: [
           {
             serverId: primaryHost.serverId,
@@ -262,6 +276,7 @@ const test = base.extend<{
         projectName: GROUPED_PROJECT_NAME,
       });
       await provide({
+        workspaces: [primary, secondary],
         primaryLabel: PRIMARY_HOST_LABEL,
         hosts: [
           {
@@ -343,7 +358,7 @@ test.describe("Sidebar project grouping", () => {
     await openScenario(page, crossHostProject);
     await expectProjectContainsWorkspaces(page, {
       projectName: GROUPED_PROJECT_NAME,
-      workspaceNames: ["Primary workspace", "Secondary workspace"],
+      workspaces: crossHostProject.workspaces,
     });
   });
 
@@ -354,7 +369,7 @@ test.describe("Sidebar project grouping", () => {
     await openScenario(page, reconciledCrossHostProject);
     await expectProjectContainsWorkspaces(page, {
       projectName: GROUPED_PROJECT_NAME,
-      workspaceNames: ["Recovered primary workspace", "Recovered secondary workspace"],
+      workspaces: reconciledCrossHostProject.workspaces,
     });
   });
 
@@ -376,7 +391,7 @@ test.describe("Sidebar project grouping", () => {
     await openScenario(page, crossHostSubdirectoryProject);
     await expectProjectContainsWorkspaces(page, {
       projectName: GROUPED_PROJECT_NAME,
-      workspaceNames: ["Primary app workspace", "Secondary app workspace"],
+      workspaces: crossHostSubdirectoryProject.workspaces,
     });
   });
 

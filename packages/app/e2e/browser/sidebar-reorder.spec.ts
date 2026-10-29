@@ -45,7 +45,9 @@ async function quickDragFirstRowAfterSecond(
   const page = rows.page();
   // Start on the row inset, away from branch popovers and trailing actions.
   const source = { x: sourceBox.x + 12, y: sourceBox.y + sourceBox.height / 2 };
-  const target = { x: targetBox.x + 12, y: targetBox.y + targetBox.height / 2 };
+  // The new position resolver splits rows into before/after zones. Land inside
+  // the lower zone rather than exactly on its fractional-pixel midpoint.
+  const target = { x: targetBox.x + 12, y: targetBox.y + targetBox.height * 0.85 };
 
   await page.mouse.move(source.x, source.y);
   await pressRow(rows);
@@ -55,6 +57,73 @@ async function quickDragFirstRowAfterSecond(
 
   await expect.poll(() => rowTestIds(rows)).toEqual([before[1], before[0]]);
 }
+
+test("keyboard reorders projects and workspaces, cancels and survives reload", async ({ page }) => {
+  test.setTimeout(120_000);
+  const first = await seedWorkspace({ repoPrefix: "keyboard-first-" });
+  const second = await seedWorkspace({ repoPrefix: "keyboard-second-" });
+  try {
+    const extra = await first.client.createWorkspace({
+      source: { kind: "directory", path: first.repoPath, projectId: first.projectId },
+      title: "Keyboard second workspace",
+    });
+    if (!extra.workspace) throw new Error(extra.error ?? "Missing workspace");
+    await gotoAppShell(page);
+    await waitForSidebarHydration(page);
+    const projects = page.locator(
+      `[data-testid="sidebar-project-row-${projectEquivalenceViewKey(first.projectKey)}"], ` +
+        `[data-testid="sidebar-project-row-${projectEquivalenceViewKey(second.projectKey)}"]`,
+    );
+    const originalProjects = await rowTestIds(projects);
+    const projectHandle = page
+      .getByTestId(originalProjects[0]!)
+      .locator("xpath=ancestor::*[@aria-roledescription='draggable'][1]");
+    await projectHandle.focus();
+    await page.keyboard.press("Space");
+    await expect(projectHandle).toHaveAttribute("aria-pressed", "true");
+    await page.keyboard.press("ArrowDown");
+    await expect(page.getByTestId("draggable-tree-line")).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect.poll(() => rowTestIds(projects)).toEqual(originalProjects.toReversed());
+    await expect(projectHandle).toBeFocused();
+
+    await page.keyboard.press("Space");
+    await page.keyboard.press("ArrowUp");
+    await expect(page.getByTestId("draggable-tree-line")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("draggable-tree-line")).toHaveCount(0);
+    await expect.poll(() => rowTestIds(projects)).toEqual(originalProjects.toReversed());
+    await expect(projectHandle).toBeFocused();
+
+    const workspaces = page.locator(
+      `[data-testid="sidebar-workspace-row-${getServerId()}:${first.workspaceId}"], ` +
+        `[data-testid="sidebar-workspace-row-${getServerId()}:${extra.workspace.id}"]`,
+    );
+    const originalWorkspaces = await rowTestIds(workspaces);
+    await expect(workspaces).toHaveCount(2);
+    const workspaceHandle = page
+      .getByTestId(originalWorkspaces[0]!)
+      .locator("xpath=ancestor::*[@aria-roledescription='draggable'][1]");
+    await workspaceHandle.focus();
+    await page.keyboard.press("Space");
+    await page.keyboard.press("ArrowDown");
+    await expect(page.getByTestId("draggable-tree-line")).toBeVisible();
+    await page.keyboard.press("ArrowUp");
+    await expect(page.getByTestId("draggable-tree-line")).toHaveCount(0);
+    await page.keyboard.press("ArrowDown");
+    await expect(page.getByTestId("draggable-tree-line")).toBeVisible();
+    await page.keyboard.press("Space");
+    await expect.poll(() => rowTestIds(workspaces)).toEqual(originalWorkspaces.toReversed());
+    await expect(workspaceHandle).toBeFocused();
+    await page.reload();
+    await waitForSidebarHydration(page);
+    await expect.poll(() => rowTestIds(projects)).toEqual(originalProjects.toReversed());
+    await expect.poll(() => rowTestIds(workspaces)).toEqual(originalWorkspaces.toReversed());
+  } finally {
+    await first.cleanup();
+    await second.cleanup();
+  }
+});
 
 test("projects, workspaces, pinned chats and expansion synchronize between devices", async ({
   page,

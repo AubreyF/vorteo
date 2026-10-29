@@ -4249,6 +4249,8 @@ export const ServerInfoStatusPayloadSchema = z
         agentConfigApply: z.boolean().optional(),
         // COMPAT(agentProfileSwitch): added in Vorteo 2026-10, remove gate after 2027-04-22.
         agentProfileSwitch: z.boolean().optional(),
+        // COMPAT(agentProviderRecovery): added in Vorteo 2026-10, remove gate after 2027-04-28.
+        agentProviderRecovery: z.boolean().optional(),
         // COMPAT(localProjectConfig): added in Vorteo 2026-10, remove gate after 2027-04-22.
         // The daemon merges untracked paseo.local.json script entries over paseo.json.
         localProjectConfig: z.boolean().optional(),

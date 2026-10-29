@@ -9,7 +9,7 @@ import {
 } from "@getpaseo/protocol/coordinator-configuration-settings";
 import type { InstallationConfig } from "./config.js";
 import { createInstallationRestartExecutor, hostLauncherTarget } from "./daemon.js";
-import { RESTART_OPERATIONS } from "./restart-operations.js";
+import { automaticPermitted, RESTART_OPERATIONS } from "./restart-operations.js";
 
 /** Supervisor maintenance is configured through Dev registration, not a reviewed setting. */
 const UNREGISTERED_OPERATIONS = ["supervisorMaintenance"];
@@ -25,7 +25,10 @@ function samples(): Partial<Record<ReviewedConfigurationSetting, unknown>> {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "restart-settings-")));
   roots.push(root);
   const script = path.join(root, "adopt.mjs");
-  writeFileSync(script, "// fixture adoption plan\n", { mode: 0o600 });
+  writeFileSync(script, "// fixture adoption plan\n", { mode: 0o700 });
+  const docker = path.join(root, "docker");
+  const dockerBytes = "#!/bin/sh\nexit 99\n";
+  writeFileSync(docker, dockerBytes, { mode: 0o700 });
   return {
     factoryRuntimeAdoption: {
       node: process.execPath,
@@ -39,6 +42,40 @@ function samples(): Partial<Record<ReviewedConfigurationSetting, unknown>> {
         dev: "a".repeat(64),
         gatewayTailscale: "b".repeat(64),
         gatewayCaddy: "c".repeat(64),
+      },
+    },
+    engineRecovery: {
+      deadlineSeconds: 420,
+      docker,
+      dockerSha256: createHash("sha256").update(dockerBytes).digest("hex"),
+      socket: path.join(root, "docker.sock"),
+      containers: {
+        dev: "a".repeat(64),
+        gatewayTailscale: "b".repeat(64),
+        gatewayCaddy: "c".repeat(64),
+      },
+      factoryVerify: {
+        script,
+        sha256: createHash("sha256").update(readFileSync(script)).digest("hex"),
+        lockInode: 1,
+        ownerMode: "paused",
+      },
+      baseline: {
+        observedAt: "2026-10-28T00:00:00Z",
+        evidenceSha256: "d".repeat(64),
+        startedAt: {
+          dev: "2026-10-28T00:00:00Z",
+          gatewayTailscale: "2026-10-28T00:00:00Z",
+          gatewayCaddy: "2026-10-28T00:00:00Z",
+        },
+        factory: {
+          epoch: 1,
+          supervisorPid: 2,
+          ownerMode: "paused",
+          ownerSequence: 1,
+          custodyCount: 0,
+          custodyDigest: "e".repeat(64),
+        },
       },
     },
     hostLauncherUpdate: { candidate: path.join(root, "candidate.plist"), sha256: "c".repeat(64) },
@@ -105,4 +142,20 @@ test("supervisor maintenance is the only restart operation without a registered 
     (capability) => !Object.hasOwn(REVIEWED_CONFIGURATION_SETTINGS, capability),
   );
   expect(unregistered).toEqual(UNREGISTERED_OPERATIONS);
+});
+
+test("full owner delegation permits only explicitly delegable exact maintenance plans", () => {
+  for (const operation of RESTART_OPERATIONS) {
+    const job = { [operation.field]: "a".repeat(64) };
+    expect(automaticPermitted(job, false, RESTART_OPERATIONS, true)).toBe(true);
+    if (operation.automatic !== "allowed") expect(automaticPermitted(job, false)).toBe(false);
+    expect(
+      automaticPermitted(
+        job,
+        false,
+        [{ ...operation, automatic: "never", delegable: false }],
+        true,
+      ),
+    ).toBe(false);
+  }
 });

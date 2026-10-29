@@ -4,6 +4,7 @@ type PlanField =
   | "supervisorPlanSha256"
   | "factoryRuntimePlanSha256"
   | "engineRestartPlanSha256"
+  | "engineRecoveryPlanSha256"
   | "hostLauncherPlanSha256";
 
 interface RestartOperationView {
@@ -38,6 +39,12 @@ export const RESTART_OPERATION_VIEWS: readonly RestartOperationView[] = [
     finishLabel: "Finish turns and restart Docker",
     detail: (sha256) =>
       `Restart Docker Desktop. Dev, its Tailscale and the private-domain gateway stop until Docker returns; each must come back under the same container. Reviewed plan: ${sha256}`,
+  },
+  {
+    field: "engineRecoveryPlanSha256",
+    target: "Degraded Docker engine",
+    detail: (sha256) =>
+      `Restart Docker Desktop once even though current work cannot be inspected. Volatile Dev work may be interrupted. Retained containers, paused Factory custody and authenticated readiness must verify afterward. No automatic retry. Reviewed recovery plan: ${sha256}`,
   },
   {
     field: "hostLauncherPlanSha256",

@@ -1,4 +1,8 @@
 import {
+  MaintenanceDelegationStatusSchema,
+  type MaintenanceDelegationStatus,
+} from "@getpaseo/protocol/maintenance-approval";
+import {
   NativeHelperJobSchema,
   type NativeHelperJob,
 } from "@getpaseo/protocol/native-helper-maintenance";
@@ -518,6 +522,37 @@ export class InstallationClient {
     }
   }
 
+  private maintenanceDelegationSupported = false;
+
+  async maintenanceDelegation(): Promise<MaintenanceDelegationStatus | null> {
+    try {
+      const status = MaintenanceDelegationStatusSchema.parse(
+        await this.request("maintenance-delegation/query", {}),
+      );
+      this.maintenanceDelegationSupported = true;
+      return status;
+    } catch (error) {
+      // COMPAT(fullMaintenanceDelegation): v877; older coordinators retain their service controls.
+      if (error instanceof InstallationRouteUnavailable && !this.maintenanceDelegationSupported)
+        return null;
+      throw error;
+    }
+  }
+
+  async changeMaintenanceDelegation(
+    status: MaintenanceDelegationStatus,
+    enabled: boolean,
+  ): Promise<MaintenanceDelegationStatus> {
+    if (!this.maintenanceDelegationSupported || !status.available)
+      throw new InstallationRouteUnavailable("Full maintenance delegation is unavailable");
+    return MaintenanceDelegationStatusSchema.parse(
+      await this.request("maintenance-delegation/change", {
+        expectedRevision: status.revision,
+        enabled,
+      }),
+    );
+  }
+
   async daemonAutomation(): Promise<DaemonAutomationPreference | null> {
     try {
       let response: unknown;
@@ -579,7 +614,7 @@ export class InstallationClient {
         ? `${path}?idleRestarts=1${this.installation.gracefulRestarts ? "&gracefulRestarts=1" : ""}`
         : path;
     const query = path.startsWith("restarts")
-      ? `${resource}${resource.includes("?") ? "&" : "?"}sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1&supervisorMaintenance=1&hostAutomaticRestarts=1&factoryRuntimeAdoption=1&engineRestart=1&hostLauncherUpdate=1&delegatedRequests=1`
+      ? `${resource}${resource.includes("?") ? "&" : "?"}sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1&supervisorMaintenance=1&hostAutomaticRestarts=1&factoryRuntimeAdoption=1&engineRestart=1&engineRecovery=1&hostLauncherUpdate=1&delegatedRequests=1`
       : resource;
     return this.ports.request(query, this.password, body);
   }

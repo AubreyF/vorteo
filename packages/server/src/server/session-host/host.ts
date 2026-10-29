@@ -31,7 +31,7 @@ import type { z } from "zod";
 import type { SessionListSchema } from "./protocol.js";
 
 type SessionList = z.infer<typeof SessionListSchema>;
-import { parseCallResult } from "./session-contract.js";
+import { HostedSessionSnapshotSchema, parseCallResult } from "./session-contract.js";
 
 /**
  * The provider-facing surface of one hosted session. createAgentSessionPort adapts an
@@ -39,7 +39,7 @@ import { parseCallResult } from "./session-contract.js";
  */
 export interface HostedSessionPort {
   /** Performs one validated call other than close; the host checks the result's shape. */
-  call(call: Exclude<SessionHostCall, { method: "close" }>): Promise<JsonValue>;
+  call(call: Exclude<SessionHostCall, { method: "close" | "closeIfIdle" }>): Promise<JsonValue>;
   /** Provider state returned with every attach, as of the newest recorded event. */
   snapshot(): JsonValue;
   subscribe(listener: (event: JsonValue) => void): () => void;
@@ -149,6 +149,7 @@ interface HostedSessionState {
   attached: Connection | null;
   /** Set while the provider session closes; it stays attachable so a failed close can retry. */
   closing: boolean;
+  activeCalls: number;
   unsubscribe: () => void;
 }
 
@@ -365,6 +366,7 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
       acknowledgedThrough: 0,
       attached: null,
       closing: false,
+      activeCalls: 0,
       unsubscribe: () => {},
     };
     sessions.set(request.sessionId, state);
@@ -455,14 +457,34 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
       throw new HostError("not_attached", "Attach to this session before driving it.");
     }
     if (state.closing) throw new HostError("failed", "This session is closing.");
-    if (request.method !== "close") {
-      const checked = parseCallResult(request.method, await state.port.call(request));
-      if (!checked.success)
-        throw new HostError("failed", `The provider returned an invalid ${request.method} result.`);
-      return checked.data as JsonValue;
+    if (request.method !== "close" && request.method !== "closeIfIdle") {
+      // Count before entering provider code: startTurn may await before publishing its turn id.
+      state.activeCalls++;
+      try {
+        const checked = parseCallResult(request.method, await state.port.call(request));
+        if (!checked.success)
+          throw new HostError(
+            "failed",
+            `The provider returned an invalid ${request.method} result.`,
+          );
+        return checked.data as JsonValue;
+      } finally {
+        state.activeCalls--;
+      }
+    }
+    if (request.method === "closeIfIdle") {
+      const snapshot = HostedSessionSnapshotSchema.safeParse(state.port.snapshot());
+      if (!snapshot.success) throw new HostError("failed", "Cannot verify hosted session is idle.");
+      const busy =
+        state.activeCalls > 0 ||
+        snapshot.data.activeTurnId !== null ||
+        snapshot.data.pendingPermissions.length > 0;
+      if (busy) throw new HostError("failed", "Hosted session is busy; idle close refused.");
+      // No await between the authoritative check and closing admission below.
     }
     switch (request.method) {
       case "close":
+      case "closeIfIdle":
         // Events emitted while closing, such as a canceled turn, are still recorded. A failed
         // close leaves the session hosted so the provider process is never orphaned.
         state.closing = true;

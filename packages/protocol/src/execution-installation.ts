@@ -45,6 +45,39 @@ export const EngineRestartConfigurationSchema = z.strictObject({
 });
 export type EngineRestartConfiguration = z.infer<typeof EngineRestartConfigurationSchema>;
 
+/** Separately reviewed emergency scope. The retained baseline is evidence from a
+ * healthy boot, not a claim that unavailable work is currently idle. */
+export const EngineRecoveryConfigurationSchema = EngineRestartConfigurationSchema.extend({
+  dockerSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  /** Combined engine command budget; leaves 180 s for native daemon verification and receipts. */
+  deadlineSeconds: z.number().int().min(60).max(420),
+  factoryVerify: FactoryVerifyConfigurationSchema.extend({ ownerMode: z.literal("paused") }),
+  baseline: z.strictObject({
+    observedAt: z.string().datetime(),
+    evidenceSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    startedAt: z.strictObject({
+      dev: z.string().datetime(),
+      gatewayTailscale: z.string().datetime(),
+      gatewayCaddy: z.string().datetime(),
+    }),
+    factory: z.strictObject({
+      epoch: z.number().int().nonnegative(),
+      supervisorPid: z.number().int().positive(),
+      ownerMode: z.literal("paused"),
+      ownerSequence: z.number().int().nonnegative(),
+      custodyCount: z.number().int().nonnegative(),
+      custodyDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    }),
+  }),
+});
+export type EngineRecoveryConfiguration = z.infer<typeof EngineRecoveryConfigurationSchema>;
+
+/** An already provisioned private HTTPS route to the native coordinator. */
+export const RecoveryOriginSchema = z.url().refine((value) => {
+  const url = new URL(value);
+  return url.protocol === "https:" && url.origin === value;
+}, "Recovery origin must be an exact HTTPS origin");
+
 /** Factory's check around Dev source updates: before the first effect and after the new worker. */
 export const FactoryGateConfigurationSchema = z.strictObject({
   docker: z.string().startsWith("/"),
@@ -196,6 +229,11 @@ export const RestartRequestSchema = z.strictObject({
     .optional(),
   // COMPAT(engineRestart): optional exact-plan binding for a Docker engine restart under Dev.
   // Projected out for clients that do not negotiate it; their approvals cannot authorize it.
+  // COMPAT(engineRecovery): added 2026-10-28; project out until client floor supports recovery review.
+  engineRecoveryPlanSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   engineRestartPlanSha256: z
     .string()
     .regex(/^[a-f0-9]{64}$/)
@@ -522,6 +560,11 @@ export type RestartJob = z.infer<typeof RestartJobSchema>;
 
 export const RestartDecisionSchema = z.strictObject({
   hostLauncherPlanSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  // COMPAT(engineRecovery): added 2026-10-28; project out until client floor supports recovery review.
+  engineRecoveryPlanSha256: z
     .string()
     .regex(/^[a-f0-9]{64}$/)
     .optional(),

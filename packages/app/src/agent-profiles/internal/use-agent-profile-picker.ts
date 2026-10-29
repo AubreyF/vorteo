@@ -107,6 +107,7 @@ interface PendingHandoff {
 
 export interface UseAgentProfilePickerInput {
   serverId: string | null;
+  recovery?: { onRecovered: () => void };
   /**
    * Providers this composer can actually run; pass a stable reference. A profile
    * naming anything else is hidden rather than shown as a row that cannot do
@@ -126,7 +127,7 @@ export interface UseAgentProfilePickerInput {
 export function useAgentProfilePicker(
   input: UseAgentProfilePickerInput,
 ): AgentProfilePicker | null {
-  const { serverId, availableProviders, target } = input;
+  const { serverId, availableProviders, target, recovery } = input;
   const { config: daemonConfig } = useDaemonConfig(serverId);
   const hosts = useHosts();
   const activeWorkspace = useActiveWorkspaceSelection();
@@ -240,7 +241,8 @@ export function useAgentProfilePicker(
       reason: profileSwitchReason(items),
     });
     setPendingSwitch(null);
-  }, [client, pendingSwitch, serverId, target]);
+    recovery?.onRecovered();
+  }, [client, pendingSwitch, serverId, target, recovery]);
   const createSuccessor = useCallback(
     async (profile: AgentProfile) => {
       if (target.kind !== "agent" || !client || !serverId || applyingRef.current) return;
@@ -271,7 +273,7 @@ export function useAgentProfilePicker(
       key: `${target.agentId}:${pendingSwitch.id}:${pendingSwitch.provider}`,
       profileName: pendingSwitch.name,
       onSwitch: confirmSwitch,
-      onNewTask: startSuccessorInstead,
+      onNewTask: recovery ? undefined : startSuccessorInstead,
       onClose: closeSwitch,
     });
   }
@@ -523,7 +525,7 @@ export function useAgentProfilePicker(
             selectEnvironment:
               target.kind === "draft" ? target.controls.selectEnvironment : undefined,
             applyProfile,
-            applyDestinationProfile,
+            applyDestinationProfile: recovery ? undefined : applyDestinationProfile,
             isApplying,
             handoffElement,
             refreshStatus,
@@ -534,6 +536,7 @@ export function useAgentProfilePicker(
     [
       applyProfile,
       applyDestinationProfile,
+      recovery,
       target,
       projectPath,
       isSupported,

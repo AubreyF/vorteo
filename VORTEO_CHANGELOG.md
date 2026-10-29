@@ -4,6 +4,401 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.910 - 2026-10-29
+
+### Maintenance
+
+- Merge main at 0e1db4743 into the CI flake branch, taking main's manifests. Main's fix for Settings section tracking replaces this branch's known-issue mark in the Vorteo update browser test, which again requires Maintenance to stay selected.
+
+## 0.11.0-beta.3.vorteo.909 - 2026-10-29
+
+### Fixed
+
+- Let ordinary web comboboxes flip above their trigger when the dropdown would leave the viewport. Preserve intentional top/above-search anchoring and native behavior.
+- Cover Metadata model selection near the lower viewport edge, including picker geometry, sizing, Escape dismissal and keyboard focus restoration.
+- Make Settings browser helpers release a fresh section jump with a reader scroll gesture before revealing a pane.
+
+## 0.11.0-beta.3.vorteo.908 - 2026-10-29
+
+### Maintenance
+
+- Read timeline geometry sequentially so concurrent Playwright locator checks cannot strand a shared worktree-callout handler. Retain scroll and resume assertions.
+- Wait for the queue test's startup overlay and inert root to finish handing off, then verify its typed draft before clicking Queue. Retain held-request and orbit-transition assertions without changing timeouts or production behavior.
+
+## 0.11.0-beta.3.vorteo.907 - 2026-10-29
+
+### Maintenance
+
+- Check the selected profile and resolved agent mode in delayed workspace navigation tests while leaving profile-owned permissions out of the wire request. Retain navigation, resource and attachment assertions.
+- Skip fixture-server teardown when recovery-fixture compilation fails before server creation, preserving the original setup error and ordinary server-close failures. Keep compilation timeouts and warmup unchanged.
+
+## 0.11.0-beta.3.vorteo.906 - 2026-10-29
+
+### Fixed
+
+- Keep the loading screen visible until React Native Web layout, Unistyles theme styles and required stylesheet downloads are ready for two consecutive frames. Prevent keyboard focus entering the covered interface.
+- Report pending and failed interface styles in startup diagnostics while retaining Reload and Copy diagnostics. Preserve optional font fallback and Data saver behavior.
+- Cover withheld runtime styles and delayed or failed stylesheet downloads in browser startup regressions.
+
+## 0.11.0-beta.3.vorteo.905 - 2026-10-29
+
+### Changed
+
+- Integrate negotiated HTML compression and the startup diagnostics scroll-inset correction, retaining both reviewed implementations and their focused regression coverage.
+
+## 0.11.0-beta.3.vorteo.904 - 2026-10-29
+
+### Changed
+
+- Negotiate Brotli or gzip for daemon-served HTML after injecting its public connection or installation hint. Preserve no-store caching, merge Accept-Encoding into Vary, and return negotiated headers without a body for HEAD.
+- Respect encoding quality and exclusions when selecting static sidecars, including available gzip fallback and refusal when no representation is acceptable. Cover HTTP parity and fallback behavior with focused server tests.
+
+### Fixed
+
+- Keep startup diagnostic controls inside the viewport when scrolling or focusing them on compact displays with fractional layout coordinates. Match the existing safe-area content insets without changing controls or startup behavior.
+- Exercise strict compact and desktop control bounds across fractional positions, retaining all four controls and 44px targets.
+
+## 0.11.0-beta.3.vorteo.903 - 2026-10-29
+
+### Changed
+
+- Reveal startup diagnostics after three seconds. Show compact elapsed time beneath the progress bar using the shared duration formatter.
+- Remove progress and data-saver explanations and the connection-details disclosure. Keep data saver as a checkmark toggle button followed by Copy diagnostics.
+- Embed the shared formatter in the bootstrap HTML so recovery needs no additional script download; provide a synchronization check.
+
+## 0.11.0-beta.3.vorteo.902 - 2026-10-29
+
+### Fixed
+
+- Keep a fresh Settings jump pinned when a control press or late layout moves the web scroll position, so update feedback does not switch the Maintenance URL to Plugins. Preserve deliberate scrolling and keyboard navigation, with browser coverage for returning section tracking to the reader.
+
+## 0.11.0-beta.3.vorteo.901 - 2026-10-29
+
+### Maintenance
+
+- Target seeded workspace rows by their server and workspace IDs in project status and cross-host grouping browser tests. Preserve visibility, status, title and project grouping assertions without matching the draggable wrapper.
+
+## 0.11.0-beta.3.vorteo.900 - 2026-10-29
+
+### Maintenance
+
+- Give the restart-cause test a bounded ten-second wait for asynchronous drain preparation on Windows CI. Keep the pending-start, continuation, cancellation and interrupt assertions unchanged.
+
+## 0.11.0-beta.3.vorteo.899 - 2026-10-29
+
+### Fixed
+
+- Invoke the verified checkout-local Expo CLI directly for retained prepared web builds. Refuse missing or foreign CLI files instead of allowing package-manager installation fallback, and bind the CLI bytes to the prepared-input receipt.
+
+## 0.11.0-beta.3.vorteo.898 - 2026-10-29
+
+### Maintenance
+
+- Add an explicit retained primary web build mode that reuses validated app dependencies in an exclusively claimed dedicated checkout, retains source snapshots and failures, and refuses stale inputs without installing or cloning dependencies. Keep source, deployment and artifact sealing checks.
+
+## 0.11.0-beta.3.vorteo.897 - 2026-10-29
+
+### Fixed
+
+- Build the first workspace agent's profile configuration the same way as its draft retry. Retrying a failed startup no longer changes the permission-mode field and triggers `workspace_request_key_conflict`. Restore browser regressions for retry and remount, and cover consecutive workspace creation from the project button.
+- Target the creation tests' injected startup failures at workspace agents so background naming sessions cannot consume them.
+
+## 0.11.0-beta.3.vorteo.896 - 2026-10-29
+
+### Maintenance
+
+- Target the exact seeded workspace row in sidebar title-width browser checks, avoiding the draggable wrapper's duplicate accessible name while retaining the layout assertions.
+
+## 0.11.0-beta.3.vorteo.895 - 2026-10-29
+
+### Maintenance
+
+- Use owned protected executable fixtures and require valid baseline digests in recovery tests, preserving production permission and ownership guards.
+- Keep protected-grant behavior tests on POSIX platforms and explicitly verify fail-closed behavior when owner identity is unavailable and on native Windows. Match skill-path expectations through the asynchronous native realpath API.
+- Format the preview broker client and its tests with the configured formatter without changing their parsed behavior.
+- Check the Nix macOS bundle against the configured com.vorteo.desktop identifier while retaining executable, launcher-link and plist validation.
+
+## 0.11.0-beta.3.vorteo.894 - 2026-10-29
+
+### Fixed
+
+- Give Nix desktop renderer exports the established 8192 MiB heap on Linux and macOS. Append the export limit after inherited Node options while retaining fatal diagnostics, macOS worker limits and Linux concurrency behavior.
+
+### Validation
+
+- Verify the export command and its child process inherit the larger heap without changing the surrounding build environment. Full Nix desktop builds remain a separate CI check.
+
+## 0.11.0-beta.3.vorteo.893 - 2026-10-29
+
+### Maintenance
+
+- Integrate the reviewed desktop App updates layout and strict smoke workspace selector on the current source. Preserve both contribution histories, all current runtime changes and the approved desktop source and tests unchanged. Reuse the reviewed browser and selector evidence; packaged application validation and installation remain separate.
+
+## 0.11.0-beta.3.vorteo.892 - 2026-10-29
+
+### Maintenance
+
+- Integrate the reviewed account home resolution and native runtime packaging fixes without changing their source or tests. Retain both contribution histories and the accepted project home boundary. Linux Nix validation and managed delivery remain separate.
+
+## 0.11.0-beta.3.vorteo.891 - 2026-10-28
+
+### Fixed
+
+- Integrate reviewed Codex account home inheritance and explicit empty-home handling for launch skill capture. Empty overrides select the native default without inheriting a parent or daemon value; literal whitespace remains unchanged. Preserve the accepted project home-boundary fix and all other runtime source.
+
+### Maintenance
+
+- Retain both Accounts source commits and the accepted Host aggregate in merge ancestry. Combined create-agent and policy checks cover the prepared source; installation remains separate.
+
+## 0.11.0-beta.3.vorteo.891 - 2026-10-29
+
+### Fixed
+
+- Resolve node-pty native inputs from the server's dependency context when tracing the Nix runtime closure. Include platform prebuilds and the Release fallback with their companion assets for workspace-local and hoisted installations, preventing a missing native addon at daemon startup.
+
+### Validation
+
+- Add isolated runtime-closure regressions using the real tracer and node-pty loader across both dependency layouts and both native binary locations. Nix build and CI rerun remain separate.
+
+## 0.11.0-beta.3.vorteo.891 - 2026-10-29
+
+### Fixed
+
+- Keep the desktop App updates label readable beside Check and Update actions. Use local inline actions at desktop widths and stack this row at compact widths without changing shared footers or update behavior.
+
+### Maintenance
+
+- Restrict the packaged desktop smoke workspace selector to the exact named sidebar row, excluding its draggable wrapper while retaining strict visibility and uniqueness checks.
+
+### Validation
+
+- Restore the manual download and rollout-recheck browser cases at desktop and compact widths, with row-scoped controls and geometry assertions for readable labels, contained actions and no overlap.
+
+## 0.11.0-beta.3.vorteo.890 - 2026-10-28
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.889 - 2026-10-28
+
+### Maintenance
+
+- Preserve the original errored-session release contribution in integration ancestry while retaining its predicate and the reviewed atomic closure correction. Runtime behavior is unchanged from the preceding integration.
+
+## 0.11.0-beta.3.vorteo.888 - 2026-10-28
+
+### Fixed
+
+- Allow quiet hosted sessions in idle or error state to release only after the host atomically verifies no active turn, blocking permission or provider call. Refused closure retains registration; older hosts refuse automatic release safely.
+
+## 0.11.0-beta.3.vorteo.887 - 2026-10-28
+
+### Fixed
+
+- Integrate native preview registration repairs and backed-up workspace path migration, including refusal of conflicting targets and invalid registry entries before writes.
+
+## 0.11.0-beta.3.vorteo.886 - 2026-10-28
+
+### Fixed
+
+- Stop project skill traversal before the user home so Git-less task directories do not mix personal and account bundled skills. Explicit configured skill roots remain intact.
+
+## 0.11.0-beta.3.vorteo.885 - 2026-10-28
+
+### Added
+
+- Recover threads whose provider account is unavailable through the existing profile switch, preserving thread identity and recorded history with capability-gated controls.
+
+## 0.11.0-beta.3.vorteo.884 - 2026-10-28
+
+### Maintenance
+
+- Reconcile the keyboard-corrected sidebar delivery with the published Clear goal interface, preserving both source histories and their validation limits.
+
+## 0.11.0-beta.3.vorteo.883 - 2026-10-28
+
+### Fixed
+
+- Preserve keyboard sidebar reordering with focusable drag handles, arrow placement, drop and cancellation. Add a browser regression for project and workspace order, focus return and reload persistence; pointer drop rules remain unchanged.
+
+## 0.11.0-beta.3.vorteo.882 - 2026-10-28
+
+### Changed
+
+- Use a trashcan for Clear goal and keep the action available while retaining shared error handling and backend serialization.
+
+## 0.11.0-beta.3.vorteo.881 - 2026-10-28
+
+### Maintenance
+
+- Reconcile the sidebar delivery with the installed Host source, retaining maintenance status isolation and all incident fixes.
+
+## 0.11.0-beta.3.vorteo.882 - 2026-10-28
+
+### Fixed
+
+- Release idle or errored hosted sessions for pending upgrades only through an atomic host check. Active turns, pending blocking permissions and in-flight provider calls veto automatic closure, including when a previously selected agent becomes busy while another closes. Refusals retain the registration and attachment; asynchronous thread questions survive release and reload.
+- Require the host's advertised conditional-close capability for automatic release. Older hosts keep sessions warm; ordinary explicit close remains unchanged.
+
+### Validation
+
+- Cover stale turn and permission selection, in-flight turn start, closing admission, older-host refusal, provider forwarding and durable question retention in existing focused suites.
+
+## 0.11.0-beta.3.vorteo.881 - 2026-10-28
+
+### Changed
+
+- Use a trashcan for Clear goal and keep the action available, retaining shared error handling and backend serialization.
+
+## 0.11.0-beta.3.vorteo.880 - 2026-10-28
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.882 - 2026-10-28
+
+### Fixed
+
+- The moved-path migration never overwrites an agent file. A different record already at the target, or two records for one target, refuses the migration before any registry or agent file changes. A target holding exactly the planned record, left by a run interrupted before removing its source, resumes by removing the source without rewriting the target.
+- A registry entry that is not a record refuses the migration instead of being dropped from the rewritten list.
+
+## 0.11.0-beta.3.vorteo.881 - 2026-10-28
+
+### Added
+
+- A `movedPaths` Projects folder setting relocates records for a renamed checkout at the next daemon start. Workspaces, membership keys, local project roots and agents, including their resume metadata, move from the old path to the new one. Agent files move to the matching storage folder, and every changed file is backed up first.
+- Sibling directories that only share the old path's prefix are untouched. An archived project whose new root already belongs to another project keeps its recorded root.
+
+## 0.11.0-beta.3.vorteo.880 - 2026-10-28
+
+### Fixed
+
+- Stop project skill discovery before the user's home so git-less working directories cannot import personal Codex bundled skills into an account launch. Preserve explicit personal and account roots and Git project boundaries, with focused inventory regressions.
+- Native previews start again when a workspace is still registered under a symlinked path, such as the former `~/dev/paseo` alias. The broker skips unsafe workspace paths while collecting reserved ports instead of failing every new reservation.
+- A preview service declared only in the untracked `paseo.local.json` now starts, including when the pinned CLI is too old to report local configuration support.
+
+## 0.11.0-beta.3.vorteo.879 - 2026-10-28
+
+### Fixed
+
+- Keep Installation restart and cancellation controls available when the protected maintenance-delegation status cannot be read. Show the status error, retain the last observation, and prevent grant changes until a successful refresh; expired owner access still locks the controls.
+
+### Maintenance
+
+- Retain the accepted Dev installation ancestry alongside maintenance delegation, with a new shared release version. The delegation rollout requires a compatible coordinator recovery runtime before enabling the grant.
+
+## 0.11.0-beta.3.vorteo.878 - 2026-10-28
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.877 - 2026-10-28
+
+### Maintenance
+
+- Reconcile the installed Dev source history with the accepted outage repair for tracked delivery. Runtime code remains identical to the reviewed incident source; permanent cold-start selection and recovery configuration remain separate installation steps.
+
+## 0.11.0-beta.3.vorteo.879 - 2026-10-28
+
+### Changed
+
+- Integrate sidebar icons, consistent indentation, focused views and typed drag placement with the maintenance controls source.
+
+### Fixed
+
+- Preserve all project and workspace ordering keys when placing entries into sidebar folders, and keep focused breadcrumbs usable on touch screens.
+- Update Standing browser selectors for the separate toggle and Focus controls without weakening touch-size or lifecycle assertions.
+
+## 0.11.0-beta.3.vorteo.877 - 2026-10-28
+
+### Added
+
+- Explicit owner delegation for authenticated Host maintenance, including exact coordinator configuration changes, Factory adoption, Docker recovery, launcher updates, native helpers and the session host. Existing plan checks, cancellation windows, revocation and recovery fences remain enforced.
+- Installation controls show the full grant and let the owner enable or revoke it through protected APIs with stale-revision checks. Enrolled installations keep their existing scoped admission workflow; agent credentials cannot edit the grant.
+
+## 0.11.0-beta.3.vorteo.876 - 2026-10-28
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.878 - 2026-10-28
+
+### Fixed
+
+- Dragging a project between top-level projects no longer nests it inside one of them. Projects and root folders land only at the top level or inside a root folder, snapping to the nearest such position; workspaces and project folders stay in their own project unless dropped on another project's header row, which keeps the existing move-to-project confirmation. Standing and Factory workspaces reorder only within their section.
+
+### Changed
+
+- Sidebar drags on web and desktop now drop by position. Rows stay put while an insertion line shows where the dragged row will land, starting at its projected indent, and a folder receiving it is highlighted. On a folder row the top quarter places before it, the middle half drops into it and the bottom quarter places after it; other rows split in halves. Where several depths are possible, such as after a folder's last row, moving the pointer left outdents and right indents, one 24px step per level with a small dead band so the depth does not flicker.
+- While a project or root folder is dragged, every project and every root folder not holding it folds to a single row; a dragged folder folds too. The view returns to its exact previous folding on drop or cancel, and the temporary folding is never written to the shared sidebar state.
+- Only a project's header row accepts workspaces from other projects; previously the whole project block did. Native apps keep their reorder gestures, and touch layouts keep Move to folder in row menus.
+
+## 0.11.0-beta.3.vorteo.877 - 2026-10-28
+
+### Maintenance
+
+- Add the sidebar drop resolver, a pure module not yet used by the drag lists. It applies the type rules (projects and root folders stay at the top level or in root folders; workspaces and project folders stay in their project unless dropped on another project's header), the quarter and half row zones, and horizontal depth projection with hysteresis at boundaries, and reports the receiving container, index and depth.
+
+## 0.11.0-beta.3.vorteo.876 - 2026-10-28
+
+### Added
+
+- Focus the sidebar on one project, folder, Standing or Factory section. Hovering a project or folder row shows a double-arrow Focus button just left of its ⋮ menu; touch layouts get a Focus item in project and folder menus instead, and Standing and Factory keep the button visible. The focused item becomes the top level with its contents beneath, and a breadcrumb at the top of the list leads from All projects through its root folders, project and project folders. Every segment but the last focuses that level; All projects leaves focus, and there is no back button. Escape leaves focus while keyboard focus is in the sidebar, and web and desktop show an Esc hint.
+- Focus is remembered on this device across reloads and is never synced through the shared sidebar state. If the focused item is deleted, archived or filtered away, the sidebar falls back to its nearest remaining ancestor, or to all projects. While focused, Pinned is hidden and pinned chats stay in their project; status grouping ignores focus; filters and search keep working inside it.
+
+## 0.11.0-beta.3.vorteo.875 - 2026-10-28
+
+### Maintenance
+
+- Recovery browser checks open Maintenance directly and wait for owner unlock before reviewing the exact request. Runtime recovery behavior is unchanged.
+
+## 0.11.0-beta.3.vorteo.874 - 2026-10-28
+
+### Fixed
+
+- Retained managed supervisors validate configuration with the selected worker's strict schema, preventing newer valid settings from breaking the next boot.
+
+### Added
+
+- Separately approved degraded Docker recovery with pinned executable and container identities, retained paused-Factory evidence, a shared command deadline and no automatic replay.
+- An optional native private recovery origin that serves the existing interface and authenticated installation controls without redirecting through Docker.
+
+- Add the sidebar focus model and its device-local store, not yet wired into the sidebar. It resolves the focused project, folder, Standing or Factory section, builds the breadcrumb from root folders through the project and project folders, and falls back to the nearest listed ancestor when the focused item is deleted, archived or filtered away. Focus strings are translated in every supported language.
+
+## 0.11.0-beta.3.vorteo.874 - 2026-10-28
+
+### Changed
+
+- Sidebar folders, Standing and Factory now start with a folder icon sized and placed like a workspace icon, and show their expand arrow in that slot only on hover, as projects already did. The always-visible chevrons on the left edge are gone; touch layouts show the arrow, as they do for projects.
+- Every sidebar hierarchy level now steps in by one 24px unit: root folders, projects, project folders with Standing and Factory, then workspaces. Workspaces inside a project folder, Standing or Factory sit one level deeper than the project's own workspaces. The unit lives in `components/sidebar/indent.ts`.
+
+- Use a trashcan for Clear goal and keep the action enabled during goal activity, pending requests and errors.
+
+- Threads whose provider is unavailable offer the standard account and profile picker in the load error. Recovery reads the previous account's saved history without running a turn, keeps the original thread and workspace, and retains its checklist, journal and questions. Failed recovery leaves the original account binding intact and offers a visible retry. The existing recent-message context bound still applies.
+- Add disabled and removed account recovery tests, stale-source and failed-replacement checks, and a browser journey covering unreadable history, retry and reload.
+
+## 0.11.0-beta.3.vorteo.875 - 2026-10-28
+
+### Fixed
+
+- An explicit empty Codex home stops provider inheritance and selects the native default home for launch skill capture. It no longer inventories a populated parent or daemon home. Literal whitespace paths remain unchanged; focused regressions cover policy capture, multiple inheritance levels, cycles and malformed or missing entries.
+
+## 0.11.0-beta.3.vorteo.874 - 2026-10-27
+
+### Fixed
+
+- A hosted agent parked in an error, such as a usage-limit hold, no longer keeps the old session host alive through an upgrade. The release of idle hosted sessions only considered agents whose lifecycle was idle, so an errored agent that ran no turn and had no pending permission held the host for as long as its hold lasted; on the live installation one such agent, with a weekly limit resetting hours later, kept the host on the previous release for a day. Such an agent is now released like an idle one and resumes on the new host when it next runs. A running turn or an unanswered permission still holds the host.
+
+- A Codex account that inherits its `CODEX_HOME` from the provider it extends now has its launch skill snapshot taken from that inherited folder, matching the folder its session runs with. The lookup follows the same order as launch: the account's own setting, then each extended provider's, then the daemon's, then `~/.codex`.
+
+### Validation
+
+- The idle release selection test gains an errored hosted agent with no turn and no pending permission, which is selected, beside one with a pending permission, which is not.
+
 ## 0.11.0-beta.3.vorteo.878 - 2026-10-26
 
 ### Maintenance
@@ -96,6 +491,14 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Fixed
 
 - An installation coordinator configured for a systemd Host no longer crashes at startup. It created the launchd-only coordinator bootstrap ledger unconditionally; it now skips the ledger on systemd Hosts and reports coordinator maintenance as unavailable there, as it already did when the ledger was missing.
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.870 - 2026-10-22
+
+### Maintenance
+
+- Merge the installed Host main into Dev's installed source so the Dev update descends from what Dev runs
 
 ## 0.11.0-beta.3.vorteo.869 - 2026-10-26
 
@@ -1354,6 +1757,96 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - The Projects folder accepts folders inside it on Windows. Containment compares real paths from the native resolver on both sides, so an 8.3 short temp path such as `RUNNER~1` no longer reads as outside the folder.
 - Projects folder aliases map Windows paths with either separator and without case, and project keys with Windows paths map too. POSIX aliases and earlier locations from another daemon stay as written on Windows instead of being placed on the current drive.
 - The per-command and agent `safe.directory` entries name the repository's long real path with forward slashes on Windows, the form git there reports and compares.
+
+## 0.11.0-beta.3.vorteo.808 - 2026-10-23
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.807 - 2026-10-22
+
+### Maintenance
+
+- Merge the installed Host main into Dev's installed source so the Dev update descends from what Dev runs
+
+## 0.11.0-beta.3.vorteo.797 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.796 - 2026-10-22
+
+### Maintenance
+
+- Merge the installed Host main into Dev's installed source so the Dev update descends from what Dev runs
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.757 - 2026-10-22
+
+### Maintenance
+
+- Merge Dev's installed source so the Dev update is a fast-forward of what Dev runs; main already carries every Dev change
+
+## 0.11.0-beta.3.vorteo.693 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.692 - 2026-10-20
+
+### Fixes
+
+- ACP agents (Cursor, Copilot, Kimi, Kiro and generic ACP providers) now receive the agent's system prompt and the shared agent instructions in a marked block on a new session's first prompt. A failed first prompt keeps them for the next turn, a first-turn slash command defers them, and history replay hides the block.
+
+## 0.11.0-beta.3.vorteo.691 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.690 - 2026-10-20
+
+### Fixed
+
+- Accept the read-only Factory qualifier workspace. Governed workers previously had to use a fully writable workspace, so Factory issue qualification, which reads the workspace and writes only its private `.factory-tmp` scratch directory, failed right after launch with "Native worker filesystem confinement is unavailable". The verifier now accepts exactly two strict shapes, the existing writable one and the read-only one with `.factory-tmp` writable, and refuses near misses.
+- Require `.factory-tmp` to be a real directory, not a file or symlink, before a read-only worker starts.
+- Add focused tests for both shapes, near-miss shapes and the scratch directory checks.
+
+## 0.11.0-beta.3.vorteo.690 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.689 - 2026-10-20
+
+### Fixed
+
+- Bound how long one schedule tick waits for an admitted attempt. A protected attempt that has neither dispatched nor settled within 15 seconds stays running and admitted, and the tick continues with the remaining schedules. Without this, one hung quota preparation would stop all scheduled work until a daemon restart.
+- Log a warning when an attempt reaches the bound, and once when later ticks are skipped behind a long-held tick.
+- Add a regression test for a hung protected admission.
+
+## 0.11.0-beta.3.vorteo.688 - 2026-10-19
+
+### Fixed
+
+- Prevent overlapping schedule ticks. A tick that starts while another is still admitting schedules is skipped, and the guard is released after failures. Dispatched scheduled runs continue concurrently, so long runs do not delay other due schedules.
+- Skip a schedule that changed after the tick's snapshot and retry it on the next tick, instead of aborting the remaining schedules. This removes the repeated "Schedule changed before admission" failures from held protected schedules. Admission rules, protected custody and quota handling are unchanged.
+- Add focused schedule service tests for overlapping ticks, stale admission, guard release after failure and concurrent dispatched runs.
+
+## 0.11.0-beta.3.vorteo.688 - 2026-10-19
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
 
 ## 0.11.0-beta.3.vorteo.806 - 2026-10-23
 

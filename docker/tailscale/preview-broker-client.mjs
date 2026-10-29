@@ -79,7 +79,13 @@ function replace(path, text) {
 }
 async function request(operation, workspaceId, service, preferredPort) {
   const id = randomUUID();
-  const r = { id, operation, workspaceId, service, createdAt: Date.now() / 1000 };
+  const r = {
+    id,
+    operation,
+    workspaceId,
+    service,
+    createdAt: Date.now() / 1000,
+  };
   if (preferredPort !== undefined) r.preferredPort = preferredPort;
   const temp = join(channel, "inbox", "." + id);
   const target = join(channel, "inbox", id + ".json");
@@ -192,8 +198,12 @@ export function wrapPreviewCommand(cwd, name, prefix, useLocalConfig) {
   const projectText = readFileSync(projectPath, "utf8");
   const project = JSON.parse(projectText);
   const committed = project.scripts?.[name]?.command;
-  if (typeof committed !== "string") throw Error("Preview service configuration is missing");
+  // Callers wrap only services the daemon listed. One absent from paseo.json can only
+  // have come from paseo.local.json, which proves the daemon merges it even when an
+  // older pinned CLI cannot report the capability.
+  if (committed === undefined && existsSync(join(cwd, "paseo.local.json"))) useLocalConfig = true;
   if (!useLocalConfig) {
+    if (typeof committed !== "string") throw Error("Preview service configuration is missing");
     if (committed.startsWith(prefix)) return;
     project.scripts[name].command = prefix + "/bin/sh -lc " + quote(committed);
     if (readFileSync(projectPath, "utf8") !== projectText)
@@ -204,11 +214,16 @@ export function wrapPreviewCommand(cwd, name, prefix, useLocalConfig) {
   const localPath = join(cwd, "paseo.local.json");
   const localText = existsSync(localPath) ? readFileSync(localPath, "utf8") : null;
   const local = localText === null ? {} : JSON.parse(localText);
+  // A machine-local service may be declared only in paseo.local.json.
   const current = local.scripts?.[name]?.command ?? committed;
+  if (typeof current !== "string") throw Error("Preview service configuration is missing");
   if (current.startsWith(prefix)) return;
   local.scripts = {
     ...local.scripts,
-    [name]: { ...local.scripts?.[name], command: prefix + "/bin/sh -lc " + quote(current) },
+    [name]: {
+      ...local.scripts?.[name],
+      command: prefix + "/bin/sh -lc " + quote(current),
+    },
   };
   const now = existsSync(localPath) ? readFileSync(localPath, "utf8") : null;
   if (now !== localText) throw Error("Configuration changed concurrently");

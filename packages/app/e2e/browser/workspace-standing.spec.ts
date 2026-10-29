@@ -7,6 +7,8 @@ import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import { getServerId } from "../support/helpers/server-id";
 import { openWorkspaceActionsMenu } from "../support/helpers/workspace-ui";
 import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
+import { SIDEBAR_INDENT_UNIT } from "../../src/components/sidebar/indent";
+import { openMobileAgentSidebar } from "../support/helpers/sidebar";
 
 /**
  * Escape closes an open tooltip first and the menu on the next press, so keep pressing until
@@ -138,7 +140,7 @@ test.fixme("Standing follows schedules and protection, and failed changes can be
     await labelsItem(page, agent.workspaceId, "protected").click();
     await expect(page.getByTestId(`workspace-shield-${agent.workspaceId}`)).toBeVisible();
     await page.keyboard.press("Escape");
-    const section = page.getByTestId(/^sidebar-standing-section-/);
+    const section = page.getByTestId(/^sidebar-standing-section-.*-toggle$/);
     await expect(section).toHaveText("Standing");
     const heading = section.getByText("Standing", { exact: true });
     const workspaceRow = page
@@ -153,12 +155,17 @@ test.fixme("Standing follows schedules and protection, and failed changes can be
       .getByText("main", { exact: true })
       .evaluate((element) => getComputedStyle(element).fontSize);
     await expect(heading).toHaveCSS("font-size", titleSize);
-    const arrowBox = await section.locator("svg").first().boundingBox();
-    if (!arrowBox) throw new Error("Expected leading disclosure arrow");
-    expect(Math.abs(arrowBox.x + arrowBox.width / 2 - dotBox.x - dotBox.width / 2)).toBeLessThan(1);
-    expect(headingBox.x - arrowBox.x - arrowBox.width).toBeGreaterThanOrEqual(8);
+    // Standing is a project child like a folder, so its folder icon sits one indent unit
+    // outside the workspaces it holds.
+    const folderIconBox = await section.locator("svg").first().boundingBox();
+    if (!folderIconBox) throw new Error("Expected leading folder icon");
+    const iconCenter = folderIconBox.x + folderIconBox.width / 2;
+    expect(Math.abs(dotBox.x + dotBox.width / 2 - iconCenter - SIDEBAR_INDENT_UNIT)).toBeLessThan(
+      1,
+    );
+    expect(headingBox.x - folderIconBox.x - folderIconBox.width).toBeGreaterThanOrEqual(8);
     const workspaceTitleBox = await workspaceRow.getByText("main", { exact: true }).boundingBox();
-    expect(Math.abs(headingBox.x - workspaceTitleBox!.x)).toBeLessThan(1);
+    expect(Math.abs(workspaceTitleBox!.x - headingBox.x - SIDEBAR_INDENT_UNIT)).toBeLessThan(1);
     await section.hover();
     expect(await section.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(
       "rgba(0, 0, 0, 0)",
@@ -279,6 +286,49 @@ test.fixme("Standing follows schedules and protection, and failed changes can be
 test.describe("touch controls", () => {
   test.use({ hasTouch: true, viewport: { width: 1280, height: 800 } });
 
+  for (const width of [1280, 390]) {
+    test(`focused Standing keeps usable breadcrumb targets at ${width}px`, async ({ page }) => {
+      test.setTimeout(180_000);
+      await page.setViewportSize({ width, height: 844 });
+      const agent = await seedMockAgentWorkspace({
+        repoPrefix: "standing-focus-touch-",
+        title: "Focused supervisor",
+      });
+      try {
+        await agent.client.setWorkspaceLifecycle({
+          workspaceId: agent.workspaceId,
+          standing: true,
+        });
+        await openAgentRoute(page, agent);
+        if (width < 600) await openMobileAgentSidebar(page);
+        const focus = page.getByTestId(/^sidebar-standing-section-.*-focus$/);
+        await expect(focus).toBeVisible();
+        await focus.tap();
+        const breadcrumb = page.getByTestId("sidebar-focus-breadcrumb");
+        await expect(breadcrumb).toBeVisible();
+        await expect(page.getByTestId("sidebar-focus-current")).toHaveText("Standing");
+        for (const link of await breadcrumb.getByRole("link").all()) {
+          const box = await link.boundingBox();
+          expect(box?.height).toBeGreaterThanOrEqual(44);
+          expect(box?.width).toBeGreaterThanOrEqual(44);
+        }
+        await page.screenshot({ path: test.info().outputPath(`standing-focus-${width}.png`) });
+        await page.reload();
+        if (width < 600) await openMobileAgentSidebar(page);
+        await expect(page.getByTestId("sidebar-focus-current")).toHaveText("Standing");
+        await page.getByTestId("sidebar-focus-crumb-all").tap();
+        await expect(breadcrumb).toBeHidden();
+        await expect(focus).toBeVisible();
+      } finally {
+        await agent.client.setWorkspaceLifecycle({
+          workspaceId: agent.workspaceId,
+          protected: false,
+        });
+        await agent.cleanup();
+      }
+    });
+  }
+
   test("Standing and Scheduled keep touch targets on a wide touchscreen", async ({ page }) => {
     test.setTimeout(180_000);
     page.setDefaultTimeout(15_000);
@@ -301,7 +351,7 @@ test.describe("touch controls", () => {
       scheduleId = created.schedule.id;
       await client.schedulePause({ id: scheduleId });
       await openAgentRoute(page, agent);
-      const section = page.getByTestId(/^sidebar-standing-section-/);
+      const section = page.getByTestId(/^sidebar-standing-section-.*-toggle$/);
       const scheduled = page.getByTestId(`workspace-scheduled-${agent.workspaceId}`);
       await expect(scheduled).toBeVisible();
       expect((await section.boundingBox())?.height).toBeGreaterThanOrEqual(44);
@@ -410,7 +460,7 @@ test("workspace schedule creation, pause, resume and deletion drive Standing", a
   let scheduleId: string | undefined;
   try {
     await openAgentRoute(page, agent);
-    const section = page.getByTestId(/^sidebar-standing-section-/);
+    const section = page.getByTestId(/^sidebar-standing-section-.*-toggle$/);
     await expect(section).toBeHidden();
     await openMenu(page, agent.workspaceId);
     await page

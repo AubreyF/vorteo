@@ -31,6 +31,14 @@ const DESCRIPTIONS: Descriptions = {
     config === null
       ? "Remove the tracked Docker restart plan."
       : `Allow a tracked Docker Desktop restart for Dev, which you approve each time. Pinned containers: Dev ${config.containers.dev.slice(0, 12)}, gateway Tailscale ${config.containers.gatewayTailscale.slice(0, 12)}, gateway Caddy ${config.containers.gatewayCaddy.slice(0, 12)}.${config.factoryVerify ? ` Factory lock check ${config.factoryVerify.sha256.slice(0, 12)}, owner mode ${config.factoryVerify.ownerMode}.` : ""}`,
+  engineRecovery: (config) =>
+    config === null
+      ? "Remove degraded Docker recovery."
+      : `Allow separately reviewed recovery when Docker does not answer. Unknown running work may be interrupted. Preserve the pinned containers and paused Factory custody from ${config.baseline.observedAt}; verify them after recovery.`,
+  recoveryOrigin: (origin) =>
+    origin === null
+      ? "Remove the independent private recovery origin."
+      : `Serve the existing interface and password-protected installation controls at ${origin} without redirecting to the Docker gateway. Existing credentials and environment identities remain unchanged.`,
   factoryGate: (config) =>
     config === null
       ? "Stop running Factory's checks around Dev restarts."

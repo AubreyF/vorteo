@@ -34,6 +34,10 @@ Once the export is sealed, the build deletes its snapshot and dependencies and k
 
 Task worktrees can build preview artifacts with `node scripts/build-instance-web.mjs`. The publisher rejects preview artifacts. For primary publication, merge accepted work into one integration branch and commit it first. The checkout must be clean, and its commit must descend from the deployed commit. These checks preserve deployed source history; review and acceptance tests must still catch intentional or accidental feature reversions within that history.
 
+During an explicit preservation hold, Builds can use `--retain-builds --build-root <this-dedicated-checkout>` with the normal destination and integration reference. This mode retains the archive, source snapshot, failed builds and sealed builds under the checkout's ignored `.runtime/retained-web-builds`; it starts no pruner. It requires exclusive use of the checkout, a clean committed source and existing app dependencies. No install, clone or dependency build fallback runs.
+
+After a successful `npm run build:app-deps`, record the prepared inputs with `node --input-type=module -e 'import {recordPreparedWebInputs} from "./scripts/lib/prepared-web-build.mjs"; await recordPreparedWebInputs(process.cwd())'`. The exclusive receipt records the normalized dependency key, installed-lock digest, generated source identities and output metadata without scanning dependency contents. Preserve an existing receipt separately before preparing a replacement. Generated outputs must remain untouched afterward. The builder refuses missing or changed inputs, a foreign root or an existing build claim. It compares the checkout with the separate committed snapshot before export and before sealing and rechecks the primary deployment binding. Claims are retained with the snapshot on success or failure; a crash leaves a lock that requires explicit reconciliation. The same sealing and guarded publication commands still apply.
+
 ```sh
 node scripts/build-instance-web.mjs \
   --destination "$PASEO_WEB_UI_DIST_DIR" \

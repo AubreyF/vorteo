@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
-import { accessSync, constants } from "node:fs";
+import { accessSync, constants, readFileSync, statSync, realpathSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
-import type { EngineRestartConfiguration } from "@getpaseo/protocol/execution-installation";
+import type {
+  EngineRestartConfiguration,
+  EngineRecoveryConfiguration,
+} from "@getpaseo/protocol/execution-installation";
+import { compareFactoryFacts } from "./factory-gate.js";
 import {
   assertFactoryVerifyScript,
   defaultRun,
@@ -67,6 +71,100 @@ export function engineRestartPlanDigest(
   } catch {
     return undefined;
   }
+}
+
+/** Recovery has its own exact approval, including retained evidence and executable bytes. */
+export function engineRecoveryPlanDigest(
+  plan: EngineRecoveryConfiguration | undefined,
+): string | undefined {
+  if (!plan || !engineRestartPlanDigest(plan)) return undefined;
+  try {
+    const binary = statSync(plan.docker);
+    if (
+      !binary.isFile() ||
+      (binary.mode & 0o022) !== 0 ||
+      ![0, process.getuid?.()].includes(binary.uid) ||
+      realpathSync(plan.docker) !== plan.docker ||
+      createHash("sha256").update(readFileSync(plan.docker)).digest("hex") !== plan.dockerSha256
+    )
+      return undefined;
+    return createHash("sha256")
+      .update(canonicalJson({ kind: "degraded-engine-recovery-v1", plan }))
+      .digest("hex");
+  } catch {
+    return undefined;
+  }
+}
+
+/** One monotonic budget covers preflight, restart, readiness and Factory checks. */
+export function engineRecoveryBudget(
+  plan: EngineRecoveryConfiguration,
+  dependencies: EngineRestartDependencies = {},
+): EngineRestartDependencies {
+  const now = dependencies.now ?? (() => performance.now());
+  const run = dependencies.run ?? defaultRun;
+  const sleep = dependencies.sleep ?? ((ms: number) => delay(ms));
+  const deadline = now() + plan.deadlineSeconds * 1000;
+  function remaining() {
+    const ms = Math.floor(deadline - now());
+    if (ms <= 0)
+      throw new Error(
+        "Degraded recovery budget exhausted; inspect retained outcome before any new request",
+      );
+    return ms;
+  }
+  return {
+    now,
+    run: (file, args, timeout) => run(file, args, Math.min(timeout, remaining())),
+    sleep: async (ms) => {
+      await sleep(Math.min(ms, remaining()));
+      remaining();
+    },
+  };
+}
+
+/** No Dev call, hold, or claim of idleness. Only the separately approved unavailable-engine path. */
+export async function engineRecoveryPreflight(
+  plan: EngineRecoveryConfiguration,
+  expectedDigest: string,
+  dependencies: EngineRestartDependencies = {},
+): Promise<EngineRestartPreflight> {
+  if (engineRecoveryPlanDigest(plan) !== expectedDigest)
+    throw new Error("Degraded Docker recovery plan is unavailable or changed");
+  let answered = false;
+  try {
+    await engineAnswers(plan, dependencies.run ?? defaultRun);
+    answered = true;
+  } catch {
+    // An unavailable inventory is unknown work, never proof that Dev is idle.
+  }
+  if (answered)
+    throw new Error(
+      "Docker answers. Degraded recovery refused; inspect its current state before a different request.",
+    );
+  if (engineRecoveryPlanDigest(plan) !== expectedDigest)
+    throw new Error("Degraded Docker recovery plan changed during preflight");
+  return {
+    startedAt: plan.baseline.startedAt,
+    factoryEpoch: plan.baseline.factory.epoch,
+    factorySupervisorPid: plan.baseline.factory.supervisorPid,
+  };
+}
+
+/** Verify against the reviewed retained baseline, not invented current observations. */
+export async function verifyFactoryAfterRecovery(
+  plan: EngineRecoveryConfiguration,
+  dependencies: EngineRestartDependencies = {},
+): Promise<string> {
+  const after = await runFactoryVerify(plan, dependencies.run ?? defaultRun);
+  if (!after.ok) throw new Error(`Factory recovery check failed: ${after.check}`);
+  const before = { ok: true, check: "retained-baseline", ...plan.baseline.factory };
+  const { problems } = compareFactoryFacts(before, after, "entry");
+  if (after.custodyCount !== before.custodyCount)
+    problems.push("Factory custody count changed while paused");
+  if (problems.length)
+    throw new Error(`Factory recovery verification failed: ${problems.join("; ")}`);
+  return "Factory paused owner and custody match the reviewed retained baseline; current boot verified";
 }
 
 function dockerArgs(plan: EngineRestartConfiguration, args: string[]): string[] {

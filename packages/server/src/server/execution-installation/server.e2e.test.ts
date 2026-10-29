@@ -14,7 +14,7 @@ import type { CoordinatorBootstrapRequest } from "@getpaseo/protocol/coordinator
 import { MaintenanceServiceJobSchema } from "@getpaseo/protocol/maintenance-service";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { InstallationEnrollmentStatusSchema } from "@getpaseo/protocol/installation-enrollment";
-import { DaemonAutomation } from "./daemon-automation.js";
+import { DaemonAutomation, coordinatorAutomaticAuthority } from "./daemon-automation.js";
 import {
   coordinatorPlanDigest,
   type BootstrapReconciliationLedger,
@@ -2776,7 +2776,7 @@ test("Host CLI source contributions carry the advertised owner-review requiremen
     expect(calls).toEqual([
       "GET /api/installation/capabilities",
       "GET /api/installation/update-source",
-      "POST /api/installation/source-update-requests?target=host&sourceBatches=1&requireOwnerApproval=1&engineRestart=1&hostLauncherUpdate=1",
+      "POST /api/installation/source-update-requests?target=host&sourceBatches=1&requireOwnerApproval=1&engineRestart=1&engineRecovery=1&hostLauncherUpdate=1",
     ]);
     expect(metadata).toMatchObject({
       request: { target: "host", requireOwnerApproval: true },
@@ -4132,5 +4132,193 @@ test("missing independent Dev readiness disables ordinary capabilities without b
   expect(refused.status).toBe(409);
   expect(await refused.json()).toMatchObject({ error: expect.stringContaining("registration") });
   expect(new FileBootstrapRequestJournal(f.root).readLifecycle()).toEqual([pending]);
+  expect(f.calls).toEqual([]);
+});
+
+test("native recovery origin serves the interface and authenticated controls independently of Dev", async () => {
+  const origin = "https://previous.example.test";
+  const { url, calls } = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    (config) => {
+      config.recoveryOrigin = origin;
+    },
+  );
+  const request = (
+    route: string,
+    token?: string,
+    body?: unknown,
+    requestOrigin = origin,
+    host = "previous.example.test",
+  ) =>
+    new Promise<Response>((resolve, reject) => {
+      const outgoing = httpRequest(
+        url + route,
+        {
+          method: body === undefined ? "GET" : "POST",
+          headers: {
+            Host: host,
+            Origin: requestOrigin,
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        },
+        (incoming) => {
+          const chunks: Buffer[] = [];
+          incoming.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+          incoming.on("end", () =>
+            resolve(
+              new Response(Buffer.concat(chunks).toString(), { status: incoming.statusCode }),
+            ),
+          );
+          incoming.on("error", reject);
+        },
+      );
+      outgoing.on("error", reject);
+      outgoing.end(body === undefined ? undefined : JSON.stringify(body));
+    });
+  const page = await request("/");
+  expect(page.status).toBe(200);
+  const html = await page.text();
+  expect(html).toContain(origin);
+  expect(html).toContain("host-id");
+  expect(html).toContain("guest-id");
+  for (const secret of [
+    "owner-test-password",
+    "host-daemon-test-password",
+    "guest-daemon-test-password",
+    "host-agent-test-token",
+  ])
+    expect(html).not.toContain(secret);
+  expect((await request("/api/installation/owner/unlock", undefined, {})).status).toBe(401);
+  expect(
+    (await request("/api/installation/owner/unlock", "guest-agent-test-token", {})).status,
+  ).toBe(401);
+  expect(
+    (
+      await request(
+        "/api/installation/owner/unlock",
+        "owner-test-password",
+        {},
+        "https://evil.example",
+      )
+    ).status,
+  ).toBe(403);
+  expect(
+    (
+      await request(
+        "/api/installation/owner/unlock",
+        "owner-test-password",
+        {},
+        "https://owner.example.test",
+      )
+    ).status,
+  ).toBe(403);
+  expect((await request("/api/installation/owner/unlock", "owner-test-password", {})).status).toBe(
+    200,
+  );
+  expect((await request("/", undefined, undefined, origin, "unknown.example.test")).status).toBe(
+    403,
+  );
+  expect(calls).toEqual([]);
+});
+
+test("full maintenance delegation requires owner origin and credential and supports exact revocation", async () => {
+  const f = await fixture();
+  const query = "/api/installation/owner/maintenance-delegation/query";
+  const change = "/api/installation/owner/maintenance-delegation/change";
+  for (const token of ["guest-agent-test-token", "host-agent-test-token"])
+    expect((await f.request(change, token, { expectedRevision: null, enabled: true })).status).toBe(
+      401,
+    );
+  expect(
+    (
+      await f.request(
+        change,
+        "owner-test-password",
+        { expectedRevision: null, enabled: true },
+        "https://foreign.example.test",
+      )
+    ).status,
+  ).toBe(403);
+  const initial = await (await f.request(query, "owner-test-password", {})).json();
+  expect(initial).toEqual({ available: true, revision: null, enabled: false, activatedAt: null });
+  const response = await f.request(change, "owner-test-password", {
+    expectedRevision: initial.revision,
+    enabled: true,
+  });
+  expect(response.status).toBe(200);
+  const saved = await response.json();
+  expect(saved.enabled).toBe(true);
+  expect(
+    (await f.request(change, "owner-test-password", { expectedRevision: null, enabled: false }))
+      .status,
+  ).toBe(409);
+  const caps = await (
+    await f.request("/api/installation/capabilities", "host-agent-test-token")
+  ).json();
+  expect(caps.maintenanceDelegation).toEqual({ available: true, enabled: true });
+  expect(caps.sessionHostJob.ownerApprovalRequired).toBe(false);
+  const revoked = await f.request(change, "owner-test-password", {
+    expectedRevision: saved.revision,
+    enabled: false,
+  });
+  expect(revoked.status).toBe(200);
+  const after = await (
+    await f.request("/api/installation/capabilities", "host-agent-test-token")
+  ).json();
+  expect(after.maintenanceDelegation.enabled).toBe(false);
+  expect(after.sessionHostJob.ownerApprovalRequired).toBe(true);
+  expect(f.calls).toEqual([]);
+});
+
+test("retained broad delegation cannot bypass enrolled maintenance admission", async () => {
+  let retained: InstallationConfig | undefined;
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    (config) => {
+      retained = config;
+      writeFileSync(
+        path.join(config.stateDir, "owner-delegation.json"),
+        JSON.stringify({
+          version: 1,
+          delegatedRequesterPrefixes: [],
+          hostUpdateServiceRestart: false,
+          maintenanceApprovedAfter: "2026-01-01T00:00:00.000Z",
+        }),
+        { mode: 0o600 },
+      );
+      enrollDashboardFixture(config);
+    },
+  );
+  if (!retained) throw new Error("Missing fixture config");
+  expect(coordinatorAutomaticAuthority(retained)).toBeNull();
+  const caps = await (
+    await f.request("/api/installation/capabilities", "host-agent-test-token")
+  ).json();
+  expect(caps.maintenanceDelegation).toEqual({ available: false, enabled: false });
+  expect(caps.sessionHostJob.ownerApprovalRequired).toBe(true);
+  expect(
+    (
+      await f.request(
+        "/api/installation/owner/maintenance-delegation/change",
+        "owner-test-password",
+        { expectedRevision: null, enabled: true },
+      )
+    ).status,
+  ).toBe(409);
   expect(f.calls).toEqual([]);
 });
