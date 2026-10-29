@@ -219,8 +219,9 @@ export class MessageQueueService {
     return this.store.read(agentId);
   }
 
-  async acceptedHistory(agentId: string) {
-    await this.initialize();
+  async acceptedHistory(agentId: string, options?: { passive: boolean }) {
+    // Passive timeline reads must not recover pending deliveries or publish queue changes.
+    if (!options?.passive) await this.initialize();
     return this.store.acceptedHistory(agentId);
   }
 

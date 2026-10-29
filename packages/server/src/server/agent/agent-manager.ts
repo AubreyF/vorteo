@@ -3374,7 +3374,9 @@ export class AgentManager {
         "The original transcript could not be read. Restore access to the original account and retry; this thread has not changed.",
       );
     const rows: AgentTimelineRow[] = [];
-    for await (const rawEvent of this.streamHistoryWithSubmissions(record, events)) {
+    for await (const rawEvent of this.streamHistoryWithSubmissions(record, events, {
+      passive: true,
+    })) {
       const event = limitAgentStreamEventContent(rawEvent);
       if (event.type !== "timeline") continue;
       if (event.item.type === "user_message" && isSystemInjectedEnvelope(event.item.text)) continue;
@@ -6538,6 +6540,7 @@ export class AgentManager {
   private async *streamHistoryWithSubmissions(
     agent: Pick<ActiveManagedAgent, "id" | "provider" | "profileSwitches" | "goalSubmissions">,
     history: AsyncIterable<AgentStreamEvent> | Iterable<AgentStreamEvent>,
+    options?: { passive: boolean },
   ): AsyncGenerator<AgentStreamEvent> {
     history = prependSwitchHistory(await this.readSwitchHistory(agent), agent.provider, history);
     if (!agent.goalSubmissions?.length && !this.messageQueueControl) {
@@ -6546,8 +6549,8 @@ export class AgentManager {
     }
     const events: AgentStreamEvent[] = [];
     for await (const event of history) events.push(event);
-    await this.messageQueueControl?.reconcileHistory(agent.id, events);
-    const queued = (await this.messageQueueControl?.acceptedHistory(agent.id)) ?? [];
+    if (!options?.passive) await this.messageQueueControl?.reconcileHistory(agent.id, events);
+    const queued = (await this.messageQueueControl?.acceptedHistory(agent.id, options)) ?? [];
     const withGoals = mergeGoalHistory(events, agent.goalSubmissions ?? [], agent.provider);
     yield* mergeQueueHistory(withGoals, queued, agent.provider);
   }

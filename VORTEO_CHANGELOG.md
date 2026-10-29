@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.911 - 2026-10-29
+
+### Fixed
+
+- Keep unavailable-provider history reads passive: do not recover, reconcile or wake queued deliveries. Refuse native OpenCode fallback before opening a client because its resume and close operations can mutate the session; Claude transcript recovery and committed history remain available.
+- Cover pending and uncertain queue deliveries, unchanged queue files, unsupported native history and changed-transcript cursor resets. Document the full-transcript read cost of legacy pagination.
+
 ## 0.11.0-beta.3.vorteo.910 - 2026-10-29
 
 ### Fixed
