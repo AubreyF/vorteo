@@ -85,7 +85,7 @@ export function SidebarFocusBreadcrumb({
         {ancestors.map((crumb) => (
           <Fragment key={crumb.key}>
             <Crumb crumb={crumb} onSelect={controller.focusOn} />
-            <ThemedChevronRight size={12} uniProps={mutedColorMapping} />
+            <ThemedChevronRight size={14} uniProps={mutedColorMapping} />
           </Fragment>
         ))}
         <Text
@@ -127,13 +127,13 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
-    columnGap: theme.spacing[1],
+    columnGap: theme.spacing[1.5],
     rowGap: theme.spacing[0.5],
   },
   crumb: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
-    lineHeight: 18,
+    fontSize: theme.fontSize.base,
+    lineHeight: 20,
   },
   touchCrumb: {
     minWidth: LIST_ROW_TOUCH_ACTION_SIZE,
@@ -146,9 +146,9 @@ const styles = StyleSheet.create((theme) => ({
   },
   current: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.base,
     fontWeight: theme.fontWeight.medium,
-    lineHeight: 18,
+    lineHeight: 20,
     flexShrink: 1,
   },
   actions: {

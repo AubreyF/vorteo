@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.912 - 2026-10-29
+
+### Changed
+
+- Enlarge the sidebar focus breadcrumb one theme step, from 12px `sm` to 14px `base` text, scaling its line height from 18 to 20px, separator arrows from 12 to 14px and segment gap from 4 to 6px.
+
 ## 0.11.0-beta.3.vorteo.911 - 2026-10-29
 
 ### Changed
