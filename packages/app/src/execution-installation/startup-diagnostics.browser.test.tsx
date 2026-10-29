@@ -1,5 +1,6 @@
 import { afterEach, expect, inject, test } from "vitest";
 import { page } from "vitest/browser";
+import { formatDuration } from "@/utils/time";
 
 const frames: HTMLIFrameElement[] = [];
 afterEach(async () => {
@@ -150,7 +151,7 @@ test("a completed startup cancels the delayed automatic probe", async () => {
   const finish: unknown = Reflect.get(doc.defaultView!, "__vorteoFinishBoot");
   if (typeof finish !== "function") throw new Error("Boot completion hook missing");
   finish();
-  await new Promise((resolve) => setTimeout(resolve, 11000));
+  await new Promise((resolve) => setTimeout(resolve, 4000));
   expect(
     await fetch(`${origin}/startup-fixture-stats`).then((response) => response.json()),
   ).toEqual({ startupHealthRequests: 0, heldScriptRequests: 0 });
@@ -228,7 +229,7 @@ test.each([
   [390, 620],
   [1280, 900],
 ])(
-  "ten-second reveal keeps the logo and content on one continuous transition at %s by %s",
+  "three-second reveal keeps the logo and content on one continuous transition at %s by %s",
   async (width, height) => {
     await page.viewport(width, height);
     const { doc, origin } = await openLoader("/startup-held-fixture", controlledClock);
@@ -241,14 +242,14 @@ test.each([
     if (!emblem || !help) throw new Error("Startup transition elements missing");
     const initial = emblem.getBoundingClientRect();
     const started = Number(Reflect.get(win, "__startupNow"));
-    Reflect.set(win, "__startupNow", started + 9999);
+    Reflect.set(win, "__startupNow", started + 2999);
     win.dispatchEvent(new Event("pageshow"));
     expect(help.hidden).toBe(true);
     expect(await fetch(`${origin}/startup-fixture-stats`).then((r) => r.json())).toEqual({
       startupHealthRequests: 0,
       heldScriptRequests: 1,
     });
-    Reflect.set(win, "__startupNow", started + 10000);
+    Reflect.set(win, "__startupNow", started + 3000);
     win.dispatchEvent(new Event("pageshow"));
     expect(help.hidden).toBe(false);
     const animations = doc
@@ -337,7 +338,7 @@ test("a foreground clock gap starts overdue checks without retrying a slow but p
   const { doc, origin } = await openLoader("/startup-held-fixture", controlledClock);
   const win = doc.defaultView!;
   await fetch(`${origin}/startup-progress-held-script`, { method: "POST" });
-  Reflect.set(win, "__startupNow", Number(Reflect.get(win, "__startupNow")) + 9000);
+  Reflect.set(win, "__startupNow", Number(Reflect.get(win, "__startupNow")) + 2000);
   doc.dispatchEvent(new Event("visibilitychange"));
   expect(await fetch(`${origin}/startup-fixture-stats`).then((r) => r.json())).toEqual({
     startupHealthRequests: 0,
@@ -382,9 +383,13 @@ test("saved data saver skips optional fonts before app code and toggles without 
   await expect
     .poll(async () => fetch(`${origin}/startup-font-stats`).then((r) => r.json()))
     .toEqual({ requests: 1 });
-  expect(doc.getElementById("boot-data-saver-feedback")?.textContent).toContain("Preference saved");
+  expect(doc.getElementById("boot-data-saver-feedback")?.hidden).toBe(true);
+  expect(button.textContent).toContain("Enable data saver");
+  expect(getComputedStyle(doc.getElementById("boot-data-saver-check")!).visibility).toBe("hidden");
   button.click();
   expect(button.getAttribute("aria-pressed")).toBe("true");
+  expect(getComputedStyle(doc.getElementById("boot-data-saver-check")!).visibility).toBe("visible");
+  expect(button.nextElementSibling?.id).toBe("boot-copy");
   expect(await fetch(`${origin}/startup-fixture-stats`).then((r) => r.json())).toEqual({
     startupHealthRequests: 0,
     heldScriptRequests: 1,
@@ -445,4 +450,21 @@ test("the inline V vector preserves the original mark silhouette without a logo 
   cloned.style.cssText = "position:static;width:144px;height:144px";
   doc.getElementById("boot-status")?.append(comparison);
   await page.screenshot({ path: "v-vector-comparison.png" });
+});
+
+test("elapsed time uses the shared formatter directly beneath the progress bar", async () => {
+  const { doc } = await openLoader("/startup-fixture", controlledClock);
+  const win = doc.defaultView!;
+  const started = Number(Reflect.get(win, "__startupNow"));
+  expect(doc.getElementById("boot-progress")?.nextElementSibling?.id).toBe("boot-elapsed");
+  expect(doc.getElementById("boot-help")?.textContent).not.toContain("Connection details");
+  expect(doc.getElementById("boot-help")?.textContent).not.toContain("Use system fonts");
+  expect(doc.getElementById("boot-progress-label")).toBeNull();
+  for (const elapsed of [3000, 59000, 60000, 75000, 3600000, 12530000]) {
+    Reflect.set(win, "__startupNow", started + elapsed);
+    win.dispatchEvent(new Event("pageshow"));
+    expect(doc.getElementById("boot-elapsed")?.textContent).toBe(
+      `${formatDuration(elapsed)} elapsed`,
+    );
+  }
 });

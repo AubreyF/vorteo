@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.902 - 2026-10-29
+
+### Changed
+
+- Reveal startup diagnostics after three seconds. Show compact elapsed time beneath the progress bar using the shared duration formatter.
+- Remove progress and data-saver explanations and the connection-details disclosure. Keep data saver as a checkmark toggle button followed by Copy diagnostics.
+- Embed the shared formatter in the bootstrap HTML so recovery needs no additional script download; provide a synchronization check.
+
 ## 0.11.0-beta.3.vorteo.901 - 2026-10-29
 
 ### Maintenance

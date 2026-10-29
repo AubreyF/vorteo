@@ -6,6 +6,8 @@ import { InstallationConnectionCheck } from "@/execution-installation/connection
 import { Button } from "@/components/ui/button";
 import { isWeb } from "@/constants/platform";
 
+import { formatDuration } from "@/utils/time";
+
 const Spinner = withUnistyles(LoadingSpinner, (theme) => ({
   color: theme.colors.foregroundMuted,
 }));
@@ -33,7 +35,7 @@ export function StartupStatus({ phase }: StartupStatusProps) {
   useEffect(() => {
     setDelayed(false);
 
-    const timer = setTimeout(() => setDelayed(true), 10_000);
+    const timer = setTimeout(() => setDelayed(true), 3_000);
     const clock = setInterval(
       () => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000)),
       1000,
@@ -57,7 +59,7 @@ export function StartupStatus({ phase }: StartupStatusProps) {
           testID="startup-diagnostics"
         >
           <Text style={styles.hint}>
-            Taking longer than expected · {elapsedSeconds} seconds elapsed.
+            Taking longer than expected · {formatDuration(elapsedSeconds * 1000)} elapsed.
           </Text>
           <Text style={styles.hint}>
             Interface assets: running. The page may have loaded from cache.
