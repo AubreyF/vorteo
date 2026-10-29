@@ -357,3 +357,27 @@ export function expandSidebarFocusPath(
   for (const id of folderIds) delete collapsedFolders[id];
   return { ...state, collapsedFolders };
 }
+
+/** Whether a row's Focus button shows, and whether it is a hover-only extra. */
+export function sidebarRowFocusVisibility(input: {
+  isHovered: boolean;
+  /** Touch, compact and native layouts, where rows cannot be hovered. */
+  hoverUnavailable: boolean;
+}): { button: boolean; hoverOnly: boolean } {
+  return {
+    button: input.isHovered || input.hoverUnavailable,
+    hoverOnly: input.isHovered && !input.hoverUnavailable,
+  };
+}
+
+/**
+ * Whether the breadcrumb's trailing actions show. Hidden actions stay mounted and focusable,
+ * so keyboard focus inside them reveals them exactly as hover does.
+ */
+export function sidebarBreadcrumbActionsVisible(input: {
+  isHovered: boolean;
+  hasFocusWithin: boolean;
+  hoverUnavailable: boolean;
+}): boolean {
+  return input.isHovered || input.hasFocusWithin || input.hoverUnavailable;
+}

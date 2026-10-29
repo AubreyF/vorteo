@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): the focused sidebar's breadcrumb actions now also show while keyboard focus is inside them, and the Focus button visibility rules moved into tested pure functions in place of a mocked JSDOM test. Not yet installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): ordinary web comboboxes can flip above a lower-edge trigger so Metadata model selection stays visible. Preserve measured top/above-search anchoring, native presentation, keyboard dismissal and fixed picker sizing; focused browser checks cover lower-edge placement. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): integrate HTML encoding negotiation and startup diagnostic scroll insets without changing their reviewed source. Preserve focused HTTP and browser regression coverage; installed acceptance remains separate.

@@ -5,6 +5,7 @@ import { useVortonTouch } from "@/vorton-touch";
 import {
   isSameSidebarFocus,
   resolveSidebarFocus,
+  sidebarRowFocusVisibility,
   storedSidebarFocus,
   type SidebarFocusTarget,
   type SidebarFocusWorld,
@@ -98,10 +99,13 @@ export function useSidebarRowFocus(input: {
   const compact = useIsCompactFormFactor();
   const context = useContext(SidebarFocusContext);
   const action = useSidebarFocusAction(input.target);
-  const hoverUnavailable = touch || compact || isNative;
+  const visibility = sidebarRowFocusVisibility({
+    isHovered: input.isHovered,
+    hoverUnavailable: touch || compact || isNative,
+  });
   return {
     isRoot: context ? isSameSidebarFocus(context.focus, input.target) : false,
-    buttonAction: input.isHovered || hoverUnavailable ? action : null,
-    hoverAction: input.isHovered && !hoverUnavailable ? action : null,
+    buttonAction: visibility.button ? action : null,
+    hoverAction: visibility.hoverOnly ? action : null,
   };
 }

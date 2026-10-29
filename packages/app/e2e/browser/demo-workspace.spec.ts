@@ -1178,6 +1178,26 @@ test("compact rail keeps even margins and focuses projects from its flyout", asy
     page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0"),
   ).toBeVisible();
   await page.screenshot({ path: info.outputPath("focused-project.png") });
+
+  // Keyboard without hover: the breadcrumb's actions reveal while focus is inside them.
+  const actions = page.getByTestId("sidebar-focus-actions");
+  await page.mouse.move(1700, 900);
+  await expect(actions).toHaveCSS("opacity", "0");
+  await page.getByTestId("sidebar-focus-crumb-all").focus();
+  await page.keyboard.press("Tab");
+  await expect
+    .poll(() => actions.evaluate((group) => group.contains(document.activeElement)))
+    .toBe(true);
+  await expect(actions).toHaveCSS("opacity", "1");
+  await page.keyboard.press("Tab");
+  await expect
+    .poll(() => actions.evaluate((group) => group.contains(document.activeElement)))
+    .toBe(true);
+  await expect(actions).toHaveCSS("opacity", "1");
+  await page.getByTestId("sidebar-focus-crumb-all").focus();
+  await expect(actions).toHaveCSS("opacity", "0");
+  await page.screenshot({ path: info.outputPath("focused-project-keyboard.png") });
+
   await page.getByTestId("sidebar-focus-crumb-all").click();
   await expect(page.getByTestId("sidebar-focus-breadcrumb")).toHaveCount(0);
 });

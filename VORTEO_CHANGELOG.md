@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.920 - 2026-10-29
+
+### Fixed
+
+- The focused sidebar's breadcrumb actions, such as a project's new-workspace and ⋮ buttons, now appear while keyboard focus is inside them. Before, with a pointer layout they stayed invisible but reachable by Tab until hovered. They hide again once focus leaves the group.
+
+### Changed
+
+- The row Focus button and breadcrumb action visibility rules are pure functions with direct tests, replacing a JSDOM hook test with mocked modules that the testing guide does not allow. A demo browser test now tabs into the focused project's breadcrumb actions without hovering.
+
 ## 0.11.0-beta.3.vorteo.919 - 2026-10-29
 
 ### Maintenance

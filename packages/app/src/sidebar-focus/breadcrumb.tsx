@@ -1,5 +1,11 @@
 import { Fragment, useCallback, useState, type ReactNode } from "react";
-import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
+import {
+  Pressable,
+  Text,
+  View,
+  type NativeSyntheticEvent,
+  type PressableStateCallbackType,
+} from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { ChevronRight } from "lucide-react-native";
@@ -10,7 +16,11 @@ import type { Theme } from "@/styles/theme";
 import { LIST_ROW_TOUCH_ACTION_SIZE } from "@/styles/list-row-metrics";
 import { useVortonTouch } from "@/vorton-touch";
 import { useSidebarFocus } from "./context";
-import type { SidebarFocusCrumb, SidebarFocusTarget } from "./model";
+import {
+  sidebarBreadcrumbActionsVisible,
+  type SidebarFocusCrumb,
+  type SidebarFocusTarget,
+} from "./model";
 
 const ThemedChevronRight = withUnistyles(ChevronRight);
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
@@ -48,8 +58,8 @@ function Crumb({
 /**
  * The path from All projects to the focused item. Every segment but the last focuses that
  * level; All projects leaves focus. There is deliberately no back button. The focused item's
- * own row is hidden, so its actions trail the last segment: on hover with a pointer, always
- * where rows cannot be hovered, exactly as row actions are.
+ * own row is hidden, so its actions trail the last segment: on hover with a pointer, while
+ * keyboard focus is inside them, and always where rows cannot be hovered.
  */
 export function SidebarFocusBreadcrumb({
   trail,
@@ -67,11 +77,25 @@ export function SidebarFocusBreadcrumb({
     if (!touch) setIsHovered(true);
   }, [touch]);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
+  // Hidden actions stay mounted and reachable by Tab, so keyboard focus reveals them too.
+  const [hasFocusWithin, setHasFocusWithin] = useState(false);
+  const handleFocus = useCallback(() => setHasFocusWithin(true), []);
+  const handleBlur = useCallback((event: NativeSyntheticEvent<unknown>) => {
+    const group = event.currentTarget as unknown as { contains?: (node: unknown) => boolean };
+    const next = (event.nativeEvent as { relatedTarget?: unknown } | undefined)?.relatedTarget;
+    // Moving between the group's own buttons keeps it revealed.
+    if (next && group.contains?.(next)) return;
+    setHasFocusWithin(false);
+  }, []);
   const last = trail[trail.length - 1];
 
   if (!controller || !last) return null;
   const ancestors = trail.slice(0, -1);
-  const actionsVisible = isHovered || touch || compact || isNative;
+  const actionsVisible = sidebarBreadcrumbActionsVisible({
+    isHovered,
+    hasFocusWithin,
+    hoverUnavailable: touch || compact || isNative,
+  });
   return (
     <View
       role="navigation"
@@ -101,6 +125,8 @@ export function SidebarFocusBreadcrumb({
         <View
           style={[styles.actions, !actionsVisible && styles.actionsHidden]}
           pointerEvents={actionsVisible ? "auto" : "none"}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
           testID="sidebar-focus-actions"
         >
           {actions}

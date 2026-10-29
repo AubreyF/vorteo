@@ -6,11 +6,13 @@ import {
   expandSidebarFocusPath,
   focusTreeRows,
   resolveSidebarFocus,
+  sidebarBreadcrumbActionsVisible,
   sidebarFocusAncestors,
   sidebarFocusRootDropTop,
   sidebarFocusRootRows,
   sidebarProjectBlockLevels,
   sidebarFocusTrail,
+  sidebarRowFocusVisibility,
   type SidebarFocusProject,
   type SidebarFocusTarget,
   type SidebarFocusWorld,
@@ -253,5 +255,47 @@ describe("project block levels while focused", () => {
       sectionLevel: null,
       sectionItemLevel: 0,
     });
+  });
+});
+
+describe("the row Focus button", () => {
+  test("shows only on hover with a pointer", () => {
+    expect(sidebarRowFocusVisibility({ isHovered: false, hoverUnavailable: false })).toEqual({
+      button: false,
+      hoverOnly: false,
+    });
+    expect(sidebarRowFocusVisibility({ isHovered: true, hoverUnavailable: false })).toEqual({
+      button: true,
+      hoverOnly: true,
+    });
+  });
+
+  test("shows permanently where rows cannot be hovered, such as touch and compact layouts", () => {
+    // Rows without a ⋮ menu keep their hover-only button off these layouts.
+    expect(sidebarRowFocusVisibility({ isHovered: false, hoverUnavailable: true })).toEqual({
+      button: true,
+      hoverOnly: false,
+    });
+    expect(sidebarRowFocusVisibility({ isHovered: true, hoverUnavailable: true })).toEqual({
+      button: true,
+      hoverOnly: false,
+    });
+  });
+});
+
+describe("the breadcrumb's trailing actions", () => {
+  const hidden = { isHovered: false, hasFocusWithin: false, hoverUnavailable: false };
+
+  test("stay hidden with a pointer until hovered", () => {
+    expect(sidebarBreadcrumbActionsVisible(hidden)).toBe(false);
+    expect(sidebarBreadcrumbActionsVisible({ ...hidden, isHovered: true })).toBe(true);
+  });
+
+  test("show while keyboard focus is inside them, without hover", () => {
+    expect(sidebarBreadcrumbActionsVisible({ ...hidden, hasFocusWithin: true })).toBe(true);
+  });
+
+  test("always show where rows cannot be hovered", () => {
+    expect(sidebarBreadcrumbActionsVisible({ ...hidden, hoverUnavailable: true })).toBe(true);
   });
 });
