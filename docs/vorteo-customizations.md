@@ -1886,3 +1886,5 @@ Maintenance review: unavailable-provider recovery is integrated with the publish
 Maintenance review: integrated the home-boundary inventory correction after independent source review and sixteen passing inventory tests. The provider recovery and published interface remain included.
 
 Primary web builds support an explicit retained prepared-checkout mode during preservation holds, with exclusive claims, source and dependency bindings, no install fallback, and unchanged artifact sealing and publication checks.
+
+Retained prepared web builds invoke the physical checkout-local Expo CLI through Node and bind its identity and hash to the input receipt. Missing or foreign CLI files refuse before export; the ordinary snapshot build path is unchanged.

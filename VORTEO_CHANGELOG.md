@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.899 - 2026-10-29
+
+### Fixed
+
+- Invoke the verified checkout-local Expo CLI directly for retained prepared web builds. Refuse missing or foreign CLI files instead of allowing package-manager installation fallback, and bind the CLI bytes to the prepared-input receipt.
+
 ## 0.11.0-beta.3.vorteo.898 - 2026-10-29
 
 ### Maintenance

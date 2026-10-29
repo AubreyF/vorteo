@@ -7,6 +7,19 @@ import { digest, git, hashFiles } from "../instance-web-artifact.mjs";
 
 const receiptName = ".runtime/prepared-web-inputs.json";
 const packages = ["protocol", "relay", "client", "highlight", "plugin", "expo-two-way-audio"];
+export async function preparedExpoCli(root) {
+  const cli = path.join(root, "node_modules/expo/bin/cli");
+  const info = await fs.lstat(cli);
+  if (
+    !info.isFile() ||
+    info.uid !== process.getuid?.() ||
+    info.mode & 0o022 ||
+    (await fs.realpath(cli)) !== cli
+  )
+    throw new Error("Prepared build requires the checkout-local Expo CLI");
+  return cli;
+}
+
 async function identity(file) {
   const s = await fs.lstat(file);
   if (!s.isFile() || s.uid !== process.getuid?.()) throw new Error("Unowned prepared input");
@@ -43,11 +56,17 @@ async function inputs(root) {
   }
   const modules = path.join(root, "node_modules");
   if ((await fs.realpath(modules)) !== modules) throw new Error("Foreign prepared dependencies");
+  const expoCli = await preparedExpoCli(root);
   return {
     root,
     dependencyKey: dependencyKey(root, "worktree", { npmVersion }),
     generatedSources,
     installedLock: digest(await fs.readFile(path.join(modules, ".package-lock.json"))),
+    expoCli: {
+      path: expoCli,
+      identity: await identity(expoCli),
+      sha256: digest(await fs.readFile(expoCli)),
+    },
     outputIdentities,
   };
 }
@@ -122,5 +141,5 @@ export async function claimPreparedWebBuild({ source, buildRoot, snapshot, sourc
     await release();
     throw error;
   }
-  return { verify, release, receipt };
+  return { verify, release, receipt, expoCli: receipt.expoCli.path };
 }

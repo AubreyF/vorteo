@@ -148,8 +148,15 @@ async function build() {
       run("npm", ["run", "build:app-deps"]);
     }
     run(
-      "npx",
-      ["expo", "export", "--platform", "web", "--output-dir", exported],
+      prepared ? process.execPath : "npx",
+      [
+        prepared ? prepared.expoCli : "expo",
+        "export",
+        "--platform",
+        "web",
+        "--output-dir",
+        exported,
+      ],
       path.join(prepared ? source : root, "packages/app"),
       webExportEnvironment(),
     );

@@ -717,6 +717,8 @@ test("prepared primary builds bind the checkout, dependencies and committed snap
   await fs.writeFile(path.join(root, "package-lock.json"), JSON.stringify(lock));
   await fs.mkdir(path.join(root, "node_modules"));
   await fs.writeFile(path.join(root, "node_modules/.package-lock.json"), "{}");
+  await fs.mkdir(path.join(root, "node_modules/expo/bin"), { recursive: true });
+  await fs.writeFile(path.join(root, "node_modules/expo/bin/cli"), "// fixture CLI\n");
   git(root, ["add", "."]);
   git(root, ["commit", "-qm", "fixture"]);
   const sourceCommit = git(root, ["rev-parse", "HEAD"]);
@@ -733,6 +735,7 @@ test("prepared primary builds bind the checkout, dependencies and committed snap
   const options = { source: root, buildRoot: root, snapshot, sourceCommit };
   await assert.rejects(claimPreparedWebBuild({ ...options, buildRoot: snapshot }), /dedicated/);
   const claimed = await claimPreparedWebBuild(options);
+  assert.equal(claimed.expoCli, path.join(root, "node_modules/expo/bin/cli"));
   await claimed.verify();
   await assert.rejects(claimPreparedWebBuild(options), /EEXIST/);
   await fs.writeFile(path.join(root, "packages/client/src/index.ts"), "changed\n");
@@ -743,6 +746,24 @@ test("prepared primary builds bind the checkout, dependencies and committed snap
   await claimed.release();
   assert.ok(await fs.stat(path.join(snapshot, "prepared-build-claim.json")));
   assert.ok(await fs.stat(path.join(root, "node_modules/.package-lock.json")));
+});
+
+test("prepared Expo resolution refuses missing and foreign CLIs without a package fallback", async (t) => {
+  const { preparedExpoCli } = await import("./lib/prepared-web-build.mjs");
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "prepared-expo-test-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const root = await fs.realpath(directory);
+  const cli = path.join(root, "node_modules/expo/bin/cli");
+  await assert.rejects(preparedExpoCli(root), { code: "ENOENT" });
+  assert.deepEqual(await fs.readdir(root), []);
+  await fs.mkdir(path.dirname(cli), { recursive: true });
+  const foreign = path.join(root, "foreign-cli");
+  await fs.writeFile(foreign, "// foreign CLI\n");
+  await fs.symlink(foreign, cli);
+  await assert.rejects(preparedExpoCli(root), /checkout-local Expo CLI/);
+  await fs.unlink(cli);
+  await fs.writeFile(cli, "// local CLI\n");
+  assert.equal(await preparedExpoCli(root), cli);
 });
 
 test("prepared root options refuse invalid combinations before creating build artifacts", async () => {
