@@ -1,4 +1,5 @@
 import { expect, test } from "../support/fixtures";
+import { resizeAndSettle } from "../support/helpers/viewport";
 
 test("opens a populated demo without connecting to a real host", async ({ page }, info) => {
   const sockets: string[] = [];
@@ -425,7 +426,9 @@ test("card cleanup icons explain their effects and cards use compact gaps", asyn
 test("restores responsive sidebars without replacing manual preferences", async ({
   page,
 }, info) => {
-  await page.setViewportSize({ width: 1800, height: 1000 });
+  // Measured 14 to 39s locally and 30s to over 60s on CI shard 2 (run 40250589484).
+  test.setTimeout(120_000);
+  await resizeAndSettle(page, { width: 1800, height: 1000 });
   await page.goto("/?demo=1");
   await page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-1").click();
   const sidebar = page.getByTestId("floating-sidebar").filter({ visible: true });
@@ -437,39 +440,39 @@ test("restores responsive sidebars without replacing manual preferences", async 
   const mac = await page.evaluate(() => /mac/i.test(navigator.platform));
   await page.keyboard.press(mac ? "Meta+Shift+E" : "Control+Shift+E");
   await expect(page.getByTestId("supporting-card-files")).toBeVisible();
-  await page.setViewportSize({ width: 1300, height: 1000 });
+  await resizeAndSettle(page, { width: 1300, height: 1000 });
   await expect(cards).toBeHidden();
   await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(expandedWidth);
   await page.getByTestId("workspace-explorer-toggle").click();
   await expect(cards).toBeVisible();
-  await page.setViewportSize({ width: 1290, height: 1000 });
+  await resizeAndSettle(page, { width: 1290, height: 1000 });
   await expect(cards).toBeHidden();
-  await page.setViewportSize({ width: 800, height: 1000 });
+  await resizeAndSettle(page, { width: 800, height: 1000 });
   await expect(rail).toBeVisible();
   await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(56);
   await expect(cards).toBeHidden();
   await rail.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(expandedWidth);
-  await page.setViewportSize({ width: 790, height: 1000 });
+  await resizeAndSettle(page, { width: 790, height: 1000 });
   await expect(rail).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(790);
   await page.screenshot({ path: info.outputPath("responsive-rail.png") });
-  await page.setViewportSize({ width: 390, height: 844 });
+  await resizeAndSettle(page, { width: 390, height: 844 });
   await expect(sidebar).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   await page.screenshot({ path: info.outputPath("responsive-phone.png") });
   await page.getByTestId("menu-button").click();
   await expect(page.getByTestId("sidebar-footer-overflow")).toBeVisible();
-  await page.setViewportSize({ width: 380, height: 844 });
+  await resizeAndSettle(page, { width: 380, height: 844 });
   await expect(page.getByTestId("sidebar-footer-overflow")).toBeHidden();
-  await page.setViewportSize({ width: 800, height: 1000 });
+  await resizeAndSettle(page, { width: 800, height: 1000 });
   await expect(rail).toBeVisible();
   await expect(cards).toBeHidden();
-  await page.setViewportSize({ width: 1300, height: 1000 });
+  await resizeAndSettle(page, { width: 1300, height: 1000 });
   await expect(rail).toBeHidden();
   await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(expandedWidth);
   await expect(cards).toBeHidden();
-  await page.setViewportSize({ width: 1800, height: 1000 });
+  await resizeAndSettle(page, { width: 1800, height: 1000 });
   await expect(cards).toBeVisible();
   await page.screenshot({ path: info.outputPath("responsive-restored.png") });
   // A manual collapse stays collapsed through a resize cycle.
@@ -478,9 +481,9 @@ test("restores responsive sidebars without replacing manual preferences", async 
     .getByTestId("workspace-explorer-toggle")
     .click();
   await page.getByTestId("sidebar-collapse").click();
-  await page.setViewportSize({ width: 800, height: 1000 });
+  await resizeAndSettle(page, { width: 800, height: 1000 });
   await expect(rail).toBeVisible();
-  await page.setViewportSize({ width: 1800, height: 1000 });
+  await resizeAndSettle(page, { width: 1800, height: 1000 });
   await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(56);
   await expect(cards).toBeHidden();
 });
@@ -652,7 +655,9 @@ test("quiet card chrome keeps compact geometry across themes", async ({ page }, 
 test("shares card disclosure preferences across workspaces and reloads without flashing open", async ({
   page,
 }, info) => {
-  await page.setViewportSize({ width: 1800, height: 1000 });
+  // Measured 36 to 60s locally and 60s to over 72s on CI shard 2 (run 40250589484).
+  test.setTimeout(150_000);
+  await resizeAndSettle(page, { width: 1800, height: 1000 });
   await page.goto("/?demo=1");
   const row = (id: string) =>
     page.getByTestId(`sidebar-workspace-row-vorteo-demo:demo-workspace-${id}`);
@@ -705,26 +710,26 @@ test("shares card disclosure preferences across workspaces and reloads without f
   await expect(files).toHaveAttribute("aria-expanded", "false");
   await page.keyboard.press(mac ? "Meta+Shift+E" : "Control+Shift+E");
   await expect(files).toHaveAttribute("aria-expanded", "true");
-  await page.setViewportSize({ width: 390, height: 844 });
+  await resizeAndSettle(page, { width: 390, height: 844 });
   // A fresh inline layout has its own defaults, independent of desktop choices.
   await expect(tasks).toHaveAttribute("aria-expanded", "true");
   await expect(journal).toHaveAttribute("aria-expanded", "true");
   await tasks.click();
   await journal.click();
-  await page.setViewportSize({ width: 1800, height: 1000 });
+  await resizeAndSettle(page, { width: 1800, height: 1000 });
   await expect(tasks).toHaveAttribute("aria-expanded", "false");
   await expect(journal).toHaveAttribute("aria-expanded", "false");
   await tasks.click();
   await row("0-0").click();
   await expect(tasks).toHaveAttribute("aria-expanded", "true");
-  await page.setViewportSize({ width: 390, height: 844 });
+  await resizeAndSettle(page, { width: 390, height: 844 });
   await expect(tasks).toHaveAttribute("aria-expanded", "false");
   await expect(journal).toHaveAttribute("aria-expanded", "false");
   await page.reload();
   await expect(tasks).toHaveAttribute("aria-expanded", "false");
   await expect(journal).toHaveAttribute("aria-expanded", "false");
   await page.screenshot({ path: info.outputPath("retained-card-preferences-phone.png") });
-  await page.setViewportSize({ width: 1800, height: 1000 });
+  await resizeAndSettle(page, { width: 1800, height: 1000 });
   await expect(tasks).toHaveAttribute("aria-expanded", "true");
   await expect(journal).toHaveAttribute("aria-expanded", "false");
 });
@@ -804,7 +809,7 @@ test("card spacing follows panel width on both sides and compact center layouts"
   }
   await page.screenshot({ path: info.outputPath("spacious-panels.png"), fullPage: true });
   for (const width of [390, 280]) {
-    await page.setViewportSize({ width, height: 900 });
+    await resizeAndSettle(page, { width, height: 900 });
     await expect(card).toBeVisible();
     await expect
       .poll(() =>

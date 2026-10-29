@@ -29,6 +29,7 @@ import {
   expectReadingStreamedMarkdown,
 } from "../support/helpers/chat-outline";
 import { createCreationScenario } from "../support/helpers/creation";
+import { resizeAndSettle } from "../support/helpers/viewport";
 import {
   expectTimelineAtMaximumScrollWithPromptVisible,
   expectTimelinePromptNotMounted,
@@ -71,6 +72,8 @@ test.describe("desktop chat outline", () => {
   test("renders explicit agent prompts as short marks and keeps navigation after reload", async ({
     page,
   }) => {
+    // Two layout switches of up to 12s each on CI on top of 16 loaded turns and a reload.
+    test.setTimeout(120_000);
     const agent = await seedLongMockAgentTimeline({ turns: 16 });
     const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "outline-columns" });
     try {
@@ -114,9 +117,16 @@ test.describe("desktop chat outline", () => {
         await agentTick.click();
         await expectTimelinePromptLandedBelowTop(page, agent.prompts[1]);
       }
-      await page.setViewportSize({ width: 390, height: 850 });
+      // Known performance regression, reported to Builds on 2026-10-26: crossing the phone
+      // breakpoint freezes the page for one long task (7.6s to 390px and 8.4s back on a Mac,
+      // 12.1s and 11.5s in CI), which outlasted the 10s rail checks. useVortonTouch flips with
+      // compact width (dae3b41e3) and re-runs applyAppearance, whose Unistyles updateTheme
+      // restyles every sheet (commit that made it this slow not identified). Wait for the page
+      // to answer after each switch so the rail checks still run, and return to the default
+      // budget once the switch stays well under a second.
+      await resizeAndSettle(page, { width: 390, height: 850 });
       await expectNoChatOutline(page);
-      await page.setViewportSize({ width: 2400, height: 900 });
+      await resizeAndSettle(page, { width: 2400, height: 900 });
       await expectChatOutlinePrompts(page, 16);
     } finally {
       await client.close();
