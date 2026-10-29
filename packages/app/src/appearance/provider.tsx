@@ -1,3 +1,4 @@
+import { BootHandoff } from "./boot-handoff";
 import { useDataSaver } from "@/network-preferences";
 import { useApplyInterfaceZoom } from "./interface-zoom";
 import { vortonAppearance } from "./vorton-appearance";
@@ -99,20 +100,6 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => applyVortonWeb(touch), [touch]);
   const [hasAppliedAppearance, setHasAppliedAppearance] = useState(false);
-  // Start the handoff only after the themed children have committed and painted.
-  useEffect(() => {
-    if (!isWeb || !hasAppliedAppearance) return;
-    let second = 0;
-    const first = requestAnimationFrame(() => {
-      second = requestAnimationFrame(() => {
-        (window as Window & { __vorteoFinishBoot?: () => void }).__vorteoFinishBoot?.();
-      });
-    });
-    return () => {
-      cancelAnimationFrame(first);
-      cancelAnimationFrame(second);
-    };
-  }, [hasAppliedAppearance]);
   const lastTransitionTheme = useRef<string | null>(null);
   useEffect(() => {
     if (isLoading || !isWeb) return;
@@ -209,6 +196,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
       <ThemePreviewContext.Provider value={setPreview}>
         <ContributedThemesContext.Provider value={value}>
           {children}
+          <BootHandoff />
         </ContributedThemesContext.Provider>
       </ThemePreviewContext.Provider>
     </ThemePreviewActiveContext.Provider>

@@ -1104,3 +1104,77 @@ test("full delegation retains saved authority on errors and rejects stale refres
   expect(model.getState().maintenanceDelegation).toBeNull();
   expect(model.getState().daemonAutomationError).toBeNull();
 });
+
+test("delegation status failure preserves restart decisions and clears on recovery", async () => {
+  const job: RestartJob = {
+    id: "request",
+    revision: "revision",
+    target: "host",
+    requestedBy: "host-agent",
+    reason: "Update",
+    createdAt: "2026-10-28T00:00:00.000Z",
+    expiresAt: "9999-12-31T23:59:59.999Z",
+    status: "pending",
+    detail: "Approval required",
+  };
+  const delegation = { available: true, revision: null, enabled: false, activatedAt: null };
+  let queryError: Error | null = new Error("Delegation file protection changed");
+  let decisions = 0;
+  let saves = 0;
+  const model = new InstallationPanelModel({
+    restartSummary: async () => null,
+    restoreSession: async () => false,
+    lock: async () => {},
+    unlock: async () => {},
+    passwordFile: null,
+    sessionsSupported: false,
+    profileSharingStatus: async () => null,
+    resolveProfileConflict: async () => {},
+    listHelpers: async () => [],
+    decideHelper: async () => {
+      throw new Error("Unexpected helper decision");
+    },
+    listRestarts: async () => [job],
+    decide: async () => {
+      decisions++;
+    },
+    maintenanceDelegation: async () => {
+      if (queryError) throw queryError;
+      return delegation;
+    },
+    changeMaintenanceDelegation: async () => {
+      saves++;
+      return delegation;
+    },
+  });
+  model.setPassword("owner-password");
+  await model.unlock();
+  expect(model.getState()).toMatchObject({
+    unlocked: true,
+    jobs: [job],
+    pendingJobs: [job],
+    maintenanceDelegationError: "Delegation file protection changed",
+    error: null,
+  });
+  await model.decide(job, "cancel");
+  expect(decisions).toBe(1);
+  queryError = null;
+  await model.refresh();
+  expect(model.getState()).toMatchObject({
+    maintenanceDelegation: delegation,
+    maintenanceDelegationError: null,
+  });
+  queryError = new Error("Delegation file protection changed");
+  await model.refresh();
+  await model.changeMaintenanceDelegation(true);
+  expect(saves).toBe(0);
+  expect(model.getState().maintenanceDelegation).toEqual(delegation);
+  queryError = new OwnerAccessExpired();
+  await model.refresh();
+  expect(model.getState()).toMatchObject({
+    unlocked: false,
+    jobs: [],
+    maintenanceDelegation: null,
+    maintenanceDelegationError: null,
+  });
+});

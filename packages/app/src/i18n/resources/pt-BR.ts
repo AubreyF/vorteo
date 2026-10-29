@@ -253,6 +253,9 @@ export const ptBR: TranslationResources = {
   },
   agentPanel: {
     states: {
+      providerUnavailable: en.agentPanel.states.providerUnavailable,
+      providerRecovery: en.agentPanel.states.providerRecovery,
+      loadingProviders: en.agentPanel.states.loadingProviders,
       notFound: "Agente não encontrado",
       failedToLoad: "Falha ao carregar agente",
       reconnecting: "Reconectando ao host",
@@ -1210,6 +1213,12 @@ export const ptBR: TranslationResources = {
       description:
         "Adicione comandos de configuração para que novos worktrees instalem dependências e se preparem automaticamente.",
       openProjectSettings: "Abrir configurações do projeto",
+    },
+    focus: {
+      focusItem: "Focar em {{name}}",
+      menuItem: "Focar",
+      allProjects: "Todos os projetos",
+      breadcrumb: "Caminho de foco da barra lateral",
     },
     folders: {
       actions: {

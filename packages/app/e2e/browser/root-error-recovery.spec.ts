@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
-let server: Server;
+let server: Server | undefined;
 let appUrl: string;
 test.beforeAll(async () => {
   // Compile this separate fixture entrypoint in setup, like the main app warmup.
@@ -17,21 +17,25 @@ test.beforeAll(async () => {
     throw new Error(`Recovery fixture compilation failed: HTTP ${compiled.status}\n${detail}`);
   }
   await compiled.arrayBuffer();
-  server = createServer((_request, response) => {
+  const fixtureServer = createServer((_request, response) => {
     response.setHeader("Content-Type", "text/html");
     response.end(
       `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>html,body,#root{height:100%;margin:0}#root{display:flex}</style></head><body><div id="root"></div><script src="${bundle}"></script></body></html>`,
     );
   });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
+  server = fixtureServer;
+  await new Promise<void>((resolve) => fixtureServer.listen(0, "127.0.0.1", resolve));
+  const address = fixtureServer.address();
   if (!address || typeof address === "string") throw new Error("Fixture server did not start");
   appUrl = `http://127.0.0.1:${address.port}`;
 });
 
 test.afterAll(async () => {
+  // Compilation can fail before the fixture has created a server.
+  const fixtureServer = server;
+  if (!fixtureServer) return;
   await new Promise<void>((resolve, reject) =>
-    server.close((error) => {
+    fixtureServer.close((error) => {
       if (error) {
         reject(error);
         return;

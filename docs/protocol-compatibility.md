@@ -229,3 +229,7 @@ Installation settings gain optional `projectPolicies`. Older coordinators, owner
 ## Delegated native maintenance approvals
 
 Native helper, preview monitor and session host journal schemas accept optional private `delegatedApproval` evidence. Public job replies omit it for older strict clients. The coordinator checks its grant epoch, credentials, request revision, plan digest and cancellation deadline before dispatch, including after asynchronous validation. Rollback coordinators must understand this retained journal field. New owner delegation routes require owner authentication and same-origin checks; scoped capabilities advertise their availability. Existing service permission replies are unchanged.
+
+## Unavailable-provider thread recovery
+
+The optional `agentProviderRecovery` feature advertises recovery through the existing `agent.profile.switch.request`. The client shows recovery in the load error only with this capability; older hosts retain Retry. The request shape and switch marker are unchanged, and the existing `profile_switch_timeline` client gate still applies. Older clients ignore the optional feature and continue using ordinary switching.

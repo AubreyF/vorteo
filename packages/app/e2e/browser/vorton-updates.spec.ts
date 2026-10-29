@@ -113,6 +113,10 @@ test("Vorteo checks main and requires a connected installation host before prepa
         .text,
   );
   expect(oldDraft).toBe("Keep my existing draft");
+  // A deliberate scroll still hands section tracking back to the reader.
+  await page.getByTestId("settings-scroll-page").hover();
+  await page.mouse.wheel(0, -400);
+  await expect(page).toHaveURL(/\/settings\/plugins$/);
 });
 
 test("a failed update check exposes a retry and recovers", async ({ page }) => {

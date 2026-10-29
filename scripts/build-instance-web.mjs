@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Build from a source snapshot with platform-local dependencies. Never reuse
-// the Mac's node_modules from a Linux container or modify the working checkout.
+// Default builds own their snapshot and dependencies. Prepared builds explicitly
+// claim the dedicated checkout; never reuse dependencies across platforms.
 import { assertBuildsCoordinator } from "./lib/builds-guard.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -8,6 +8,7 @@ import os from "node:os";
 import { parseArgs } from "node:util";
 import {
   assertIntegratedSource,
+  digest,
   git,
   readLiveState,
   sealArtifact,
@@ -19,6 +20,7 @@ import { installationWebEntry } from "./installation-web-entry.mjs";
 import { installDependencies } from "./lib/dependency-cache.mjs";
 import { preloadWebEntry } from "./preload-web-entry.mjs";
 import { webExportEnvironment } from "./lib/web-export.mjs";
+import { claimPreparedWebBuild } from "./lib/prepared-web-build.mjs";
 import {
   claimBuild,
   pruneInstanceBuildsInBackground,
@@ -31,9 +33,14 @@ const { values } = parseArgs({
     "integration-ref": { type: "string" },
     "adopt-legacy": { type: "string" },
     "installation-origin": { type: "string" },
+    "retain-builds": { type: "boolean", default: false },
+    "build-root": { type: "string" },
   },
 });
 const integrationRef = values["integration-ref"];
+const retain = values["retain-builds"];
+if (values["build-root"] && (!retain || !values.destination || values["installation-origin"]))
+  throw new Error("--build-root requires --retain-builds and a primary application build.");
 const entry = values["installation-origin"]
   ? installationWebEntry(values["installation-origin"])
   : null;
@@ -61,24 +68,54 @@ if (values.destination) {
   sourceCommit = assertIntegratedSource(source, integrationRef, live.release?.sourceCommit);
   deployment = { destination, expectedRelease: live.token, integrationRef, repository: source };
 }
-const builds = path.join(os.homedir(), ".cache", "paseo-instance-builds");
+const builds = retain
+  ? path.join(source, ".runtime", "retained-web-builds")
+  : path.join(os.homedir(), ".cache", "paseo-instance-builds");
+if (retain) {
+  const runtime = path.join(source, ".runtime");
+  await fs.mkdir(runtime, { recursive: true });
+  const info = await fs.lstat(runtime);
+  if (
+    (await fs.realpath(runtime)) !== runtime ||
+    info.uid !== process.getuid?.() ||
+    info.mode & 0o022
+  )
+    throw new Error("Retained builds require an owned physical runtime directory");
+}
 const { root, sourceHash } = await snapshotSource({
   source,
   sourceCommit,
   committed: Boolean(deployment),
   builds,
+  retainArchive: retain,
 });
 console.log(`Source snapshot: ${root}`);
 await claimBuild(root);
-pruneInstanceBuildsInBackground(builds);
+if (!retain) pruneInstanceBuildsInBackground(builds);
+let prepared = null;
 try {
+  if (values["build-root"])
+    prepared = await claimPreparedWebBuild({
+      source,
+      buildRoot: values["build-root"],
+      snapshot: root,
+      sourceCommit,
+    });
+  if (prepared)
+    await fs.writeFile(
+      path.join(root, "prepared-inputs.json"),
+      JSON.stringify(prepared.receipt) + "\n",
+      { flag: "wx", mode: 0o600 },
+    );
   await build();
 } catch (error) {
   // A failed snapshot has no further use and holds gigabytes of dependencies.
-  await fs.rm(root, { recursive: true, force: true });
+  if (!retain) await fs.rm(root, { recursive: true, force: true });
   throw error;
+} finally {
+  if (prepared) await prepared.release();
 }
-await trimSealedBuild(root);
+if (!retain) await trimSealedBuild(root);
 console.log("Export ready: " + path.join(root, "web-export"));
 if (deployment)
   console.log("Publish the export with scripts/publish-instance-web.mjs and the same destination.");
@@ -104,16 +141,34 @@ async function build() {
   } else {
     // Dependencies are cloned copy-on-write from a cached install of the same
     // lockfile when possible. Generated files stay private to this snapshot.
-    installDependencies({ root, mode: "build", run: (command, args) => run(command, args) });
-    run("npm", ["run", "postinstall"]);
-    console.log("Building application dependencies");
-    run("npm", ["run", "build:app-deps"]);
+    if (!prepared) {
+      installDependencies({ root, mode: "build", run: (command, args) => run(command, args) });
+      run("npm", ["run", "postinstall"]);
+      console.log("Building application dependencies");
+      run("npm", ["run", "build:app-deps"]);
+    }
     run(
-      "npx",
-      ["expo", "export", "--platform", "web", "--output-dir", exported],
-      path.join(root, "packages/app"),
+      prepared ? process.execPath : "npx",
+      [
+        prepared ? prepared.expoCli : "expo",
+        "export",
+        "--platform",
+        "web",
+        "--output-dir",
+        exported,
+      ],
+      path.join(prepared ? source : root, "packages/app"),
       webExportEnvironment(),
     );
+  }
+  if (prepared) {
+    await prepared.verify();
+    const live = await readLiveState(deployment.destination);
+    if (
+      live.token !== deployment.expectedRelease ||
+      assertIntegratedSource(source, integrationRef, live.release?.sourceCommit) !== sourceCommit
+    )
+      throw new Error("Primary build binding changed during export");
   }
   const indexPath = path.join(exported, "index.html");
   await fs.writeFile(
@@ -128,6 +183,7 @@ async function build() {
     sourceCommit,
     sourceHash,
     deployment,
+    ...(prepared ? { preparedInputSha256: digest(JSON.stringify(prepared.receipt)) } : {}),
     ...(entry ? { entrypoint: { kind: "installation", origin: entry.origin } } : {}),
   });
 }

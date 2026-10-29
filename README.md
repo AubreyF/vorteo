@@ -23,7 +23,7 @@ For a configured Host and Dev installation, open its HTTPS address on your new d
 
 - **Try a workspace before connecting.** Choose Demo on the browser welcome page to explore simulated projects, tasks, conversations, files and changes. Try Vorton's six themes from the sidebar menu, with Dark Star as the default. The adjacent zoom slider, also driven by Cmd or Ctrl with plus and minus, scales the whole browser interface and remembers your preferred size. Demo edits stay in the current browser tab and Reset restores the samples. See [appearance and demo behavior](docs/vorteo-customizations.md#projects-devices-and-interface).
 
-- **Keep your sidebar across devices.** Project and workspace order, nested folders, expanded sections, grouping and filters follow you between connected devices. Folders group projects, or a project's workspaces, without touching disk. Offline edits sync after reconnection. Requires the updated Host daemon.
+- **Keep your sidebar across devices.** Project and workspace order, nested folders, expanded sections, grouping and filters follow you between connected devices. Folders group projects, or a project's workspaces, without touching disk, and you can focus the sidebar on one project or folder with a breadcrumb back out. Offline edits sync after reconnection. Requires the updated Host daemon.
 
 - **Find any setting.** Settings is one scrolling page of eleven sections, led by what needs your attention. Search forgives typos, jumps to the exact row and shows whether a value belongs to this device, every environment or one environment. Accounts show their remaining quota, and every provider's profiles share one list. See [settings navigation and search](docs/vorteo-customizations.md#projects-devices-and-interface).
 

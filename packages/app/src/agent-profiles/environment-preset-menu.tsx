@@ -49,6 +49,10 @@ interface EnvironmentPresetMenuProps {
   onApply: (id: string, choices?: LaunchChoices) => void;
   onClose: () => void;
 }
+function supportsEnvironmentSelection(profiles: AgentProfilePicker): boolean {
+  return Boolean(profiles.selectEnvironment || profiles.applyDestinationProfile);
+}
+
 export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
   const { settings } = useAppSettings();
   const [inspectedServerId, setServerId] = useState(props.serverId);
@@ -76,10 +80,12 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
     () => readProjectPolicy(config, props.profiles.projectPath),
     [config, props.profiles.projectPath],
   );
+  const canChangeEnvironment = supportsEnvironmentSelection(props.profiles);
   const environments = useMemo<PresetEnvironment[]>(() => {
     if (installation)
       return [...installation.environments]
         .filter((item) => isEnvironmentAllowed(projectPolicy, item.kind))
+        .filter((item) => canChangeEnvironment || item.serverId === props.serverId)
         .sort((a, b) => Number(b.kind === "host") - Number(a.kind === "host"))
         .map((item) => ({
           serverId: item.serverId,
@@ -87,12 +93,14 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
           description: item.kind === "host" ? "Full host access" : "Safer isolated workspace",
           available: statuses.get(item.serverId) === "online",
         }));
-    return hosts.map((host) => ({
-      serverId: host.serverId,
-      label: host.label,
-      available: statuses.get(host.serverId) === "online",
-    }));
-  }, [installation, hosts, statuses, projectPolicy]);
+    return hosts
+      .filter((host) => canChangeEnvironment || host.serverId === props.serverId)
+      .map((host) => ({
+        serverId: host.serverId,
+        label: host.label,
+        available: statuses.get(host.serverId) === "online",
+      }));
+  }, [installation, hosts, statuses, projectPolicy, canChangeEnvironment, props.serverId]);
   const { profiles: definitions, isSupported, accountIndependent } = useAgentProfiles(serverId);
   const { entries, isLoading, error, refresh, isRefreshing } = useProvidersSnapshot(serverId, {
     cwd: null,

@@ -758,7 +758,8 @@ export class AgentStorage {
   }
 }
 
-function projectDirNameFromCwd(cwd: string): string {
+/** The storage directory name for agents whose working directory is `cwd`. */
+export function projectDirNameFromCwd(cwd: string): string {
   // path.win32.parse handles drive letters, UNC roots, and Unix roots on all platforms
   const { root } = path.win32.parse(cwd);
   const withoutRoot = cwd.slice(root.length).replace(/[\\/]+$/, "");

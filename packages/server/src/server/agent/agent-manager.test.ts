@@ -14827,7 +14827,10 @@ test.each(["finish", "stop", "stop-write-failure"] as const)(
       await fixture.manager.captureRestartContinuation(request);
       expect(fixture.manager.hasInFlightRun(fixture.agentId)).toBe(true);
       expect(fixture.manager.beginRestartDrain(request)).toBe(true);
-      await expect.poll(() => fixture.manager.getRestartImpact().pendingStarts).toBe(0);
+      // Drain preparation persists queue state; Windows CI can exceed the default poll budget.
+      await expect
+        .poll(() => fixture.manager.getRestartImpact().pendingStarts, { timeout: 10_000 })
+        .toBe(0);
       expect((await queue.read(fixture.agentId)).items).toHaveLength(1);
       expect(fixture.session.interruptCalled).toBe(false);
       if (mode === "finish") {
