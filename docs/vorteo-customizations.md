@@ -1395,6 +1395,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 29, 2026: The isolated diagnostic candidate reuses three reviewed installation test fixtures for protected executables and platform ownership. Production guards and interface behavior remain unchanged. README overview and onboarding are unchanged.
+
 October 28, 2026: Preserved the original errored-session release commit in integration history. Its idle-or-error predicate and permission guards remain, with the reviewed atomic closure fix. README overview and onboarding are unchanged.
 
 October 28, 2026: Integrated the reviewed conditional hosted-session closure with provider recovery and workspace migration. Idle-or-error selection retains its quiet and upgrade gates; authoritative host checks protect active work and approvals. README overview and onboarding are unchanged.
