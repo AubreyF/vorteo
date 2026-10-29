@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): detailed Builds delivery, delegation and scope rules now live in the task delivery guide, with mandatory routing retained in the agent guide. The existing instruction budget and authorization, scheduling, preservation and lifecycle boundaries are unchanged. This documentation maintenance adds no runtime enforcement; README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): restore the full existing inventory and exact incoming contribution notes after detecting documentation loss during integration. No runtime behavior changed; README overview and onboarding remain unchanged.
 
 Maintenance review (2026-10-29): integrate valid unanswered Codex questions from saved sessions into stored and closed projections. Resolved questions remain excluded, and native approvals are never reconstructed. Preserve core-services cancellation guards and provider-history handling; source integration does not imply installation. README overview and onboarding are unchanged.

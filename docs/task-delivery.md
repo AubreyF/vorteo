@@ -26,6 +26,35 @@ Reuse verified evidence when the source and relevant inputs are unchanged. Coord
 
 Report published source, served interface and installed daemon revisions separately. `main` can advance before installation, and a static interface can be published without restarting the daemon. Preserve deployed ancestry and all existing CI, restart and approval gates; these instructions add no runtime enforcement or new permission.
 
+## Builds delivery details
+
+These rules are mandatory for delivery preparation and handoff.
+
+- Feature implementation and unrelated CI triage belong to their existing feature or CI owners. Route source defects back with exact evidence and acceptance checks. Builds links the upstream defect and current owner as a concise delivery dependency, then verifies the returned fix. Do not turn its queue into broad feature implementation or a general make-CI-green project.
+- Other threads prepare their task branches in dedicated checkouts and hand validated changes to Builds. Send the branch, head commit, checkout path, checks and evidence, intended outcome and authorization level (3 or 4). The installed `installation-maintenance` skill identifies Builds. Use the [handoff contract](#handoff-contract) for source, evidence, failed attempts, holds, acceptance and current ownership. A container agent that cannot reach Builds includes the same details in its Host handoff.
+- Batch compatible deliveries and reuse verified evidence for unchanged source and relevant inputs. Run required integration and release checks, and rerun affected checks when source, inputs or unresolved failures invalidate prior evidence. Unrelated server CI, daemon or recovery work must not hold ready independent interface delivery unless an exact applicable gate requires it. Record that gate when blocking delivery; never skip or weaken it.
+- Preview from the task checkout with a dev server or the managed preview helper. Do not run web exports or release builds for previews. Keep heavy validation coordinated with Builds and follow [Check your work](../AGENTS.md#check-your-work); do not run a full suite merely for handoff.
+
+## Bounded delegation and workspace ownership
+
+A workspace represents an outcome and its ownership, not a worker slot or filesystem checkout. When delegation is authorized, builders choose bounded subagents dynamically for implementation and independent review, within existing permissions, presets, budgets and actual enforced capacity. Schedule heavy builds separately with Builds; available agent capacity is not build capacity. There is no permanent lane count. Reuse suitable available agents and assign exact scope, file ownership, acceptance checks and return conditions. Reviewers must be independent of the author.
+
+Children inherit the builder's existing workspace; omit `workspaceId` when creating them. Separate concurrent editing worktrees do not require separate workspace tabs, and read-only reviewers need neither a new workspace nor a worktree. Preserve the existing owner workspace when routing work. Use a new workspace only for a distinct outcome that lacks an existing owner and has an explicitly authorized split. Delegation never grants integration, publication, installation or lifecycle authority; Builds remains the sole coordinator for those actions.
+
+## Keep work bounded and recommend splits early
+
+Reassess scope at the first substantial expansion or handoff and at least once per working day during continuing work. Proactively propose consequential optimizations or scope splits when outcomes need different owners or dependencies, two consecutive checkpoints add prerequisites without closing acceptance, or a working day produces no reviewable result.
+
+First check existing ownership. Route work to an existing feature or CI owner before proposing another thread or workspace. Keep routine execution choices autonomous. Ask concise owner questions only for consequential tradeoffs, scope changes or new workspace placement that existing owner authorization does not resolve, with a recommended choice and its practical effect. Continue independent authorized work while waiting.
+
+Explain what is prepared versus installed, the smallest complete delivery path and concrete blockers. Define a finish line and acceptance checks for each proposed outcome. A proposal does not authorize new agents or workspaces. An approved split preserves source, evidence, failed attempts, decisions, checklist state, file ownership and delivery constraints; use separate filesystem worktrees only where concurrent edits need isolation. Keep integration, publication and lifecycle with Builds, and do not count a handoff as implementation completion.
+
+Reconcile duplicate or stale tasks against actual source, evidence and ownership. Preserve one authoritative task for each outcome and retain links to transferred dependencies and unfinished acceptance. Archive only explicitly authorized threads after reconciling their outputs and remaining ownership; an idle or completed worker is not archival permission. Follow [Archive requests](../AGENTS.md#archive-requests) for preservation and workspace handling.
+
+Record deferrable debt found along the way in one deduplicated GitHub issue, at Level 3 or higher, or list it in your report otherwise, then return to the task. Do not widen the current delivery to fix it.
+
+Accept explicit owner reports of successful everyday use as acceptance for the behavior they describe. Do not keep that behavior open solely for an additional synthetic test or optional monitoring. Do not widen the acceptance criteria or add infrastructure without showing why it is necessary for the requested outcome.
+
 ## Handoff contract
 
 A handoff must identify the receiving owner and preserve that owner's workspace. Include these fields in a private handoff or task metadata, with no secrets:
