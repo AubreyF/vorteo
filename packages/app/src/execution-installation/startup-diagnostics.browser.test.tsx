@@ -160,6 +160,7 @@ test("a completed startup cancels the delayed automatic probe", async () => {
 test.each([
   [390, 620],
   [1133, 844],
+  [1133, 1200],
 ])(
   "the real HTML loader exposes bounded diagnostics and controls at width %s and height %s without an app bundle",
   async (width, height) => {
@@ -197,11 +198,37 @@ test.each([
     if (!saver) throw new Error("Data saver action missing");
     const controls = Array.from(help.querySelectorAll("button")).filter((button) => !button.hidden);
     expect(controls.map((button) => button.textContent?.replace(/\s+/g, " ").trim())).toEqual([
+      "Enable data saver",
       "Check endpoint",
-      "Reload",
-      "✓ Enable data saver",
       "Copy diagnostics",
+      "Reload",
     ]);
+    const statusBounds = status.getBoundingClientRect();
+    if (height >= 844) {
+      expect(statusBounds.height).toBeLessThan(height);
+      expect(Math.abs(statusBounds.top - (height - statusBounds.bottom))).toBeLessThan(1);
+    }
+    const rows: DOMRect[][] = [];
+    for (const button of controls) {
+      const bounds = button.getBoundingClientRect();
+      const row = rows.find((entry) => Math.abs(entry[0].top - bounds.top) < 1);
+      if (row) row.push(bounds);
+      else rows.push([bounds]);
+    }
+    for (const row of rows) {
+      for (let index = 1; index < row.length; index++) {
+        expect(row[index].left - row[index - 1].right).toBeCloseTo(12, 1);
+      }
+    }
+    for (let index = 1; index < rows.length; index++) {
+      expect(rows[index][0].top - rows[index - 1][0].bottom).toBeCloseTo(12, 1);
+    }
+    const icon = doc.getElementById("boot-data-saver-icon")!;
+    expect(icon.getBoundingClientRect().width).toBe(16);
+    expect(getComputedStyle(icon).visibility).toBe("visible");
+    expect(getComputedStyle(doc.getElementById("boot-data-saver-check")!).visibility).toBe(
+      "hidden",
+    );
     const measurements = [];
     // System fonts can place a control on a fractional pixel while scrolling can
     // round to an integer. Exercise those positions without depending on the host's font.
@@ -422,7 +449,8 @@ test("saved data saver skips optional fonts before app code and toggles without 
   button.click();
   expect(button.getAttribute("aria-pressed")).toBe("true");
   expect(getComputedStyle(doc.getElementById("boot-data-saver-check")!).visibility).toBe("visible");
-  expect(button.nextElementSibling?.id).toBe("boot-copy");
+  expect(button.nextElementSibling?.id).toBe("boot-check");
+  expect(getComputedStyle(doc.getElementById("boot-data-saver-icon")!).visibility).toBe("visible");
   expect(await fetch(`${origin}/startup-fixture-stats`).then((r) => r.json())).toEqual({
     startupHealthRequests: 0,
     heldScriptRequests: 1,
