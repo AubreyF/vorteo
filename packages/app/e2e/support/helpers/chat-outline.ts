@@ -54,6 +54,33 @@ export async function expectChatOutlinePrompts(page: Page, count: number): Promi
   await expect(chatOutlineRail(page).getByRole("tab")).toHaveCount(count);
 }
 
+/**
+ * A conversation longer than the rail shares marks between consecutive prompts, so the
+ * rail's interactive elements stay bounded by its height rather than by history length.
+ */
+export async function expectGroupedChatOutline(page: Page, totalPrompts: number): Promise<void> {
+  const tabs = chatOutlineRail(page).getByRole("tab");
+  await expect(tabs.first()).toBeVisible();
+  const count = await tabs.count();
+  expect(count).toBeGreaterThan(1);
+  expect(count).toBeLessThan(totalPrompts);
+  await expect(tabs.first()).toHaveAccessibleName(
+    new RegExp(`^1 to \\d+ of ${totalPrompts}, from `),
+  );
+  const rail = await chatOutlineRail(page).boundingBox();
+  const last = await tabs.last().boundingBox();
+  expect(rail && last && last.y + last.height <= rail.y + rail.height + 1).toBe(true);
+}
+
+export async function expectGroupedChatOutlinePreview(
+  page: Page,
+  firstPrompt: string,
+): Promise<void> {
+  const preview = page.getByTestId("chat-outline-preview");
+  await expect(preview).toContainText(/\d+ prompts/);
+  await expect(preview).toContainText(firstPrompt);
+}
+
 export async function expectNoChatOutline(page: Page): Promise<void> {
   await expect(chatOutlineRail(page)).toBeHidden();
 }

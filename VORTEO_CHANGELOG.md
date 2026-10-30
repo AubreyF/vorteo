@@ -4,11 +4,38 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.932 - 2026-10-30
+
+### Maintenance
+
+- Reconcile the combined sidebar and history candidate with the diagnostic pull request merge on main. Feature source is unchanged from the reviewed combination; publication and daemon installation remain separate.
+
+## 0.11.0-beta.3.vorteo.931 - 2026-10-30
+
+### Maintenance
+
+- Combine reviewed sidebar focus and bounded conversation history on the installed diagnostic ancestry. Preserve keyboard breadcrumb actions, touch icons, focused drop targets and both documentation histories. Static interface delivery remains separate from daemon installation.
+
+## 0.11.0-beta.3.vorteo.930 - 2026-10-30
+
+### Maintenance
+
+- Integrate bounded conversation history with the installed diagnostic ancestry, preserving current source, journal safeguards and both documentation histories. Interface publication and daemon installation remain separate delivery steps.
+- Extract prompt-index refresh decisions into pure functions and test older-daemon fallback, full-index replacement and stale-request recovery without changing hook behavior.
+
 ## 0.11.0-beta.3.vorteo.929 - 2026-10-30
 
 ### Maintenance
 
 - Integrate the installed coordinator initialization diagnostic with current main, retaining current runtime features, delivery tooling and both release histories.
+
+## 0.11.0-beta.3.vorteo.929 - 2026-10-29
+
+### Maintenance
+
+- Reconcile the reviewed history-bounds contribution with current main, preserving pull-request delivery rules, HTTP fixture corrections and both documentation histories. History behavior is unchanged from the reviewed contribution; interface publication and daemon installation remain separately gated.
+
+- Reconcile the reviewed sidebar focus changes with current pull-request delivery tooling and server HTTP fixtures. Preserve complete browser tests, both documentation histories and all existing delivery gates.
 
 ## 0.11.0-beta.3.vorteo.928 - 2026-10-29
 
@@ -61,6 +88,109 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Send the configured Host header on the wire in preview-monitor and session-host HTTP tests, matching the existing server test helper. Preserve authentication assertions and production origin guards.
+
+## 0.11.0-beta.3.vorteo.925 - 2026-10-29
+
+### Maintenance
+
+- Integrate reviewed conversation rail grouping, incremental prompt indexes and journal preservation fixes with current main. Preserve instruction rules and both documentation histories; installation remains separately gated.
+
+## 0.11.0-beta.3.vorteo.924 - 2026-10-29
+
+### Fixed
+
+- Store each thread's journal in its own file under `agent-journals`, written only when an entry is added. Ordinary thread updates no longer rewrite the journal. An existing inline journal migrates on the next save. Inline entries with new IDs are merged and renumbered after the file's entries; an identical retry of an existing entry is deduplicated.
+- Block journal migration rather than lose data. A thread's journal is refused new entries, its journal file is never written and its record keeps the inline journal exactly as loaded when the journal file cannot be read, when a corrupt journal file cannot be moved to a new unique name (a hard link refuses existing names), or when an inline entry reuses an ID with different text or machine context. Both copies stay on disk for manual reconciliation; the daemon log names the conflicting entry IDs.
+- Thread deletion fails, keeping the journal file, switch history and in-memory state, when any record file cannot be removed, so a surviving record never reloads without its journal. The thread-delete request still reports deletion and logs the failure; failed-agent-create cleanup now surfaces the removal error instead of the original create error.
+- Rollback limit: a daemon from an earlier release does not read `agent-journals`, so journals look empty until this release is reinstalled. The files are not deleted. File writes use rename without fsync, so ordering protects against process interruption but not power loss.
+
+## 0.11.0-beta.3.vorteo.923 - 2026-10-29
+
+### Changed
+
+- Fit the conversation navigation rail to its height. When prompts would get less than 6 pixels each, consecutive prompts share a mark; hovering a shared mark shows how many prompts it covers, their time span and the first prompt, and clicking jumps to that first prompt.
+- Fetch only prompts newer than the ones already shown when the daemon advertises `agentTimelinePromptIndexAfterSeq`, instead of resending the whole prompt index after every new prompt.
+- Store each thread's journal in its own file under `agent-journals`, written only when an entry is added. Ordinary thread updates no longer rewrite the journal. Existing inline journals migrate on the next save, entries from both locations are merged by ID and renumbered after the file's entries, and a corrupt journal file is kept beside the original for recovery. A journal file that exists but cannot be read, such as after a permission error, is left untouched and new entries for that thread are refused until it can be read. An older daemon after a rollback shows no journal until the upgrade is reinstalled; nothing is deleted.
+- Copy thread journals along with agent records when seeding worktree development state and startup benchmark homes.
+
+## 0.11.0-beta.3.vorteo.924 - 2026-10-29
+
+### Maintenance
+
+- Integrate reviewed sidebar focus, rail sizing and keyboard-action corrections, preserving current resize synchronization and complete documentation histories.
+
+## 0.11.0-beta.3.vorteo.920 - 2026-10-29
+
+### Fixed
+
+- The focused sidebar's breadcrumb actions, such as a project's new-workspace and ⋮ buttons, now appear while keyboard focus is inside them. Before, with a pointer layout they stayed invisible but reachable by Tab until hovered. They hide again once focus leaves the group.
+
+### Changed
+
+- The row Focus button and breadcrumb action visibility rules are pure functions with direct tests, replacing a JSDOM hook test with mocked modules that the testing guide does not allow. A demo browser test now tabs into the focused project's breadcrumb actions without hovering.
+
+## 0.11.0-beta.3.vorteo.919 - 2026-10-29
+
+### Maintenance
+
+- Cover the compact rail in a demo browser test: its 50px width and equal button margins, the flyout's hover Focus button, and Show project in sidebar expanding the sidebar into the focused project with its workspaces as top-level rows.
+
+## 0.11.0-beta.3.vorteo.918 - 2026-10-29
+
+### Changed
+
+- Narrow the collapsed sidebar rail from 56px to 50px. Its 44px buttons, from Expand sidebar through project initials and the menu, now have the same 2px margin on the left and right as above the first button. Status dots and flyout anchors follow the buttons.
+
+## 0.11.0-beta.3.vorteo.917 - 2026-10-29
+
+### Changed
+
+- Keep project, folder, Standing and Factory icons visible on touch layouts. The expand arrow now replaces the icon on pointer hover only, so phones no longer show a column of arrows where folder icons belong. Tapping a row still folds it.
+
+## 0.11.0-beta.3.vorteo.916 - 2026-10-29
+
+### Changed
+
+- Show the sidebar Focus button permanently on touch, compact and native layouts wherever the ⋮ menu is permanent, using the same condition: project, folder, Standing and Factory rows and compact rail flyout headers.
+- Remove the touch-only Focus item from project and folder menus, since the button is now always visible there.
+
+## 0.11.0-beta.3.vorteo.915 - 2026-10-29
+
+### Added
+
+- Offer the double-arrow Focus button in the compact rail flyout: on hover, the project header and folder rows show it immediately left of their ⋮ menus, and Standing and Factory headings show it too. Pressing it focuses that item in the sidebar, closes the flyout and expands the sidebar.
+
+## 0.11.0-beta.3.vorteo.914 - 2026-10-29
+
+### Changed
+
+- Make the compact rail flyout's Show project in sidebar button focus that project exactly as its Focus button does, then expand the sidebar to show the focused view. It no longer applies a project filter, and it now shows the double-arrow Focus icon before its label.
+
+## 0.11.0-beta.3.vorteo.913 - 2026-10-29
+
+### Changed
+
+- Halve the sidebar's per-level indent from 24px to 12px, so project children sit at 18px instead of 30px. Drag depth projection, the drop indicator and drop hit areas keep using the same shared unit; the 6px row inset is unchanged.
+
+## 0.11.0-beta.3.vorteo.912 - 2026-10-29
+
+### Changed
+
+- Enlarge the sidebar focus breadcrumb one theme step, from 12px `sm` to 14px `base` text, scaling its line height from 18 to 20px, separator arrows from 12 to 14px and segment gap from 4 to 6px.
+
+## 0.11.0-beta.3.vorteo.911 - 2026-10-29
+
+### Changed
+
+- Remove Escape from sidebar focus: the breadcrumb no longer shows an Esc hint, Escape no longer leaves focus, and the breadcrumb no longer takes keyboard focus after a focus change. The All projects crumb leaves focus.
+
+## 0.11.0-beta.3.vorteo.910 - 2026-10-29
+
+### Changed
+
+- Show a focused sidebar item's contents as the top level directly beneath the breadcrumb. The focused row and its ancestor rows are hidden, and every focus level rebases its children to the base indent.
+- Move the focused project's new-workspace + and ⋮ menu, and a focused folder's ⋮ menu, to the breadcrumb's last segment, shown on hover with a pointer and always on touch.
+- Keep drag and drop working inside focus: the focused container receives top-level drops, and depths are rebased so focused children are depth 0.
 
 ## 0.11.0-beta.3.vorteo.923 - 2026-10-29
 

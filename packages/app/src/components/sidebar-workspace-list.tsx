@@ -65,7 +65,6 @@ import {
   LockKeyhole,
   FolderInput,
   FolderPlus,
-  ChevronsRight,
 } from "lucide-react-native";
 import { NestableScrollContainer } from "react-native-draggable-flatlist";
 import { DraggableList, type DraggableRenderItemInfo } from "./draggable-list";
@@ -184,7 +183,7 @@ import {
   useMoveToSidebarFolderAction,
   useSidebarFoldersSupported,
 } from "@/sidebar-folders/actions";
-import { SidebarFolderRow } from "@/sidebar-folders/folder-row";
+import { SidebarFolderMenuButton, SidebarFolderRow } from "@/sidebar-folders/folder-row";
 import { sidebarFolderEntry } from "@getpaseo/protocol/sidebar-folders";
 import {
   SIDEBAR_ROW_INSET,
@@ -198,6 +197,7 @@ import {
   describeRootRow,
   folderIdOfEntry,
   projectDropTop,
+  projectFolderDropTop,
   sectionDropTop,
   sectionWorkspaceDescriber,
   treeRowExternalDrop,
@@ -211,9 +211,7 @@ import {
 } from "@/sidebar-drop/session";
 import { SidebarFocusBreadcrumb } from "@/sidebar-focus/breadcrumb";
 import {
-  SIDEBAR_FOCUS_SCOPE,
   SidebarFocusProvider,
-  useSidebarFocus,
   useSidebarFocusAction,
   useSidebarFocusController,
   useSidebarRowFocus,
@@ -223,12 +221,16 @@ import {
   buildSidebarFocusWorld,
   expandSidebarFocusPath,
   focusTreeRows,
-  isSameSidebarFocus,
+  isSidebarSectionShown,
   sidebarFocusProjectKey,
-  sidebarFocusRootRowKey,
+  sidebarFocusRootDropTop,
+  sidebarFocusRootRows,
+  sidebarProjectBlockLevels,
   sidebarFocusTrail,
   type SidebarFocusSection,
   type SidebarFocusTarget,
+  type SidebarFocusWorld,
+  type SidebarProjectBlockFocus,
 } from "@/sidebar-focus/model";
 import {
   EMPTY_SIDEBAR_FOLDER_STATE,
@@ -257,7 +259,6 @@ function treeRowItems<T>(rows: readonly SidebarTreeRow<T>[]): T[] {
 const WORKSPACE_STATUS_DOT_WIDTH = 14;
 // A project's direct children (workspaces, folders, Standing, Factory) sit one level in; the
 // workspaces inside Standing, Factory and project folders sit one level further per step.
-const PROJECT_CHILD_LEVEL = 1;
 const ThemedExternalLink = withUnistyles(ExternalLink);
 const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
 const ThemedPlus = withUnistyles(Plus);
@@ -267,7 +268,6 @@ const ThemedLock = withUnistyles(LockKeyhole);
 const ThemedSettings = withUnistyles(Settings);
 const ThemedFolderPlus = withUnistyles(FolderPlus);
 const ThemedFolderInput = withUnistyles(FolderInput);
-const ThemedChevronsRight = withUnistyles(ChevronsRight);
 
 const foregroundColorMapping = (theme: Theme) => ({
   color: theme.colors.foreground,
@@ -340,6 +340,11 @@ interface SidebarWorkspaceListProps {
   dragGestureHostActive?: boolean;
   /** False where the list shows a single project, such as the compact rail's flyout. */
   rootFolders?: boolean;
+  /**
+   * Where focus shows in another list, as from the compact rail's flyout: Focus buttons focus
+   * their item in the sidebar's store, then call this so the sidebar can show it.
+   */
+  onFocusElsewhere?: () => void;
 }
 
 interface ProjectHeaderRowProps {
@@ -601,7 +606,6 @@ function ProjectRowTrailingActions({
             onRemoveProject={onRemoveProject}
             removeProjectStatus={removeProjectStatus}
             removeProjectBlockedReason={removeProjectBlockedReason}
-            onFocus={focus.menuAction}
           />
         </View>
       ) : null}
@@ -623,7 +627,6 @@ const newFolderLeadingIcon = <ThemedFolderPlus size={14} uniProps={foregroundMut
 const moveToFolderLeadingIcon = (
   <ThemedFolderInput size={14} uniProps={foregroundMutedColorMapping} />
 );
-const focusLeadingIcon = <ThemedChevronsRight size={14} uniProps={foregroundMutedColorMapping} />;
 const openInNewWindowLeadingIcon = (
   <ThemedExternalLink size={14} uniProps={foregroundMutedColorMapping} />
 );
@@ -645,7 +648,6 @@ function ProjectKebabMenu({
   onRemoveProject,
   removeProjectStatus,
   removeProjectBlockedReason,
-  onFocus,
 }: {
   projectViewKey: string;
   projectName: string;
@@ -654,7 +656,6 @@ function ProjectKebabMenu({
   onRemoveProject: () => void;
   removeProjectStatus: "idle" | "pending" | "success";
   removeProjectBlockedReason?: string | null;
-  onFocus: (() => void) | null;
 }) {
   const { t } = useTranslation();
   const actionSize = useSidebarActionSize();
@@ -693,7 +694,6 @@ function ProjectKebabMenu({
           onRemoveProject={onRemoveProject}
           removeProjectStatus={removeProjectStatus}
           removeProjectBlockedReason={removeProjectBlockedReason}
-          onFocus={onFocus}
         />
       </DropdownMenuContent>
     </DropdownMenu>
@@ -724,7 +724,6 @@ function ProjectMenuItems({
   onRemoveProject,
   removeProjectStatus,
   removeProjectBlockedReason,
-  onFocus,
 }: {
   surface: ProjectMenuSurface;
   projectViewKey: string;
@@ -734,8 +733,6 @@ function ProjectMenuItems({
   onRemoveProject: () => void;
   removeProjectStatus: "idle" | "pending" | "success";
   removeProjectBlockedReason?: string | null;
-  /** Present only where rows cannot be hovered, so touch layouts can still focus. */
-  onFocus: (() => void) | null;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -786,16 +783,6 @@ function ProjectMenuItems({
 
   return (
     <>
-      {onFocus ? (
-        <ProjectMenuItem
-          surface={surface}
-          testID={`sidebar-project-menu-focus-${projectViewKey}`}
-          leading={focusLeadingIcon}
-          onSelect={onFocus}
-        >
-          {t("sidebar.focus.menuItem")}
-        </ProjectMenuItem>
-      ) : null}
       {factoryScreenAvailable ? (
         <>
           <ProjectMenuItem
@@ -1281,7 +1268,7 @@ function ProjectHeaderRow({
         projectViewKey={project.viewKey}
         backdrop={getSidebarRowBackdrop({ isDragging, isPressed, selected, isHovered })}
         chevron={chevron}
-        showChevron={(isHovered || touch) && chevron !== null}
+        showChevron={isHovered && chevron !== null}
         isArchiving={isArchiving}
       />
 
@@ -1301,7 +1288,7 @@ function ProjectHeaderRow({
           summary={taskSummary}
           projectViewKey={project.viewKey}
           displayName={displayName}
-          focusAction={rowFocus.buttonAction}
+          focusAction={rowFocus.hoverAction}
         />
       ) : (
         <ProjectRowTrailingActions
@@ -1397,7 +1384,6 @@ function ProjectHeaderRow({
           onRemoveProject={onRemoveProject}
           removeProjectStatus={removeProjectStatus}
           removeProjectBlockedReason={removeProjectBlockedReason}
-          onFocus={rowFocus.menuAction}
         />
       </ContextMenuContent>
     </ContextMenu>
@@ -1864,37 +1850,6 @@ function WorkspaceRow({
   );
 }
 
-/**
- * How a focused project block renders: as the focused project itself, or as the frame around
- * a focused folder or section inside it, which then becomes the top level.
- */
-type ProjectBlockFocus =
-  | { kind: "project" }
-  | { kind: "folder"; folderId: string }
-  | { kind: "section"; section: SidebarFocusSection };
-
-interface ProjectBlockFocusView {
-  showHeader: boolean;
-  /** Level of the project's direct children; 0 when a focused folder is the top level. */
-  childLevel: number;
-  sectionLevel: number;
-}
-
-function projectBlockFocusView(focus: ProjectBlockFocus | null): ProjectBlockFocusView {
-  if (focus === null || focus.kind === "project") {
-    return { showHeader: true, childLevel: PROJECT_CHILD_LEVEL, sectionLevel: PROJECT_CHILD_LEVEL };
-  }
-  if (focus.kind === "folder") {
-    return { showHeader: false, childLevel: 0, sectionLevel: PROJECT_CHILD_LEVEL };
-  }
-  return { showHeader: false, childLevel: PROJECT_CHILD_LEVEL, sectionLevel: 0 };
-}
-
-function isSectionShown(focus: ProjectBlockFocus | null, section: SidebarFocusSection): boolean {
-  if (focus === null || focus.kind === "project") return true;
-  return focus.kind === "section" && focus.section === section;
-}
-
 /** Standing or Factory workspaces, which reorder only within their section. */
 function SectionWorkspaceList({
   projectKey,
@@ -1940,7 +1895,6 @@ function SectionWorkspaceList({
     describe,
     top,
     baseLevel: level,
-    focusRootKey: null,
     outside: "cancel",
     onDrop: handleDrop,
   });
@@ -1972,6 +1926,7 @@ function ProjectSection({
   items,
   focus,
   level,
+  itemLevel,
   beforeList,
   renderList,
 }: {
@@ -1979,8 +1934,11 @@ function ProjectSection({
   section: SidebarFocusSection;
   title: string;
   items: SidebarWorkspacePlacement[];
-  focus: ProjectBlockFocus | null;
-  level: number;
+  focus: SidebarProjectBlockFocus | null;
+  /** Level of the heading; null while this section is focused, which hides it. */
+  level: number | null;
+  /** Level of the section's workspaces. */
+  itemLevel: number;
   beforeList?: ReactNode;
   renderList: (items: SidebarWorkspacePlacement[]) => ReactElement;
 }) {
@@ -2003,8 +1961,6 @@ function ProjectSection({
     [projectKey, section],
   );
   const focusAction = useSidebarFocusAction(target);
-  // The focused section is the top level, so it stays open and cannot fold away.
-  const isFocusRoot = isSameSidebarFocus(useSidebarFocus()?.focus ?? null, target);
   // Sections have no menu, so touch layouts keep the focus button visible.
   const hoverUnavailable = touch || compact || platformIsNative;
   const testID = `sidebar-${section}-section-${projectKey}`;
@@ -2015,20 +1971,23 @@ function ProjectSection({
       ) : null,
     [focusAction, hoverUnavailable, title, testID],
   );
-  if (items.length === 0 || !isSectionShown(focus, section)) return null;
-  const collapsed = !isFocusRoot && storedCollapsed;
+  if (items.length === 0 || !isSidebarSectionShown(focus, section)) return null;
+  // A focused section is the top level: its heading gives way to the breadcrumb and its
+  // workspaces stay open.
+  const collapsed = level !== null && storedCollapsed;
   return (
     <>
-      <SidebarSectionRow
-        title={title}
-        count={items.length}
-        collapsed={collapsed}
-        collapsible={!isFocusRoot}
-        onToggle={toggle}
-        level={level}
-        testID={testID}
-        trailing={trailing}
-      />
+      {level === null ? null : (
+        <SidebarSectionRow
+          title={title}
+          count={items.length}
+          collapsed={collapsed}
+          onToggle={toggle}
+          level={level}
+          testID={testID}
+          trailing={trailing}
+        />
+      )}
       {collapsed ? null : (
         <>
           {beforeList}
@@ -2037,7 +1996,7 @@ function ProjectSection({
             <SidebarGroupToggleRow
               expanded={group.expanded}
               onPress={group.toggleExpanded}
-              level={level + 1}
+              level={itemLevel}
               testID={`sidebar-${section}-show-more-${projectKey}`}
             />
           ) : null}
@@ -2045,6 +2004,157 @@ function ProjectSection({
       )}
     </>
   );
+}
+
+/** Removing a project from every host it is on, with its confirmation and failure toasts. */
+function useProjectRemoval(project: SidebarProjectEntry, displayName: string) {
+  const toast = useToast();
+  const { t } = useTranslation();
+  const [isRemovingProject, setIsRemovingProject] = useState(false);
+  // The daemon recreates and relies on the System project, so it stays in the sidebar.
+  const isSystemProject = useIsSystemProjectOnAnyHost(project.hosts);
+
+  const handleRemoveProject = useCallback(() => {
+    if (isRemovingProject) {
+      return;
+    }
+
+    void (async () => {
+      const confirmed = await confirmDialog({
+        title: t("sidebar.project.confirmations.removeTitle"),
+        message: t("sidebar.project.confirmations.removeMessage", { projectName: displayName }),
+        confirmLabel: t("sidebar.project.confirmations.removeConfirm"),
+        cancelLabel: t("sidebar.project.confirmations.cancel"),
+        destructive: true,
+      });
+      if (!confirmed) {
+        return;
+      }
+
+      setIsRemovingProject(true);
+      const readiness = getCurrentProjectRemoveReadiness({
+        hosts: project.hosts,
+      });
+      if (readiness.kind === "needs_host_update") {
+        toast.error(t("sidebar.project.toasts.updateHostToRemove"));
+        setIsRemovingProject(false);
+        return;
+      }
+
+      void removeProjectFromHosts({
+        targets: readiness.targets,
+        workspaces: project.workspaces,
+        getClient: (serverId) => getHostRuntimeStore().getClient(serverId),
+      })
+        .then((outcome) => {
+          if (outcome.kind === "host_disconnected") {
+            toast.error(t("sidebar.project.toasts.hostDisconnected"));
+            return null;
+          }
+          if (outcome.kind === "failed") {
+            toast.error(t("sidebar.project.toasts.removeFailed"));
+          }
+          return null;
+        })
+        .catch((error) => {
+          toast.error(
+            error instanceof Error ? error.message : t("sidebar.project.toasts.removeFailed"),
+          );
+        })
+        .finally(() => {
+          setIsRemovingProject(false);
+        });
+    })();
+  }, [isRemovingProject, displayName, t, toast, project.hosts, project.workspaces]);
+
+  return { handleRemoveProject, isRemovingProject, isSystemProject };
+}
+
+/**
+ * The focused project's own actions, which its hidden row would otherwise carry: new
+ * workspace and the project menu. They sit on the breadcrumb's last segment.
+ */
+function ProjectFocusActions({
+  project,
+  supportsMultiplicityByServerId,
+  onWorkspacePress,
+}: {
+  project: SidebarProjectEntry;
+  supportsMultiplicityByServerId: ReadonlyMap<string, boolean>;
+  onWorkspacePress?: () => void;
+}) {
+  const { t } = useTranslation();
+  const displayName = project.projectName;
+  const localDaemonServerId = useLocalDaemonServerId();
+  const rowModel = useMemo(
+    () =>
+      buildSidebarProjectRowModel({ project, collapsed: false, supportsMultiplicityByServerId }),
+    [project, supportsMultiplicityByServerId],
+  );
+  const worktreeTarget =
+    rowModel.trailingAction.kind === "new_workspace" ? rowModel.trailingAction.target : null;
+  const handleBeginWorkspaceSetup = useSidebarNewWorkspaceRoute({
+    project,
+    displayName,
+    target: worktreeTarget,
+    onBeforeNavigate: onWorkspacePress,
+  });
+  const { handleRemoveProject, isRemovingProject, isSystemProject } = useProjectRemoval(
+    project,
+    displayName,
+  );
+  return (
+    <View style={[styles.projectTrailingActions, styles.projectTrailingActionsVorton]}>
+      {worktreeTarget ? (
+        <NewWorktreeButton
+          displayName={displayName}
+          onPress={handleBeginWorkspaceSetup}
+          visible
+          testID={`sidebar-focus-new-worktree-${project.viewKey}`}
+        />
+      ) : null}
+      <ProjectKebabMenu
+        projectViewKey={project.viewKey}
+        projectName={displayName}
+        settingsTarget={project.hosts[0] ?? null}
+        projectPath={resolveSidebarProjectLocalPath(project, localDaemonServerId)}
+        onRemoveProject={handleRemoveProject}
+        removeProjectStatus={isRemovingProject ? "pending" : "idle"}
+        removeProjectBlockedReason={
+          isSystemProject ? t("sidebar.project.actions.removeBlockedSystem") : null
+        }
+      />
+    </View>
+  );
+}
+
+/** Actions of the focused item, whose own row the focused view hides. */
+function SidebarFocusActions({
+  focus,
+  world,
+  projects,
+  supportsMultiplicityByServerId,
+  onWorkspacePress,
+}: {
+  focus: SidebarFocusTarget;
+  world: SidebarFocusWorld;
+  projects: readonly SidebarProjectEntry[];
+  supportsMultiplicityByServerId: ReadonlyMap<string, boolean>;
+  onWorkspacePress?: () => void;
+}) {
+  if (focus.kind === "folder") {
+    const folder = world.folders[focus.folderId];
+    return folder ? <SidebarFolderMenuButton folder={folder} /> : null;
+  }
+  if (focus.kind === "section") return null;
+  const project = projects.find((entry) => entry.viewKey === focus.projectKey);
+  return project ? (
+    <ProjectFocusActions
+      project={project}
+      supportsMultiplicityByServerId={supportsMultiplicityByServerId}
+      onWorkspacePress={onWorkspacePress}
+    />
+  ) : null;
 }
 
 function ProjectBlock({
@@ -2103,7 +2213,7 @@ function ProjectBlock({
   /** Null when the sidebar host cannot store folders. */
   folderState: SidebarFolderState | null;
   hideEmptyFolders: boolean;
-  focus: ProjectBlockFocus | null;
+  focus: SidebarProjectBlockFocus | null;
 }) {
   const externalDrop = useWorkspaceProjectDrop(project.viewKey);
   const folderScope = useMemo(() => projectFolderScope(project.viewKey), [project.viewKey]);
@@ -2136,8 +2246,9 @@ function ProjectBlock({
       ? focusTreeRows(rows, sidebarFolderEntry(focus.folderId))
       : rows;
   }, [focus, folderState, folderScope, groups.work, hideEmptyFolders]);
-  // A focused folder or section becomes the top level, so its rows lose the project's step in.
-  const { showHeader, childLevel, sectionLevel } = projectBlockFocusView(focus);
+  // Focused contents become the top level, so their rows lose the project's step in.
+  const { showHeader, childLevel, sectionLevel, sectionItemLevel } =
+    sidebarProjectBlockLevels(focus);
   const installedPlugins = useInstalledPlugins();
   const overviewTargets = useMemo(
     () =>
@@ -2243,10 +2354,10 @@ function ProjectBlock({
         drag: workspaceDrag,
         isDragging: isActive,
         dragHandleProps: workspaceDragHandleProps,
-        indentLevel: sectionLevel + 1,
+        indentLevel: sectionItemLevel,
       });
     },
-    [renderWorkspaceRow, sectionLevel],
+    [renderWorkspaceRow, sectionItemLevel],
   );
 
   const handleWorkspaceDragEnd = useCallback(
@@ -2262,7 +2373,7 @@ function ProjectBlock({
         projectKey={project.viewKey}
         section={section}
         items={items}
-        level={sectionLevel + 1}
+        level={sectionItemLevel}
         externalDrop={externalDrop}
         renderItem={renderWorkspace}
         onReorder={handleWorkspaceDragEnd}
@@ -2273,7 +2384,7 @@ function ProjectBlock({
       />
     ),
     [
-      sectionLevel,
+      sectionItemLevel,
       externalDrop,
       project.viewKey,
       renderWorkspace,
@@ -2323,7 +2434,15 @@ function ProjectBlock({
   );
 
   const describeWorkRow = useMemo(() => workRowDescriber(project.viewKey), [project.viewKey]);
-  const workDropTop = useMemo(() => projectDropTop(project.viewKey), [project.viewKey]);
+  // A focused project folder receives the drops at its contents' top level.
+  const focusFolderId = focus?.kind === "folder" ? focus.folderId : null;
+  const workDropTop = useMemo(
+    () =>
+      focusFolderId === null
+        ? projectDropTop(project.viewKey)
+        : projectFolderDropTop(project.viewKey, focusFolderId),
+    [project.viewKey, focusFolderId],
+  );
   const handleWorkDrop = useCallback(
     (dragged: SidebarDropRow, placement: SidebarDropPlacement) => {
       if (folderState) {
@@ -2354,7 +2473,6 @@ function ProjectBlock({
     describe: describeWorkRow,
     top: workDropTop,
     baseLevel: childLevel,
-    focusRootKey: focus?.kind === "folder" ? sidebarFolderEntry(focus.folderId) : null,
     outside: "cancel",
     onDrop: handleWorkDrop,
   });
@@ -2367,64 +2485,11 @@ function ProjectBlock({
     [folderScope, folderState, onWorkspaceReorder, project.viewKey],
   );
 
-  const toast = useToast();
   const { t } = useTranslation();
-  const [isRemovingProject, setIsRemovingProject] = useState(false);
-  // The daemon recreates and relies on the System project, so it stays in the sidebar.
-  const isSystemProject = useIsSystemProjectOnAnyHost(project.hosts);
-
-  const handleRemoveProject = useCallback(() => {
-    if (isRemovingProject) {
-      return;
-    }
-
-    void (async () => {
-      const confirmed = await confirmDialog({
-        title: t("sidebar.project.confirmations.removeTitle"),
-        message: t("sidebar.project.confirmations.removeMessage", { projectName: displayName }),
-        confirmLabel: t("sidebar.project.confirmations.removeConfirm"),
-        cancelLabel: t("sidebar.project.confirmations.cancel"),
-        destructive: true,
-      });
-      if (!confirmed) {
-        return;
-      }
-
-      setIsRemovingProject(true);
-      const readiness = getCurrentProjectRemoveReadiness({
-        hosts: project.hosts,
-      });
-      if (readiness.kind === "needs_host_update") {
-        toast.error(t("sidebar.project.toasts.updateHostToRemove"));
-        setIsRemovingProject(false);
-        return;
-      }
-
-      void removeProjectFromHosts({
-        targets: readiness.targets,
-        workspaces: project.workspaces,
-        getClient: (serverId) => getHostRuntimeStore().getClient(serverId),
-      })
-        .then((outcome) => {
-          if (outcome.kind === "host_disconnected") {
-            toast.error(t("sidebar.project.toasts.hostDisconnected"));
-            return null;
-          }
-          if (outcome.kind === "failed") {
-            toast.error(t("sidebar.project.toasts.removeFailed"));
-          }
-          return null;
-        })
-        .catch((error) => {
-          toast.error(
-            error instanceof Error ? error.message : t("sidebar.project.toasts.removeFailed"),
-          );
-        })
-        .finally(() => {
-          setIsRemovingProject(false);
-        });
-    })();
-  }, [isRemovingProject, displayName, t, toast, project.hosts, project.workspaces]);
+  const { handleRemoveProject, isRemovingProject, isSystemProject } = useProjectRemoval(
+    project,
+    displayName,
+  );
 
   const handleToggleCollapsed = useCallback(() => {
     onToggleCollapsed(project.viewKey);
@@ -2455,6 +2520,7 @@ function ProjectBlock({
             <SidebarGroupToggleRow
               expanded={workspacesExpanded}
               onPress={toggleWorkspacesExpanded}
+              level={childLevel}
               testID={`sidebar-project-show-more-${project.viewKey}`}
             />
           ) : null}
@@ -2465,6 +2531,7 @@ function ProjectBlock({
             items={groups.factory}
             focus={focus}
             level={sectionLevel}
+            itemLevel={sectionItemLevel}
             beforeList={overviewTargets.map((target) => (
               <FactoryOverviewRow
                 key={`${target.serverId}:${target.projectId}`}
@@ -2481,6 +2548,7 @@ function ProjectBlock({
             items={groups.standing}
             focus={focus}
             level={sectionLevel}
+            itemLevel={sectionItemLevel}
             renderList={renderStandingList}
           />
         </>
@@ -2510,8 +2578,8 @@ function ProjectBlock({
             iconDataUri={iconDataUri}
             statusBucket={aggregateStatusBucket}
             selected={false}
-            chevron={focus ? null : rowModel.chevron}
-            onPress={focus ? noop : handleToggleCollapsed}
+            chevron={rowModel.chevron}
+            onPress={handleToggleCollapsed}
             worktreeTarget={
               rowModel.trailingAction.kind === "new_workspace"
                 ? rowModel.trailingAction.target
@@ -2627,6 +2695,7 @@ export function SidebarWorkspaceList({
   parentGestureRef,
   dragGestureHostActive,
   rootFolders = true,
+  onFocusElsewhere,
 }: SidebarWorkspaceListProps) {
   const pathname = usePathname();
   const hosts = useHosts();
@@ -2735,6 +2804,7 @@ export function SidebarWorkspaceList({
         onToggleWorkspacePin={onToggleWorkspacePin}
         onPinnedWorkspaceReorder={handlePinnedWorkspaceReorder}
         rootFolders={rootFolders}
+        onFocusElsewhere={onFocusElsewhere}
       />
     );
 
@@ -2833,6 +2903,7 @@ function useProjectModeView(input: {
   hideEmptyFolders: boolean;
   rootFolders: boolean;
   collapsedProjectKeys: ReadonlySet<string>;
+  onFocusElsewhere?: () => void;
 }) {
   const {
     projects,
@@ -2841,6 +2912,7 @@ function useProjectModeView(input: {
     hideEmptyFolders,
     rootFolders,
     collapsedProjectKeys,
+    onFocusElsewhere,
   } = input;
   const focusHostIds = useMemo(
     () =>
@@ -2874,8 +2946,19 @@ function useProjectModeView(input: {
       }),
     [folderState, projects, workspaceEntriesByKey, supportsFactoryByServerId, hideEmptyFolders],
   );
-  // The compact rail's single-project flyout has no room for a focused view.
+  // The compact rail's single-project flyout has no room for a focused view: it never shows
+  // focus itself, and its Focus buttons focus the sidebar instead.
   const focusController = useSidebarFocusController({ world: focusWorld, enabled: rootFolders });
+  const focusElsewhere = useMemo(() => {
+    if (rootFolders || !onFocusElsewhere) return null;
+    return {
+      focus: null,
+      focusOn: (target: SidebarFocusTarget | null) => {
+        focusController.focusOn(target);
+        onFocusElsewhere();
+      },
+    };
+  }, [rootFolders, onFocusElsewhere, focusController]);
   const focus = focusController.focus;
   const { t } = useTranslation();
   const focusTrail = useMemo(
@@ -2915,15 +2998,14 @@ function useProjectModeView(input: {
     [collapsedProjectKeys, projects, dragSession],
   );
   const focusProjectKey = focus ? sidebarFocusProjectKey(focus, focusWorld) : null;
-  const projectBlockFocus = useMemo((): ProjectBlockFocus | null => {
+  const projectBlockFocus = useMemo((): SidebarProjectBlockFocus | null => {
     if (!focus || focusProjectKey === null) return null;
     if (focus.kind === "folder") return { kind: "folder", folderId: focus.folderId };
     if (focus.kind === "section") return { kind: "section", section: focus.section };
     return { kind: "project" };
   }, [focus, focusProjectKey]);
   return {
-    // The compact rail's single-project flyout offers no focus.
-    focusContext: rootFolders ? focusController : null,
+    focusContext: rootFolders ? focusController : focusElsewhere,
     focus,
     focusWorld,
     focusTrail,
@@ -2961,6 +3043,7 @@ function ProjectModeListContent({
   onToggleWorkspacePin,
   onPinnedWorkspaceReorder,
   rootFolders = true,
+  onFocusElsewhere,
 }: Omit<
   SidebarWorkspaceListProps,
   | "workspaceGroups"
@@ -3019,6 +3102,7 @@ function ProjectModeListContent({
     hideEmptyFolders,
     rootFolders,
     collapsedProjectKeys,
+    onFocusElsewhere,
   });
 
   const getProjectOrder = useSidebarOrderStore((state) => state.getProjectOrder);
@@ -3108,7 +3192,7 @@ function ProjectModeListContent({
       getKey: projectViewKeyExtractor,
       hideEmptyFolders,
     });
-    return focus ? focusTreeRows(rows, sidebarFocusRootRowKey(focus, focusWorld)) : rows;
+    return focus ? sidebarFocusRootRows(rows, focus, focusWorld) : rows;
   }, [
     rootFolders,
     listFolderState,
@@ -3171,12 +3255,15 @@ function ProjectModeListContent({
     },
     [rootFolderState, rootRows, projects, saveProjectOrder],
   );
+  const rootDropTop = useMemo(
+    () => (focus ? sidebarFocusRootDropTop(focus, focusWorld) : null),
+    [focus, focusWorld],
+  );
   const rootTreeDrop = useSidebarTreeDrop({
     items: rootRows,
     describe: describeRootRow,
-    top: null,
+    top: rootDropTop,
     baseLevel: 0,
-    focusRootKey: focus ? sidebarFocusRootRowKey(focus, focusWorld) : null,
     outside: "clamp",
     onDrop: handleRootDrop,
   });
@@ -3370,6 +3457,20 @@ function ProjectModeListContent({
     ],
   );
 
+  const focusActions = useMemo(
+    () =>
+      focus ? (
+        <SidebarFocusActions
+          focus={focus}
+          world={focusWorld}
+          projects={projects}
+          supportsMultiplicityByServerId={supportsMultiplicityByServerId}
+          onWorkspacePress={onWorkspacePress}
+        />
+      ) : null,
+    [focus, focusWorld, projects, supportsMultiplicityByServerId, onWorkspacePress],
+  );
+
   const projectBody =
     projects.length === 0 ? (
       <SidebarProjectEmptyState onAddProject={onAddProject} onImportSession={onImportSession} />
@@ -3437,7 +3538,7 @@ function ProjectModeListContent({
       sidebarFilterEmpty
         ? listHeaderComponent
         : null}
-      {focusTrail ? <SidebarFocusBreadcrumb trail={focusTrail} /> : null}
+      {focusTrail ? <SidebarFocusBreadcrumb trail={focusTrail} actions={focusActions} /> : null}
       {sidebarFilterEmpty ? <SidebarFilterEmptyState /> : projectBody}
       {listFooterComponent}
     </>
@@ -3445,7 +3546,7 @@ function ProjectModeListContent({
 
   return (
     <SidebarFocusProvider value={focusContext}>
-      <View style={styles.container} dataSet={SIDEBAR_FOCUS_SCOPE}>
+      <View style={styles.container}>
         {platformIsNative ? (
           <NestableScrollContainer
             {...nativeScrollGestureProps}

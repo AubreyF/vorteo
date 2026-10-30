@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { DESKTOP_TRAFFIC_LIGHT_WIDTH } from "@/constants/layout";
 import {
+  COMPACT_RAIL_BUTTON_SIZE,
+  COMPACT_RAIL_MARGIN,
+  COMPACT_SIDEBAR_WIDTH,
+} from "@/stores/panel-store/state";
+import {
   canDesktopAppSidebarShare,
   resolveDesktopAppChromeLayout,
   resolveDesktopAppContentMinimum,
@@ -69,7 +74,7 @@ describe("desktop sidebar layout", () => {
 
   it("snaps at 160px while retaining fluid widths above the boundary", () => {
     expect(resolveDesktopSidebarWidth({ requestedWidth: 161, viewportWidth: 1800 })).toBe(161);
-    expect(resolveDesktopSidebarWidth({ requestedWidth: 160, viewportWidth: 1800 })).toBe(56);
+    expect(resolveDesktopSidebarWidth({ requestedWidth: 160, viewportWidth: 1800 })).toBe(50);
     expect(resolveDesktopSidebarWidth({ requestedWidth: 310, viewportWidth: 1800 })).toBe(310);
   });
 
@@ -100,7 +105,7 @@ describe("desktop sidebar layout", () => {
   it("lets the compact rail share space without consuming the saved expanded width", () => {
     expect(
       resolveDesktopSidebarWidth({ requestedWidth: 600, viewportWidth: 900, compact: true }),
-    ).toBe(56);
+    ).toBe(50);
     expect(
       canDesktopAppSidebarShare({
         contentMinimumWidth: 720,
@@ -154,5 +159,13 @@ describe("desktop sidebar layout", () => {
         viewportWidth: 751,
       }),
     ).toBe(true);
+  });
+});
+
+describe("compact rail width", () => {
+  it("leaves the same margin beside each 44px button as above the first", () => {
+    // Button, a margin on either side, and the panel's 1px border on either side.
+    expect(COMPACT_SIDEBAR_WIDTH).toBe(COMPACT_RAIL_BUTTON_SIZE + 2 * COMPACT_RAIL_MARGIN + 2);
+    expect(COMPACT_SIDEBAR_WIDTH).toBe(50);
   });
 });

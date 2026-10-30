@@ -22,14 +22,20 @@ function promptPreview(text: string): string {
   return `${collapsed.slice(0, PROMPT_PREVIEW_MAX_LENGTH - 1)}…`;
 }
 
+/**
+ * Prompts in timeline order. With `afterSeq`, only prompts after that position: a client
+ * that already holds the index fetches what arrived since instead of the whole history.
+ * Prompt rows keep their sequence once appended, so the suffix extends the earlier index.
+ */
 export function buildTimelinePromptIndex(
   epoch: string,
   rows: readonly AgentTimelineRow[],
+  afterSeq?: number,
 ): TimelinePromptIndex {
   return {
     epoch,
     prompts: rows.flatMap((row) =>
-      row.item.type === "user_message"
+      row.item.type === "user_message" && (afterSeq === undefined || row.seq > afterSeq)
         ? [
             {
               seq: row.seq,

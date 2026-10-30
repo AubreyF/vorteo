@@ -1,12 +1,11 @@
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 
 /**
- * One sidebar hierarchy level: a 16px icon slot plus the 8px gap before its title, so each
- * child's icon sits under its parent's title. Root folders, projects, project folders with
- * Standing and Factory, and workspaces each step in by exactly this much, and drag depth
- * projection measures in the same unit.
+ * One sidebar hierarchy level. Root folders, projects, project folders with Standing and
+ * Factory, and workspaces each step in by exactly this much, and drag depth projection, the
+ * drop indicator and drop hit areas measure in the same unit.
  */
-export const SIDEBAR_INDENT_UNIT = 24;
+export const SIDEBAR_INDENT_UNIT = 12;
 
 /** Where a level-0 row's leading icon slot starts. */
 export const SIDEBAR_ROW_INSET = 6;
