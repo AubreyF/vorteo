@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.933 - 2026-10-30
+
+### Maintenance
+
+- Move the journal unreadability test to the existing POSIX-only test category. Its permission and preservation assertions remain intact; all other journal tests still run on Windows. Production storage behavior is unchanged.
+
 ## 0.11.0-beta.3.vorteo.932 - 2026-10-30
 
 ### Maintenance

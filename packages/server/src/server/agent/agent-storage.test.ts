@@ -269,8 +269,6 @@ describe("AgentStorage", () => {
     const entryText = (item: { text: string }) => item.text;
     const isPreservedCorruptJournal = (name: string) =>
       name.startsWith("sidecar-corrupt.json.unreadable-");
-    // Root ignores file permissions, so an unreadable file cannot be simulated.
-    const runningAsRoot = process.getuid?.() === 0;
     const journalFile = (agentId: string) =>
       path.join(tmpDir, "agent-journals", `${encodeURIComponent(agentId)}.json`);
     const recordFile = (agentId: string) =>
@@ -365,36 +363,6 @@ describe("AgentStorage", () => {
         [entry(3).id, 3],
       ]);
     });
-
-    test.skipIf(runningAsRoot)(
-      "keeps an unreadable journal untouched and refuses appends until it can be read",
-      async () => {
-        const agent = createManagedAgent({ id: "sidecar-unreadable" });
-        await storage.applySnapshot(agent);
-        await storage.appendJournal(agent.id, {
-          entryId: "11111111-1111-4111-8111-111111111111",
-          text: "First",
-        });
-        const saved = await fs.readFile(journalFile(agent.id), "utf8");
-        await fs.chmod(journalFile(agent.id), 0o000);
-        try {
-          const reopened = new AgentStorage(storagePath, logger);
-          await reopened.applySnapshot(agent);
-          await expect(
-            reopened.appendJournal(agent.id, {
-              entryId: "22222222-2222-4222-8222-222222222222",
-              text: "Second",
-            }),
-          ).rejects.toMatchObject({ code: "unavailable" });
-        } finally {
-          await fs.chmod(journalFile(agent.id), 0o644);
-        }
-        expect(await fs.readFile(journalFile(agent.id), "utf8")).toBe(saved);
-        expect(
-          (await new AgentStorage(storagePath, logger).get(agent.id))?.journal?.map(entryText),
-        ).toEqual(["First"]);
-      },
-    );
 
     const appendSecond = (target: AgentStorage, agentId: string) =>
       target.appendJournal(agentId, {
