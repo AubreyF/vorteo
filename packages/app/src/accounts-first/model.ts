@@ -6,7 +6,6 @@ import {
   type ExistingConnection,
 } from "@/provider-usage/existing-connection";
 import type { ProviderUsage } from "@/provider-usage/types";
-import { groupInstallationProviders } from "@/screens/settings/shared-providers-model";
 
 export type { AccountProvider };
 
@@ -35,9 +34,13 @@ export function accountsFirstConnections(input: {
   connectOnce: Readonly<Record<AccountProvider, boolean>>;
 }): AccountsFirstConnection[] {
   return ACCOUNTS_FIRST_PROVIDERS.map((provider) => {
-    const family = groupInstallationProviders(input.definitions ?? []).find(
-      (entry) => entry.id === provider,
+    // Providers start off until they are signed in, so only an owner's explicit off hides one;
+    // otherwise the first screen could never offer the sign-in that turns it on.
+    const owned = (input.definitions ?? []).filter(
+      (definition) => definition.providerType === provider && definition.removed !== true,
     );
+    const turnedOff =
+      owned.length > 0 && owned.every((definition) => definition.policy.enabled === false);
     const connections = existingConnections({
       provider,
       definitions: input.definitions ?? [],
@@ -52,8 +55,7 @@ export function accountsFirstConnections(input: {
       connections.find((entry) => entry.enabled) ??
       connections[0] ??
       null;
-    // A provider without any definition yet is still offered.
-    return { provider, enabled: family?.enabled ?? true, connection };
+    return { provider, enabled: !turnedOff, connection };
   });
 }
 

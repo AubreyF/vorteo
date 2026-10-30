@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.962 - 2026-10-30
+
+### Fixed
+
+- The accounts first screen keeps offering Claude and Codex while they are off only because they are not signed in yet; it skips a provider only when the owner turned it off.
+
 ## 0.11.0-beta.3.vorteo.961 - 2026-10-30
 
 ### Fixed
