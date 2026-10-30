@@ -2208,6 +2208,7 @@ export const zhCN: TranslationResources = {
       theme: {
         title: "主题",
         accessibilityLabel: "主题：{{value}}",
+        pluginThemes: "插件主题",
         options: {
           light: "Light",
           dark: "Dark",

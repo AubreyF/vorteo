@@ -2087,3 +2087,5 @@ Maintenance review: delayed workspace navigation checks assert the selected prof
 Maintenance review: timeline browser helpers serialize geometry reads around the shared worktree-callout handler. The queue orbit regression waits for startup handoff and verifies its draft before submitting, preserving all queue-transition assertions and timeouts. Production code is unchanged.
 
 Maintenance review: installer service files take their PATH from `scripts/installer/service-path.mjs`, and adoption also rewrites the PATH of already linked service files. Sign-in start failures use provider-specific copy and log their cause; the sign-in flow is otherwise unchanged.
+
+Maintenance review: the Appearance theme row drops the built-in theme dropdown, including its System option; plugin themes keep a menu shown only when one is installed. The System appearance browser test is replaced one for one by a layout check; the test count is unchanged.

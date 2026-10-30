@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.959 - 2026-10-30
+
+### Changed
+
+- Settings > Appearance shows the theme bubbles on their own, centered like the sidebar menu. The extra Theme title and the theme dropdown are gone; a Plugin themes menu appears only when a plugin contributes a theme.
+
+### Fixed
+
+- Theme bubbles sit on the vertical centerline of their row instead of at its top.
+
 ## 0.11.0-beta.3.vorteo.958 - 2026-10-30
 
 ### Fixed

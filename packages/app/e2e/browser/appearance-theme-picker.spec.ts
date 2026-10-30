@@ -309,29 +309,24 @@ test("previews compact theme swatches without saving and commits only on activat
   });
 });
 
-test("keeps System appearance available without plugin themes", async ({ page }) => {
-  await page.emulateMedia({ colorScheme: "dark" });
+test("shows only centered theme bubbles in Appearance settings", async ({ page }) => {
   await page.goto("/settings/appearance");
-  const picker = page.getByRole("button", {
-    name: "Theme: Dark Star",
-    exact: true,
-  });
-  await expect(picker).toBeVisible();
-  await picker.click();
-  await page.getByRole("menuitem", { name: "System", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Theme: System", exact: true })).toBeVisible();
-  await expect
-    .poll(() =>
-      page.evaluate(() => JSON.parse(localStorage.getItem("@paseo:app-settings") ?? "{}").theme),
-    )
-    .toBe("auto");
-  await page.reload();
-  await expect(page.getByRole("button", { name: "Theme: System", exact: true })).toBeVisible();
+  const dark = page.getByTestId("theme-preview-starship-dark");
+  await expect(dark).toBeVisible();
+  // The section heading names the row; there is no second "Theme" title and no theme menu.
+  await expect(page.getByText("Theme", { exact: true })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: /^Theme: / })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Plugin themes", exact: true })).toHaveCount(0);
+  for (const id of ["starship-dark", "ember"]) {
+    const card = await page.getByTestId(`theme-preview-${id}`).boundingBox();
+    const surface = await page.getByTestId(`theme-preview-surface-${id}`).boundingBox();
+    expect(card && surface).toBeTruthy();
+    const cardCenter = card!.y + card!.height / 2;
+    const surfaceCenter = surface!.y + surface!.height / 2;
+    expect(Math.abs(cardCenter - surfaceCenter)).toBeLessThanOrEqual(1);
+  }
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole("button", { name: "Theme: System", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await page.getByTestId("theme-preview-ember").click();
-  await expect(page.getByRole("button", { name: "Theme: Ember", exact: true })).toBeVisible();
 });
 
 test.describe("whole-interface zoom", () => {

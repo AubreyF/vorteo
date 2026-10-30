@@ -2273,6 +2273,7 @@ export const ru: TranslationResources = {
       theme: {
         title: "Тема",
         accessibilityLabel: "Тема: {{value}}",
+        pluginThemes: "Темы плагинов",
         options: {
           light: "Светлая",
           dark: "Тёмная",

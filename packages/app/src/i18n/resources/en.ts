@@ -2455,6 +2455,7 @@ export const en = {
       theme: {
         title: "Theme",
         accessibilityLabel: "Theme: {{value}}",
+        pluginThemes: "Plugin themes",
         options: {
           light: "Light",
           dark: "Dark",

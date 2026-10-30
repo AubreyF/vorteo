@@ -1,20 +1,14 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { Monitor, Moon, Sun } from "lucide-react-native";
 import {
   SYNTAX_THEME_OPTIONS,
   type SyntaxThemeId,
   type SyntaxThemeOption,
 } from "@getpaseo/highlight";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { DropdownTrigger } from "@/components/ui/dropdown-trigger";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { useContributedThemes } from "@/appearance/provider";
@@ -36,15 +30,11 @@ import {
   sanitizeFontFamily,
   useAppSettings,
   type AppSettings,
-  DEFAULT_THEME_PREFERENCE,
 } from "@/hooks/use-settings";
 import {
   DEFAULT_MONO_FONT_STACK,
   DEFAULT_UI_FONT_STACK,
   ICON_SIZE,
-  PLUGIN_THEME_PREFERENCE,
-  THEME_OPTIONS,
-  THEME_SWATCHES,
   type Theme,
 } from "@/styles/theme";
 import { isNative } from "@/constants/platform";
@@ -59,25 +49,13 @@ import { AppearancePreview } from "./appearance-preview";
 // feature does not scale icons.
 // ---------------------------------------------------------------------------
 
-const ThemedSun = withUnistyles(Sun);
-const ThemedMoon = withUnistyles(Moon);
-const ThemedMonitor = withUnistyles(Monitor);
 const ThemedFontFamilyInput = withUnistyles(TextInput);
 
-const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 // Placeholder color is a native prop, so it needs a theme subscription separate
 // from the input's Unistyles text and surface styles.
 const fontPlaceholderMapping = (theme: Theme) => ({
   placeholderTextColor: theme.colors.foregroundMuted,
 });
-
-type BuiltInThemePreference = Exclude<AppSettings["theme"], typeof PLUGIN_THEME_PREFERENCE>;
-
-function getThemeLabel(t: TFunction, value: BuiltInThemePreference): string {
-  if (value === "auto") return t("settings.appearance.theme.options.auto");
-  const option = THEME_OPTIONS.find((item) => item.name === value);
-  return option && "theme" in option ? option.theme.appearance.name : value;
-}
 
 // Platform default stacks can be the bare native tokens ("normal"/"monospace");
 // those read as a bug, so show a human label in the placeholder instead.
@@ -99,23 +77,6 @@ function sizeDraftToOverride(value: string): number | undefined {
 // Theme picker
 // ---------------------------------------------------------------------------
 
-interface ThemeLeadingProps {
-  themeValue: BuiltInThemePreference;
-}
-
-function ThemeLeading({ themeValue }: ThemeLeadingProps) {
-  switch (themeValue) {
-    case "starship-light":
-      return <ThemedSun size={ICON_SIZE.md} uniProps={mutedColorMapping} />;
-    case "starship-dark":
-      return <ThemedMoon size={ICON_SIZE.md} uniProps={mutedColorMapping} />;
-    case "auto":
-      return <ThemedMonitor size={ICON_SIZE.md} uniProps={mutedColorMapping} />;
-    default:
-      return <ThemeSwatch color={THEME_SWATCHES[themeValue]} />;
-  }
-}
-
 interface ThemeSwatchProps {
   color: string;
 }
@@ -123,25 +84,6 @@ interface ThemeSwatchProps {
 function ThemeSwatch({ color }: ThemeSwatchProps) {
   const swatchStyle = useMemo(() => [styles.swatch, { backgroundColor: color }], [color]);
   return <View style={swatchStyle} />;
-}
-
-interface ThemeMenuItemProps {
-  themeValue: BuiltInThemePreference;
-  selected: boolean;
-  onChange: (theme: BuiltInThemePreference) => void;
-}
-
-function ThemeMenuItem({ themeValue, selected, onChange }: ThemeMenuItemProps) {
-  const { t } = useTranslation();
-  const handleSelect = useCallback(() => {
-    onChange(themeValue);
-  }, [onChange, themeValue]);
-  const leading = useMemo(() => <ThemeLeading themeValue={themeValue} />, [themeValue]);
-  return (
-    <DropdownMenuItem selected={selected} onSelect={handleSelect} leading={leading}>
-      {getThemeLabel(t, themeValue)}
-    </DropdownMenuItem>
-  );
 }
 
 interface PluginThemeMenuItemProps {
@@ -163,78 +105,46 @@ function PluginThemeMenuItem({ option, selected, onSelect }: PluginThemeMenuItem
 }
 
 interface ThemeRowProps {
-  value: AppSettings["theme"];
   pluginThemes: PluginThemeOption[];
   selectedPluginTheme: PluginThemeOption | null;
-  onChange: (theme: BuiltInThemePreference) => void;
   onSelectPluginTheme: (option: PluginThemeOption) => void;
 }
 
-function ThemeRow({
-  value,
-  pluginThemes,
-  selectedPluginTheme,
-  onChange,
-  onSelectPluginTheme,
-}: ThemeRowProps) {
+/**
+ * The theme bubbles, as in the sidebar menu. The section heading already says "Theme", so the
+ * row has no title of its own. Plugin themes have no bubble, so a menu lists them only when
+ * one is installed.
+ */
+function ThemeRow({ pluginThemes, selectedPluginTheme, onSelectPluginTheme }: ThemeRowProps) {
   const { t } = useTranslation();
-  // A selected contribution that is no longer installed shows the fallback the app renders.
-  const builtInValue = value === PLUGIN_THEME_PREFERENCE ? DEFAULT_THEME_PREFERENCE : value;
-  const selectedLabel = selectedPluginTheme
-    ? selectedPluginTheme.name
-    : getThemeLabel(t, builtInValue);
   const leading = useMemo(
-    () =>
-      selectedPluginTheme ? (
-        <ThemeSwatch color={selectedPluginTheme.swatch} />
-      ) : (
-        <ThemeLeading themeValue={builtInValue} />
-      ),
-    [builtInValue, selectedPluginTheme],
+    () => (selectedPluginTheme ? <ThemeSwatch color={selectedPluginTheme.swatch} /> : null),
+    [selectedPluginTheme],
   );
   return (
-    <View style={[settingsStyles.row, { flexWrap: "wrap", gap: 12 }]}>
-      <View style={settingsStyles.rowContent}>
-        <Text style={settingsStyles.rowTitle}>{t("settings.appearance.theme.title")}</Text>
-      </View>
+    <View style={[settingsStyles.row, styles.themeRow]}>
       <ThemePreviewGrid />
-      <DropdownMenu>
-        <DropdownTrigger
-          accessibilityRole="button"
-          accessibilityLabel={t("settings.appearance.theme.accessibilityLabel", {
-            value: selectedLabel,
-          })}
-          leading={leading}
-        >
-          {selectedLabel}
-        </DropdownTrigger>
-        <DropdownMenuContent side="bottom" align="end" width={200} scrollable>
-          {THEME_OPTIONS.map((option, index) => {
-            const previousOption = THEME_OPTIONS[index - 1];
-            return (
-              <Fragment key={option.name}>
-                {previousOption && previousOption.group !== option.group ? (
-                  <DropdownMenuSeparator />
-                ) : null}
-                <ThemeMenuItem
-                  themeValue={option.name}
-                  selected={selectedPluginTheme === null && builtInValue === option.name}
-                  onChange={onChange}
-                />
-              </Fragment>
-            );
-          })}
-          {pluginThemes.length > 0 ? <DropdownMenuSeparator /> : null}
-          {pluginThemes.map((option) => (
-            <PluginThemeMenuItem
-              key={option.id}
-              option={option}
-              selected={selectedPluginTheme?.id === option.id}
-              onSelect={onSelectPluginTheme}
-            />
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {pluginThemes.length > 0 ? (
+        <DropdownMenu>
+          <DropdownTrigger
+            accessibilityRole="button"
+            accessibilityLabel={t("settings.appearance.theme.pluginThemes")}
+            leading={leading}
+          >
+            {selectedPluginTheme?.name ?? t("settings.appearance.theme.pluginThemes")}
+          </DropdownTrigger>
+          <DropdownMenuContent side="bottom" align="end" width={200} scrollable>
+            {pluginThemes.map((option) => (
+              <PluginThemeMenuItem
+                key={option.id}
+                option={option}
+                selected={selectedPluginTheme?.id === option.id}
+                onSelect={onSelectPluginTheme}
+              />
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
     </View>
   );
 }
@@ -515,13 +425,6 @@ export function AppearanceSection() {
     setCodeSizeDraft(String(settings.codeFontSize));
   }, [settings.codeFontSize]);
 
-  const handleThemeChange = useCallback(
-    (theme: BuiltInThemePreference) => {
-      void updateSettings({ theme });
-    },
-    [updateSettings],
-  );
-
   const handlePluginThemeChange = useCallback(
     (option: PluginThemeOption) => {
       selectPluginTheme(option);
@@ -638,10 +541,8 @@ export function AppearanceSection() {
       <SettingsSection title={t("settings.appearance.theme.title")}>
         <View style={settingsStyles.card}>
           <ThemeRow
-            value={settings.theme}
             pluginThemes={pluginThemes}
             selectedPluginTheme={selectedPluginTheme}
-            onChange={handleThemeChange}
             onSelectPluginTheme={handlePluginThemeChange}
           />
         </View>
@@ -720,6 +621,12 @@ export function AppearanceSection() {
 }
 
 const styles = StyleSheet.create((theme) => ({
+  themeRow: {
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: theme.spacing[3],
+  },
   preview: {
     marginTop: theme.spacing[4],
   },
