@@ -403,7 +403,7 @@ test.afterAll(async () => {
   if (root) await rm(root, { recursive: true, force: true });
 });
 
-/** Opens a provider's own page from the Accounts & profiles list. */
+/** Expands a provider's details in place in the Accounts & profiles list. */
 async function openProviderPage(page: Page, providerType: string) {
   await page.getByTestId(`provider-family-open-${providerType}`).click();
   await expect(page.getByTestId("provider-detail-connections")).toBeVisible();
@@ -3428,7 +3428,7 @@ for (const width of [1280, 390]) {
           .getByTestId("provider-detail-connections")
           .getByText("Renamed fixture account", { exact: true }),
       ).toBeVisible();
-      // Removing the provider is a quiet row at the bottom of its page and returns to the list.
+      // Removing the provider is a quiet row at the bottom of its details; the row leaves the list.
       const dialog = page.waitForEvent("dialog");
       const click = page.getByTestId("provider-detail-remove-mock").click();
       await (await dialog).accept();

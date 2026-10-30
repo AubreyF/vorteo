@@ -8,7 +8,7 @@ import {
   type ProviderFamily,
 } from "./shared-providers-model";
 import { useProviderDetection } from "./use-provider-detection";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useMutation } from "@tanstack/react-query";
@@ -23,13 +23,14 @@ import { SettingsSection } from "@/components/settings/headings/settings-section
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { isWeb } from "@/constants/platform";
 import { useInstallationSettings } from "@/execution-installation/settings";
-import { openProviderSettings } from "@/navigation/settings-navigation";
 import { settingsStyles } from "@/styles/settings";
 import type { Theme } from "@/styles/theme";
 import { ProvidersSection } from "./providers-section";
 import { environmentLabel } from "./provider-connection-status";
-import { hostRejection, useConnectionLostReporter } from "./provider-detail-page";
+import { hostRejection, ProviderDetail, useConnectionLostReporter } from "./provider-detail-page";
+import { providerRowAnchorId, useSettingsFocus } from "./settings-focus";
 import { toErrorMessage } from "@/utils/error-messages";
 
 const ThemedGrip = withUnistyles(GripVertical);
@@ -45,11 +46,17 @@ function familySummary(family: ProviderFamily): string {
   return family.enabled ? connections : `Off · ${connections}`;
 }
 
+/**
+ * A provider's row. Pressing its name expands the provider's connections,
+ * profiles and model defaults underneath, and the chevron turns down.
+ */
 function ProviderFamilyCard({
   family,
   snapshot,
   busy,
   save,
+  expanded,
+  onToggleExpanded,
   drag,
   dragHandleProps,
 }: {
@@ -57,6 +64,8 @@ function ProviderFamilyCard({
   snapshot: InstallationSettingsSnapshot;
   busy: boolean;
   save(update: InstallationSettingsUpdate): void;
+  expanded: boolean;
+  onToggleExpanded(providerType: string): void;
   drag(): void;
   dragHandleProps?: DraggableListDragHandleProps;
 }) {
@@ -74,7 +83,17 @@ function ProviderFamilyCard({
       }),
     [save, snapshot, family.id],
   );
-  const open = useCallback(() => openProviderSettings(family.id), [family.id]);
+  const toggleExpanded = useCallback(
+    () => onToggleExpanded(family.id),
+    [onToggleExpanded, family.id],
+  );
+  const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
+  // React Native Web does not map `accessibilityState.expanded` to `aria-expanded`.
+  const webExpandedProps = useMemo(
+    () => (isWeb ? ({ "aria-expanded": expanded } as const) : null),
+    [expanded],
+  );
+  const chevronStyle = useMemo(() => [expanded && styles.chevronExpanded], [expanded]);
   const titleStyle = useCallback(
     ({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.title,
@@ -83,8 +102,12 @@ function ProviderFamilyCard({
     [],
   );
   return (
-    <View style={[settingsStyles.card, styles.card]} testID={`provider-family-${family.id}`}>
-      <View style={styles.heading}>
+    <View
+      style={styles.item}
+      nativeID={providerRowAnchorId(family.id)}
+      testID={`provider-family-${family.id}`}
+    >
+      <View style={[settingsStyles.card, styles.heading]}>
         <View
           {...dragHandleProps?.attributes}
           {...(!busy ? dragHandleProps?.listeners : undefined)}
@@ -97,17 +120,21 @@ function ProviderFamilyCard({
           </Pressable>
         </View>
         <Pressable
-          onPress={open}
+          {...webExpandedProps}
+          onPress={toggleExpanded}
           style={titleStyle}
           accessibilityRole="button"
-          accessibilityLabel={`Open ${family.name}`}
+          accessibilityLabel={`${family.name} details`}
+          accessibilityState={accessibilityState}
           testID={`provider-family-open-${family.id}`}
         >
           <View style={styles.content}>
             <Text style={settingsStyles.rowTitle}>{family.name}</Text>
             <Text style={settingsStyles.rowHint}>{familySummary(family)}</Text>
           </View>
-          <ThemedChevron size={16} uniProps={gripColor} />
+          <View style={chevronStyle}>
+            <ThemedChevron size={16} uniProps={gripColor} />
+          </View>
         </Pressable>
         {/* A switch for a CLI that is installed nowhere would change nothing. */}
         {family.installed ? (
@@ -119,6 +146,11 @@ function ProviderFamilyCard({
           />
         ) : null}
       </View>
+      {expanded ? (
+        <View style={styles.detail} testID={`provider-family-detail-${family.id}`}>
+          <ProviderDetail providerType={family.id} />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -183,6 +215,18 @@ function ProviderCatalog({
   const reportConnectionLost = useConnectionLostReporter();
   const change = useMutation({ mutationFn: save, onError: reportConnectionLost });
   const changeRejection = hostRejection(change.error);
+  // One provider open at a time; a provider address opens with it expanded.
+  const focus = useSettingsFocus();
+  const focusedType = focus?.kind === "provider" ? focus.providerType : null;
+  const [expanded, setExpanded] = useState<string | null>(focusedType);
+  useEffect(() => {
+    if (focusedType) setExpanded(focusedType);
+  }, [focusedType]);
+  const toggleExpanded = useCallback(
+    (providerType: string) =>
+      setExpanded((current) => (current === providerType ? null : providerType)),
+    [],
+  );
   const definitions = useMemo(
     () =>
       [
@@ -251,18 +295,20 @@ function ProviderCatalog({
         snapshot={data}
         busy={change.isPending}
         save={change.mutate}
+        expanded={item.id === expanded}
+        onToggleExpanded={toggleExpanded}
         drag={drag}
         dragHandleProps={dragHandleProps}
       />
     ),
-    [data, change],
+    [data, change, expanded, toggleExpanded],
   );
   return (
     <View>
       <SettingsSection
         title="Providers"
         status={change.isPending ? "Saving provider settings..." : null}
-        info="Providers and their connections work in every environment. Open a provider to manage its connections, profiles and model defaults."
+        info="Providers and their connections work in every environment. Expand a provider to manage its connections, profiles and model defaults."
       >
         {changeRejection ? (
           <Alert variant="error" description={toErrorMessage(changeRejection)} />
@@ -312,7 +358,7 @@ function ProviderCatalog({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  card: { marginVertical: theme.spacing[2] },
+  item: { marginVertical: theme.spacing[2] },
   heading: {
     flexDirection: "row",
     alignItems: "center",
@@ -331,4 +377,7 @@ const styles = StyleSheet.create((theme) => ({
   titleHovered: { backgroundColor: theme.colors.surface2 },
   content: { flex: 1, minWidth: 120 },
   dragHandle: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
+  chevronExpanded: { transform: [{ rotate: "90deg" }] },
+  // The details sit under the row, indented on wider screens; phones keep the full width.
+  detail: { paddingTop: theme.spacing[4], paddingLeft: { xs: 0, md: theme.spacing[4] } },
 }));

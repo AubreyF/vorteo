@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.963 - 2026-10-30
+
+### Changed
+
+- Providers in Accounts & profiles expand in place: pressing a provider turns its chevron down and shows its connections, profiles, model defaults and Remove under the row, with the other providers still listed. One provider is open at a time. The separate provider page and its duplicate "Use provider" switch are gone; the row's switch stays.
+- Provider addresses (`/settings/accounts/<provider>`) open Accounts & profiles with that provider expanded and scrolled into view. Host overview addresses (`/settings/hosts/<id>/host`) open Environments with that environment's tab selected, instead of a separate page with no way back to its section on desktop.
+
 ## 0.11.0-beta.3.vorteo.962 - 2026-10-30
 
 ### Fixed
