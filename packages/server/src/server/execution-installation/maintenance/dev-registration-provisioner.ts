@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import path from "node:path";
 import { z } from "zod";
-import { InstallationConfigSchema } from "../config.js";
+import { InstallationConfigSchema, requireContainer } from "../config.js";
 import {
   DevRegistrationReceiptSchema,
   captureC1RegistrationDocuments,
@@ -963,12 +963,12 @@ export function prepareDevRegistrationC1Documents(input: {
   };
   const replacement = structuredClone(original.parsed),
     rollback = structuredClone(original.parsed);
-  replacement.container.supervisorMaintenance = script(
+  requireContainer(replacement).supervisorMaintenance = script(
     input.replacementScript,
     provisioner.script,
     provisioner.sha256,
   );
-  rollback.container.supervisorMaintenance = script(
+  requireContainer(rollback).supervisorMaintenance = script(
     input.rollbackScript,
     provisioner.rollback.script,
     provisioner.rollback.sha256,
@@ -988,7 +988,7 @@ export function prepareDevRegistrationC1Documents(input: {
     selected = structuredClone(replacement);
   if (!selected.containerSourceUpdates) throw new Error("C1 source updater is absent");
   selected.containerSourceUpdates.node = plan.protectedNode;
-  selected.container.persistentRegistration = {
+  requireContainer(selected).persistentRegistration = {
     receiptFile: plan.hostReceiptFile,
     sha256: preparedReceipt.sha256,
   };

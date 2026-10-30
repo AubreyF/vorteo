@@ -133,6 +133,8 @@ export interface RestartApprovalPolicy {
   supervisorRequestsAfter?: () => string | null;
   /** Owner delegation: automatic Host source updates may replace the supervisor. */
   hostUpdateServiceRestart?: () => boolean;
+  /** Daemon targets that exist. Omitted means Host and Dev; Host-only installations pass ["host"]. */
+  daemonTargets?: readonly RestartJob["target"][];
 }
 
 export interface RestartJournal {
@@ -1255,6 +1257,11 @@ export class InstallationRestarts {
     requestedBy: RestartJob["requestedBy"],
     update?: RestartJob["update"],
   ): RestartJob {
+    if (
+      this.approvalPolicy.daemonTargets &&
+      !this.approvalPolicy.daemonTargets.includes(input.target)
+    )
+      throw new RestartRequestError("This installation has no Dev container");
     if (input.workerLaunchRequest) return this.requestWorkerLaunch(input, requestedBy, update);
     return this.requestRestart(input, requestedBy, update);
   }
@@ -3014,21 +3021,23 @@ export class InstallationRestarts {
   async impacts(): Promise<RestartImpact[]> {
     this.requireActive();
     return Promise.all(
-      (["host", "container-daemon"] as const).map(async (target) => {
-        try {
-          if (!this.executor.inspect) throw new Error("Agent inspection unavailable");
-          return await this.executor.inspect(target);
-        } catch {
-          return {
-            target,
-            checkedAt: new Date(this.now()).toISOString(),
-            agents: [],
-            pendingStarts: 0,
-            idleRestartSupported: false,
-            error: "Cannot verify agent activity. The target may be offline.",
-          };
-        }
-      }),
+      (this.approvalPolicy.daemonTargets ?? (["host", "container-daemon"] as const)).map(
+        async (target) => {
+          try {
+            if (!this.executor.inspect) throw new Error("Agent inspection unavailable");
+            return await this.executor.inspect(target);
+          } catch {
+            return {
+              target,
+              checkedAt: new Date(this.now()).toISOString(),
+              agents: [],
+              pendingStarts: 0,
+              idleRestartSupported: false,
+              error: "Cannot verify agent activity. The target may be offline.",
+            };
+          }
+        },
+      ),
     );
   }
 

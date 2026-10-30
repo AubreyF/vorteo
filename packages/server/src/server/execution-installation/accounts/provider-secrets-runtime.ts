@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { join } from "node:path";
 import type { ProviderSecretsStatus } from "@getpaseo/protocol/provider-secrets";
-import type { InstallationConfig } from "../config.js";
+import { requireEnvironmentDaemon, type InstallationConfig } from "../config.js";
 import { connectInstallationDaemon, createInstallationRegistrationAdmission } from "../daemon.js";
 import type { InstallationSettingsService } from "../settings/service.js";
 import { readClaudeSetupFile, writeClaudeSetupFile } from "./claude-setup-file.js";
@@ -136,7 +136,7 @@ export function createProviderSecretsRuntime(
           throw new ProviderSecretsUnsupportedError();
         supported.set(target.kind, Date.now());
       }
-      const daemon = target.kind === "host" ? config.host : config.container;
+      const daemon = requireEnvironmentDaemon(config, target.kind);
       // Explicit loopback endpoints are validated by installation config, never supplied by clients.
       const response = await request(`http://${daemon.endpoint}${PROVIDER_SECRETS_ROUTE}`, {
         method: "POST",

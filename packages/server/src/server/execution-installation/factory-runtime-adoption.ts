@@ -4,10 +4,10 @@ import { accessSync, constants, lstatSync, readFileSync, realpathSync } from "no
 import { promisify } from "node:util";
 import { z } from "zod";
 import type { RestartJob } from "@getpaseo/protocol/execution-installation";
-import type { InstallationConfig } from "./config.js";
+import type { ContainerDaemonConfig } from "./config.js";
 
 const execute = promisify(execFile);
-type AdoptionPlan = NonNullable<InstallationConfig["container"]["factoryRuntimeAdoption"]>;
+type AdoptionPlan = NonNullable<ContainerDaemonConfig["factoryRuntimeAdoption"]>;
 const ReceiptSchema = z.strictObject({
   requestId: z.string().uuid(),
   planSha256: z.string().regex(/^[a-f0-9]{64}$/),

@@ -1304,3 +1304,25 @@ test("project policies must leave the project available in at least one environm
   expect(host.config.installationProjectPolicies).toEqual(policies);
   expect(container.config.installationProjectPolicies).toBeUndefined();
 });
+
+test("a Host-only installation imports, edits and projects settings with one environment", async () => {
+  const host = new SettingsEnvironmentFake("host");
+  const journal = new SettingsJournalFake();
+  const service = new InstallationSettingsService(journal, [host]);
+  const initial = await service.reconcile();
+  expect(initial.conflicts).toBeUndefined();
+  expect(Object.keys(initial.sources)).toEqual(["host"]);
+  await service.update({
+    expectedRevision: initial.revision,
+    settings: { appendSystemPrompt: "Host only" },
+  });
+  const projected = await service.reconcile();
+  expect(host.config.appendSystemPrompt).toBe("Host only");
+  expect(projected.sources.host).toMatchObject({ pendingRevision: null, error: null });
+  // A Dev container added later changes the environment set; the stored journal
+  // refuses it until an explicit migration adds Dev's source.
+  expect(
+    () =>
+      new InstallationSettingsService(journal, [host, new SettingsEnvironmentFake("container")]),
+  ).toThrow(InstallationSettingsInvalidUpdate);
+});

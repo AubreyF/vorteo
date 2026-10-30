@@ -2,21 +2,33 @@
 
 Vorteo extends upstream Paseo with multi-account agent workflows. This npm monorepo runs agents in your environment and exposes web, mobile and desktop clients. `CLAUDE.md` links here; edit `AGENTS.md`.
 
+## Stop: updating from inside a Dev container
+
+If you were asked to update or upgrade a Vorteo installation, you are running inside a Vorteo Dev container (for example `/home/paseo` exists or `PASEO_NETWORK_MODE` is set), and no Host environment is connected (no installed `installation-maintenance` skill offers a Host target), stop. Do not clone, build, or run any installer or update script. A container cannot install its own Host.
+
+Tell the owner to run this on the computer that runs Docker:
+
+```sh
+curl -fsSL https://terranlabs.com/vorteo/install | bash
+```
+
+It keeps this Dev environment, its agents and files, and adds the Host that installs later updates from Settings.
+
 ## Before editing
 
 1. Fetch `origin`. If your checkout is behind `origin/main`, read the current rules with `git show origin/main:AGENTS.md`. Check the working tree and preserve unrelated changes.
 2. Read the relevant rules below and the owning docs. “The docs” means `docs/`, not the web. Use the [docs index](docs/README.md) for other subjects; do not load the whole catalog.
 3. Verify behavior in code and tests before changing it or documenting it as shipped.
 
-| Task                           | Read first                                                                                                                       |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| App or interface work          | [App instructions](packages/app/AGENTS.md)                                                                                       |
-| Protocol or WebSocket changes  | [Compatibility](docs/protocol-compatibility.md), [RPC names](docs/rpc-namespacing.md), [validation](docs/protocol-validation.md) |
-| Implementation or tests        | [Coding standards](docs/coding-standards.md), [testing](docs/testing.md)                                                         |
-| README or other documentation  | [Writing rules](docs/writing.md)                                                                                                 |
-| Installation or deployment     | [Container installer](docker/multiplex/README.md), [instance continuity](docs/instance-continuity.md)                            |
-| Commit, publication or release | [Versioning](docs/release.md#vorton-commit-versions), [publication hygiene](docs/publication-hygiene.md)                         |
-| Worktrees, delivery or archive | [Task delivery](docs/task-delivery.md)                                                                                           |
+| Task                           | Read first                                                                                                                                 |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| App or interface work          | [App instructions](packages/app/AGENTS.md)                                                                                                 |
+| Protocol or WebSocket changes  | [Compatibility](docs/protocol-compatibility.md), [RPC names](docs/rpc-namespacing.md), [validation](docs/protocol-validation.md)           |
+| Implementation or tests        | [Coding standards](docs/coding-standards.md), [testing](docs/testing.md)                                                                   |
+| README or other documentation  | [Writing rules](docs/writing.md)                                                                                                           |
+| Installation or deployment     | [Install](README.md#install), [installation reference](docs/execution-installation.md), [instance continuity](docs/instance-continuity.md) |
+| Commit, publication or release | [Versioning](docs/release.md#vorton-commit-versions), [publication hygiene](docs/publication-hygiene.md)                                   |
+| Worktrees, delivery or archive | [Task delivery](docs/task-delivery.md)                                                                                                     |
 
 ## Authorization levels
 
@@ -101,7 +113,7 @@ Use a sealed production build when checking production behavior or when the owne
 - Treat the project's primary checkout as read-only. Many threads start there, new workspaces branch from it, and an hourly job fast-forwards its `main` to `origin/main`. Do not edit, commit, stash or switch branches in it; start a [task worktree](docs/task-delivery.md#start-in-a-task-worktree) first. Machine-local service settings belong in the untracked `paseo.local.json`, never in `paseo.json`.
 - Never restart the main daemon on port `6767` without explicit permission. It owns running agents. A timeout is not a reason to restart it.
 - Previews reuse the task workspace, service and HTTPS reservation. Never create a project or workspace solely to serve a preview or work around a broker rejection. Keep isolated code in its task worktree and follow the [preview workflow](docker/tailscale/AGENT-INSTRUCTIONS.md#preview-workspace-reuse).
-- Use the container installer by default. The explicitly owner-authorized macOS host extension follows [host and container execution](docs/execution-installation.md); it adds a trusted native daemon through the host handoff workflow. Never infer authorization for that topology from an ordinary container task. Keep the native runtime, interface, state and credentials outside guest-writable mounts. Never mount Docker's socket or place host control credentials in the guest. Host Docker administration belongs to the operator.
+- Install and upgrade with the one-command installer in the [README](README.md#install). It adds the trusted native Host daemon described in [host and container execution](docs/execution-installation.md). It runs on the Host computer, never inside a container. Never infer authorization for that topology from an ordinary container task. Keep the native runtime, interface, state and credentials outside guest-writable mounts. Never mount Docker's socket or place host control credentials in the guest. Host Docker administration belongs to the operator.
 - Keep credentials, deployment details, account inventories, backups and acceptance receipts outside Git.
 - Primary web publication requires clean, committed integration source and the guarded build/publish scripts in [instance continuity](docs/instance-continuity.md). Task worktrees produce previews. Never publish raw exports or reuse another build directory; integrate the currently deployed source before rebuilding a stale candidate.
 - Preserve wire compatibility: new fields are optional, existing fields are not removed or narrowed, and wire schemas stay pure. Gate new features on their advertised capability; tag compatibility shims as required by the compatibility doc.

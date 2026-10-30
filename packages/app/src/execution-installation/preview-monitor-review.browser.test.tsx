@@ -36,7 +36,11 @@ vi.mock("./client", () => ({
     throw new Error("Unexpected owner transport");
   },
 }));
-vi.mock("./policy", () => ({
+// Upgrades and snapshots are covered by their own tests and need a query client.
+vi.mock("./safety-snapshots", () => ({ SafetySnapshotsCard: () => null }));
+vi.mock("./installation-upgrade-card", () => ({ InstallationUpgradeCard: () => null }));
+vi.mock("./policy", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./policy")>()),
   readExecutionInstallation: () => ({ environments: [] }),
 }));
 vi.mock("@/runtime/host-runtime", () => ({

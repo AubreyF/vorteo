@@ -4,6 +4,29 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.938 - 2026-10-30
+
+### Added
+
+- One-command installation: `curl -fsSL https://terranlabs.com/vorteo/install | bash` asks a few questions, shows the plan, installs from the newest stable release on macOS (launchd) or Linux (systemd user services), resumes when rerun, and wraps a legacy container-only deployment while keeping its Dev identity, home, workspace and agents. Under an agent it prints its questions and exits 3 so the agent can ask the owner.
+- Installer engine (`scripts/installer/main.mjs detect|plan|apply|status|repair|uninstall|host-release`) that creates the installation before any environment boots, Host-only or with Dev behind the network gate, with Tailscale or local-only access.
+- The `vorteo` command: `status`, `doctor`, `open`, `update`, `repair` and `uninstall`.
+- Host-only installations, without Docker, and local-only installations, at `http://localhost`, without Tailscale. In local mode Dev reaches the coordinator through the gate's named route; on Linux the coordinator also listens on the Docker bridge.
+- Interface upgrades to a tagged release cover the Host, the coordinator and the Dev image, after a safety snapshot. Snapshots can also be taken and restored from installation controls.
+- After the first sign-in, a new installation offers to connect Claude and Codex accounts once for the whole installation.
+- Container-only installations show the one install command on the Updates page instead of a dead-end error, and `AGENTS.md` tells agents inside such a container to point the owner at it.
+- A manual Install tests workflow runs a Linux install with Dev in gate mode plus a legacy wrap, and a macOS Host-only install, on the commit about to be tagged. Releases carry `install.sh`.
+
+### Changed
+
+- Dev deployments support gate mode with `compose.gate.yaml` and `gate.sh enable|rollback`; `update.sh` recreates the gate with Dev and restores the previous image when the new one is unhealthy.
+- In-app update checks follow the newest stable `release-<counter>` tag, and keep following `main` until one exists.
+- The README, installation docs and Dev container docs lead with the one command; the separate lab installation guide is retired.
+
+### Fixed
+
+- A Host-only named account no longer counts as connected in Dev; only each environment's built-in provider entry is local to it.
+
 ## 0.11.0-beta.3.vorteo.937 - 2026-10-30
 
 ### Added

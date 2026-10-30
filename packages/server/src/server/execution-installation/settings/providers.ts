@@ -165,12 +165,14 @@ export function installationAccountBindingsComplete(
   return definitions.every((definition) => {
     const inactive = definition.removed || definition.policy.enabled === false;
     if (inactive || excludedIds.includes(definition.id)) return true;
-    // An environment's own provider, with no shared account behind it, belongs to that
-    // environment by identity; another environment can never be missing it.
+    // An environment's built-in provider entry (local id equal to its type, no account)
+    // belongs to that environment by identity; another environment can never be missing it.
+    // A named account, even one defined in a single environment, still needs every binding.
     if (
       definition.accountId === undefined &&
       definition.accountSetup === undefined &&
-      definition.id.startsWith("environment/")
+      definition.id.startsWith("environment/") &&
+      Object.values(definition.bindings).every((localId) => localId === definition.providerType)
     )
       return true;
     const account =

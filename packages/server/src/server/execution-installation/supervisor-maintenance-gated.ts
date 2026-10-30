@@ -16,7 +16,7 @@ import type {
   DevRegistrationExecutionChildProof,
 } from "./maintenance/dev-registration-execution.js";
 import type { RestartJob } from "@getpaseo/protocol/execution-installation";
-import type { InstallationConfig } from "./config.js";
+import type { ContainerDaemonConfig } from "./config.js";
 
 export interface GatedSupervisorHostProof {
   node: { path: string; sha256: string };
@@ -29,7 +29,7 @@ export interface GatedSupervisorChildAttestation {
   assertCurrent(): void;
 }
 export interface GatedSupervisorMaintenanceInput {
-  plan: NonNullable<InstallationConfig["container"]["supervisorMaintenance"]>;
+  plan: NonNullable<ContainerDaemonConfig["supervisorMaintenance"]>;
   job: RestartJob;
   host: GatedSupervisorHostProof;
   /** Uses the existing pinned audited reader on the actual spawned PID. No

@@ -1,6 +1,6 @@
 import { createSharedAccountDefinition } from "@/execution-installation/account-creation";
 import { requestInstallationSettings } from "@/execution-installation/settings";
-import { readExecutionInstallation } from "@/execution-installation/policy";
+import { installationHasDev, readExecutionInstallation } from "@/execution-installation/policy";
 import {
   useCallback,
   useEffect,
@@ -37,6 +37,8 @@ interface AddAccountProps {
 }
 type AccountButtonProps = Omit<AddAccountProps, "provider"> & {
   catalog?: boolean;
+  /** Replaces the default button text, for example "Connect" on the accounts first screen. */
+  label?: string;
   style?: StyleProp<ViewStyle>;
 };
 export function AddCodexAccountButton(props: AccountButtonProps) {
@@ -48,9 +50,10 @@ export function AddClaudeAccountButton(props: AccountButtonProps) {
 
 function AddAccountButton({
   catalog = false,
+  label,
   style,
   ...props
-}: AddAccountProps & { catalog?: boolean; style?: StyleProp<ViewStyle> }) {
+}: AddAccountProps & Omit<AccountButtonProps, keyof AddAccountProps>) {
   const [open, setOpen] = useState(false);
   const show = useCallback(() => setOpen(true), []);
   const close = useCallback(() => setOpen(false), []);
@@ -64,7 +67,8 @@ function AddAccountButton({
         onPress={show}
         testID={`add-${props.provider}-account`}
       >
-        {catalog ? "Add" : `Add ${props.provider === "claude" ? "Claude" : "Codex"} account`}
+        {label ??
+          (catalog ? "Add" : `Add ${props.provider === "claude" ? "Claude" : "Codex"} account`)}
       </Button>
       {open ? <AccountSheet key={props.serverId} {...props} onClose={close} /> : null}
     </>
@@ -195,11 +199,7 @@ function AccountForm({
       <>
         <Text style={styles.text}>{state.account.name} added.</Text>
         {readExecutionInstallation() ? (
-          <Text style={styles.text}>
-            {props.provider === "claude"
-              ? "Sign in once below. This Claude connection is shared by Host and Dev, unless you exclude an environment."
-              : "Shared across environments. Sign in below for this environment; other environments show their own sign-in status."}
-          </Text>
+          <Text style={styles.text}>{createdAccountHint(props.provider)}</Text>
         ) : null}
         <ProviderLoginPanel
           serverId={props.serverId}
@@ -238,7 +238,7 @@ function AccountForm({
           />
           <Text style={styles.muted}>
             {signInChoice === "full"
-              ? "Shows usage, and the Host keeps the sign-in fresh for Host and Dev. The type can't be changed later."
+              ? `Shows usage, and the Host keeps the sign-in fresh${installationHasDev(readExecutionInstallation()) ? " for Host and Dev" : ""}. The type can't be changed later.`
               : "Uses a long-lived token without usage readings. The type can't be changed later."}
           </Text>
         </Field>
@@ -295,4 +295,12 @@ function useClaudeFullSignInAvailable(serverId: string, provider: "codex" | "cla
     retry: false,
   });
   return sharedClaude && daemonsReady && coordinator.data === true;
+}
+
+function createdAccountHint(provider: string): string {
+  if (provider !== "claude")
+    return "Shared across environments. Sign in below for this environment; other environments show their own sign-in status.";
+  return installationHasDev(readExecutionInstallation())
+    ? "Sign in once below. This Claude connection is shared by Host and Dev, unless you exclude an environment."
+    : "Sign in once below. The Host keeps this Claude connection signed in.";
 }

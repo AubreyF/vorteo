@@ -35,7 +35,7 @@ import {
 } from "../coordinator-bootstrap-maintenance-child.js";
 import { FileEnrollmentJournal } from "./authorization.js";
 import { evaluateStandingRestart, standingRestartPlanDigest } from "./restart-admission.js";
-import { InstallationConfigSchema } from "../config.js";
+import { InstallationConfigSchema, requireContainer } from "../config.js";
 import {
   DevRegistrationReceiptSchema,
   prepareDevRegistrationPublication,
@@ -391,21 +391,21 @@ function captureC1Candidate(
         isDeepStrictEqual(publication.documents.preparedReceipt.parsed, receipt) &&
         publication.documents.replacement.bytes.equals(publication.configurationBytes) &&
         isDeepStrictEqual(publication.documents.replacement.parsed, publication.config) &&
-        publication.documents.selected.parsed.container.persistentRegistration?.receiptFile ===
-          plan.hostReceiptFile &&
+        requireContainer(publication.documents.selected.parsed).persistentRegistration
+          ?.receiptFile === plan.hostReceiptFile &&
         candidate.publicationAttemptFile ===
           plan.hostReceiptFile + ".publication-attempt-" + plan.preparationNonce + ".json",
       "C1 publication differs from static plan",
     );
     const refs = publication.documents;
     requireMatch(
-      refs.replacement.parsed.container.supervisorMaintenance?.script ===
+      requireContainer(refs.replacement.parsed).supervisorMaintenance?.script ===
         plan.c1First.scripts.replacement &&
-        refs.rollback.parsed.container.supervisorMaintenance?.script ===
+        requireContainer(refs.rollback.parsed).supervisorMaintenance?.script ===
           plan.c1First.scripts.rollback &&
-        refs.replacement.parsed.container.supervisorMaintenance?.node ===
+        requireContainer(refs.replacement.parsed).supervisorMaintenance?.node ===
           plan.c1First.scripts.node &&
-        refs.rollback.parsed.container.supervisorMaintenance?.sha256 ===
+        requireContainer(refs.rollback.parsed).supervisorMaintenance?.sha256 ===
           provisioner.rollback.sha256,
       "C1 configured operation reference differs",
     );
@@ -472,7 +472,7 @@ function originalLink(
   if (candidate.provisioner.plan.c1First)
     requireMatch(
       effect.binding.supervisorPlanSha256 ===
-        candidate.publication.documents?.replacement.parsed.container.supervisorMaintenance
+        candidate.publication.documents?.replacement.parsed.container?.supervisorMaintenance
           ?.sha256 &&
         effect.binding.candidateSha256 === sha({ ...candidate, operation: "replace" }),
       "Rollback original immutable document tuple differs",
@@ -985,7 +985,7 @@ export async function executeDevRegistration(
   requireMatch(
     childClaim.executor.entrypoint.sha256 === expectedScript &&
       childClaim.executor.entrypoint.path ===
-        candidate.publication.config.container.supervisorMaintenance?.script,
+        requireContainer(candidate.publication.config).supervisorMaintenance?.script,
     "Gated child script artifact differs",
   );
   const consumed: SupervisorEffect = {

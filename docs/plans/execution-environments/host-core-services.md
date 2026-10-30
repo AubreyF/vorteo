@@ -1,6 +1,6 @@
 # Core services on the Host
 
-Status: proposed October 28, 2026; updated October 29, 2026. Phases 0 to 2 are implemented in source on the core-services branch, pending integration into `main`. On the owner installation, the owner reports the native gateway and the Vorton Host release live. The server and client fixes still need installation. Phase 3 is owned by the [lab installation guide](../../lab-installation.md). Phases 4 and 5 are documented for discussion only.
+Status: proposed October 28, 2026; updated October 29, 2026. Phases 0 to 2 are implemented in source on the core-services branch, pending integration into `main`. On the owner installation, the owner reports the native gateway and the Vorton Host release live. The server and client fixes still need installation. Phase 3 is owned by [separate installations](../../execution-installation.md#separate-installations). Phases 4 and 5 are documented for discussion only.
 
 ## Goal
 
@@ -86,7 +86,7 @@ Acceptance: a Host release upgrade during a running Claude turn and a running Co
 
 ## Phase 3: lab installation and promotion
 
-The [lab installation guide](../../lab-installation.md) on `main` owns this. A lab is an ordinary installation, on a second machine, that develops Vorteo and installs its own changes. Production updates only to a revision the owner chooses. The owner chose a separate Mac for the lab on October 28, 2026; a separate workspace now owns that setup and the promotion workflow.
+[Separate installations](../../execution-installation.md#separate-installations) owns this; the separate lab procedure was retired in favor of the one-command installer. A lab is an ordinary installation, on a second machine, that develops Vorteo and installs its own changes. Production updates only to a revision the owner chooses. The owner chose a separate Mac for the lab on October 28, 2026; a separate workspace now owns that setup and the promotion workflow.
 
 Acceptance: a week of Vorteo deliveries causes no production restart except the owner's chosen updates.
 

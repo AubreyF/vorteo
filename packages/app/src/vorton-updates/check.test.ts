@@ -3,7 +3,9 @@ import { buildUpdatePrompt, checkVortonUpdate } from "./check";
 
 const current = "a".repeat(40);
 const latest = "b".repeat(40);
+const release = "release-942";
 const signal = () => new AbortController().signal;
+const latestRelease = () => Response.json({ tag_name: release });
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -30,15 +32,19 @@ function stalledResponse(_url: string, options: RequestInit) {
   });
 }
 
-describe("Vorton source update check", () => {
-  it("does not offer an update for the same commit", async () => {
-    const fetch = githubResponses(Response.json({ sha: current }));
+describe("Vorton release update check", () => {
+  it("does not offer an update when the build is the latest release", async () => {
+    const fetch = githubResponses(latestRelease(), Response.json({ sha: current }));
     expect(await checkVortonUpdate(current, signal())).toEqual({
       status: "current",
       latestCommit: current,
       incomingCommits: 0,
+      latestRelease: release,
     });
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[0][0]).toMatch(/\/releases\/latest$/);
+    // The release tag, not main, names the commit to compare against.
+    expect(fetch.mock.calls[1][0]).toMatch(/\/commits\/release-942$/);
   });
 
   it.each([
@@ -48,6 +54,7 @@ describe("Vorton source update check", () => {
     ["identical", 0, "current"],
   ] as const)("handles GitHub's %s relationship", async (status, count, expected) => {
     const fetch = githubResponses(
+      latestRelease(),
       Response.json({ sha: latest }),
       Response.json({ status, ahead_by: count }),
     );
@@ -55,18 +62,44 @@ describe("Vorton source update check", () => {
       status: expected,
       latestCommit: latest,
       incomingCommits: count,
+      latestRelease: release,
     });
-    // Pin the comparison to the observed commit even if main moves during the check.
-    expect(fetch.mock.calls[1][0]).toContain(`/compare/${current}...${latest}?per_page=1`);
+    // Pin the comparison to the observed commit even if the tag moves during the check.
+    expect(fetch.mock.calls[2][0]).toContain(`/compare/${current}...${latest}?per_page=1`);
   });
 
   it("reports a local unpublished commit as unknown, not an available update", async () => {
-    githubResponses(Response.json({ sha: latest }), new Response(null, { status: 404 }));
+    githubResponses(
+      latestRelease(),
+      Response.json({ sha: latest }),
+      new Response(null, { status: 404 }),
+    );
     expect(await checkVortonUpdate(current, signal())).toEqual({
       status: "unpublished",
       latestCommit: latest,
       incomingCommits: 0,
+      latestRelease: release,
     });
+  });
+
+  it("follows main until the first stable release exists", async () => {
+    const fetch = githubResponses(
+      new Response(null, { status: 404 }),
+      Response.json({ sha: current }),
+    );
+    expect(await checkVortonUpdate(current, signal())).toEqual({
+      status: "current",
+      latestCommit: current,
+      incomingCommits: 0,
+      latestRelease: undefined,
+    });
+    expect(String(fetch.mock.calls[1][0])).toMatch(/\/commits\/main$/);
+  });
+
+  it("rejects release tags that are not versions", async () => {
+    const fetch = githubResponses(Response.json({ tag_name: "main" }));
+    await expect(checkVortonUpdate(current, signal())).rejects.toThrow();
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("reports rate limiting without claiming the app is current", async () => {
@@ -76,13 +109,13 @@ describe("Vorton source update check", () => {
     );
   });
 
-  it("reports a missing repository as a failure", async () => {
-    githubResponses(new Response(null, { status: 404 }));
+  it("reports a missing release commit as a failure", async () => {
+    githubResponses(latestRelease(), new Response(null, { status: 404 }));
     await expect(checkVortonUpdate(current, signal())).rejects.toThrow("failed (404)");
   });
 
   it("rejects malformed commit responses", async () => {
-    githubResponses(Response.json({ sha: "main; arbitrary command" }));
+    githubResponses(latestRelease(), Response.json({ sha: "main; arbitrary command" }));
     await expect(checkVortonUpdate(current, signal())).rejects.toThrow();
   });
 
@@ -106,9 +139,10 @@ describe("Vorton source update check", () => {
   });
 
   it("prepares an update task with checkout verification and restart approval", () => {
-    const prompt = buildUpdatePrompt(current, latest);
+    const prompt = buildUpdatePrompt(current, latest, release);
     expect(prompt).toContain(current);
     expect(prompt).toContain(latest);
+    expect(prompt).toContain(release);
     expect(prompt).toContain("verify its remote and the serving installation");
     expect(prompt).toContain("Preserve all local work");
     expect(prompt).toContain("Ask for explicit approval before stopping or restarting");

@@ -57,15 +57,16 @@ test("compact notices clear a growing composer and release its space after navig
   }
 });
 
-test("Vorteo checks main and requires a connected installation host before preparing an update", async ({
+test("Vorteo checks the latest release and requires a connected installation host before preparing an update", async ({
   page,
 }) => {
   let requests = 0;
   await page.route(`${API}/**`, async (route) => {
     requests += 1;
-    const body = route.request().url().includes("/commits/")
-      ? { sha: latestCommit }
-      : { status: "ahead", ahead_by: 3 };
+    const url = route.request().url();
+    let body: object = { status: "ahead", ahead_by: 3 };
+    if (url.endsWith("/releases/latest")) body = { tag_name: "release-942" };
+    else if (url.includes("/commits/")) body = { sha: latestCommit };
     await route.fulfill({ json: body });
   });
   await page.addInitScript(() => {
@@ -99,7 +100,7 @@ test("Vorteo checks main and requires a connected installation host before prepa
   await page.getByTestId("settings-sidebar-version").click();
   await expect(page).toHaveURL(/\/settings\/maintenance$/);
   await expect(page.getByTestId("vorton-update-status")).toHaveText(
-    "3 new commits are available on main.",
+    "release-942 is available with 3 new commits.",
   );
   expect(requests).toBeGreaterThan(0);
   await page.getByTestId("vorton-help-update").click();

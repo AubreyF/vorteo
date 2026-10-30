@@ -1,0 +1,140 @@
+name: Install tests
+
+# End-to-end install tests for a commit about to be tagged. Run it by hand on that
+# commit, then tag with scripts/vorteo-release.mjs. It never tags or publishes.
+# See docs/release.md#install-tests.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit, branch or tag to test"
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
+  # Last commit before tagged releases existed. The legacy wrap installs a standalone
+  # deployment from here until a stable release exists.
+  LEGACY_FALLBACK_REF: 7882361ea14bfbcac17bf9c75b1bff08ed2c7f77
+
+jobs:
+  linux:
+    name: ubuntu (Dev in gate mode, then a legacy wrap)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      VORTEO_E2E_STATE: ${{ github.workspace }}/../vorteo-e2e
+      VORTEO_E2E_DEV_IMAGE: vorteo-dev:install-tests
+      VORTEO_E2E_LEGACY_DEPLOYMENT: ${{ github.workspace }}/../legacy-deployment
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Start the runner user's systemd manager
+        run: bash scripts/release/e2e/linux-user-systemd.sh
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build the Dev image with cached layers
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/base/Dockerfile
+          build-args: PASEO_BUILD_COMMIT=${{ github.sha }}
+          tags: ${{ env.VORTEO_E2E_DEV_IMAGE }}
+          load: true
+          provenance: false
+          cache-from: |
+            type=gha,scope=multiplex-amd64
+            type=gha,scope=install-tests
+          cache-to: type=gha,scope=install-tests,mode=max
+
+      - name: Install with Dev in gate mode
+        run: node scripts/release/e2e/install-e2e.mjs install full
+      - run: node scripts/release/e2e/install-e2e.mjs wait-ready full
+      - run: node scripts/release/e2e/install-e2e.mjs assert-access full
+      - name: Dev isolation and gate log
+        run: node scripts/release/e2e/install-e2e.mjs assert-gate
+      - name: Uninstall before the legacy wrap
+        run: node scripts/release/e2e/install-e2e.mjs uninstall
+
+      - name: Choose the legacy source
+        id: legacy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if release="$(node scripts/release/latest.mjs --repository "$GITHUB_REPOSITORY")"; then
+            ref="$(node -p 'JSON.parse(process.argv[1]).commit' "$release")"
+          else
+            code=$?
+            [ "$code" = 2 ] || exit "$code"
+            ref="$LEGACY_FALLBACK_REF"
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          git worktree add --detach "$RUNNER_TEMP/legacy-source" "$ref"
+
+      - name: Build the legacy Dev image
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ runner.temp }}/legacy-source
+          file: ${{ runner.temp }}/legacy-source/docker/base/Dockerfile
+          build-args: PASEO_BUILD_COMMIT=${{ steps.legacy.outputs.ref }}
+          tags: vorteo-legacy:install-tests
+          load: true
+          provenance: false
+          cache-from: type=gha,scope=multiplex-amd64
+
+      - name: Create and wrap a legacy standalone deployment
+        run: |
+          bash scripts/release/e2e/legacy-deployment.sh "${{ steps.legacy.outputs.ref }}" \
+            vorteo-legacy:install-tests "$VORTEO_E2E_LEGACY_DEPLOYMENT" "$VORTEO_E2E_STATE"
+          node scripts/release/e2e/install-e2e.mjs install wrap
+          node scripts/release/e2e/install-e2e.mjs wait-ready wrap
+          node scripts/release/e2e/install-e2e.mjs assert-identity
+          node scripts/release/e2e/install-e2e.mjs assert-access wrap
+
+      - name: Diagnostics
+        if: failure()
+        run: node scripts/release/e2e/install-e2e.mjs diagnose
+
+  macos:
+    name: macos (Host only, launchd)
+    # GitHub's macOS runners have no Docker, so macOS covers the Host-only path.
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      VORTEO_E2E_STATE: ${{ github.workspace }}/../vorteo-e2e
+      VORTEO_E2E_DOCKER_LOG: ${{ github.workspace }}/../vorteo-e2e/docker-calls.log
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Record any Docker use
+        run: bash scripts/release/e2e/docker-shim.sh "$VORTEO_E2E_DOCKER_LOG"
+      - run: node scripts/release/e2e/install-e2e.mjs install host-only
+      - run: node scripts/release/e2e/install-e2e.mjs wait-ready host-only
+      - run: node scripts/release/e2e/install-e2e.mjs assert-access host-only
+      - run: node scripts/release/e2e/install-e2e.mjs assert-no-docker
+      - run: node scripts/release/e2e/install-e2e.mjs uninstall
+      - name: Diagnostics
+        if: failure()
+        run: node scripts/release/e2e/install-e2e.mjs diagnose

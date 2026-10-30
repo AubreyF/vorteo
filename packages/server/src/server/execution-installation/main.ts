@@ -183,6 +183,7 @@ const app = createInstallationServer(
   coordinatorRequests,
   claudeOAuth,
   providerSecrets,
+  { configFile: realpathSync(configFile) },
 );
 activateSynchronization();
 const restartTimer = setInterval(() => {
@@ -201,6 +202,18 @@ server.on("error", (error) => {
   logger.error({ err: error }, "Installation listener failed");
   process.exitCode = 1;
 });
+// Linux Docker bridges cannot reach Host loopback; the gate route then needs this listener.
+// The server admits only the gate authority's agent routes on it, as on loopback.
+const gateListenAddress = config.container ? config.access?.gateRoute?.listenAddress : undefined;
+const gateServer = gateListenAddress
+  ? app.listen(config.listenPort, gateListenAddress, () =>
+      logger.info("Installation gate route listener ready"),
+    )
+  : undefined;
+gateServer?.on("error", (error) => {
+  logger.error({ err: error }, "Installation gate route listener failed");
+  process.exitCode = 1;
+});
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => {
     clearInterval(restartTimer);
@@ -213,4 +226,5 @@ for (const signal of ["SIGINT", "SIGTERM"] as const)
     stopSettingsReconciliation?.();
     daemonConnections.close();
     server.close();
+    gateServer?.close();
   });

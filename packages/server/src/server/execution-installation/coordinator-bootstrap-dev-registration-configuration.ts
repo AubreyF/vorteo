@@ -2,7 +2,7 @@ import { plansConfigurationChange } from "@getpaseo/protocol/coordinator-configu
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
-import type { InstallationConfig } from "./config.js";
+import { requireContainer, type ContainerDaemonConfig, type InstallationConfig } from "./config.js";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap-errors.js";
 import {
   readPrivateBootstrapConfigurationBytes,
@@ -28,7 +28,7 @@ function digest(bytes: Buffer): string {
 interface ConfigurationScopeInput extends RegistrationConfigurationInput {
   preparation: PreparedDevRegistrationProvisioner["plan"];
   format: NonNullable<PreparedDevRegistrationProvisioner["plan"]["c1First"]>;
-  reference: NonNullable<InstallationConfig["container"]["supervisorMaintenance"]>;
+  reference: NonNullable<ContainerDaemonConfig["supervisorMaintenance"]>;
 }
 function assertConfigurationScope(input: ConfigurationScopeInput): void {
   const { current, plan, preparation, format, reference, currentFile } = input;
@@ -74,11 +74,11 @@ export function inspectDevRegistrationConfiguration(input: RegistrationConfigura
   const { plan, current, candidate, currentFile } = retainedInput;
   if (combinesPolicyChange(plan))
     throw new BootstrapRequestConflict("Initial Dev configuration cannot combine policy changes");
-  const reference = candidate.container.supervisorMaintenance;
+  const reference = requireContainer(candidate).supervisorMaintenance;
   if (
     !reference ||
-    current.container.supervisorMaintenance ||
-    current.container.persistentRegistration
+    requireContainer(current).supervisorMaintenance ||
+    requireContainer(current).persistentRegistration
   )
     throw new BootstrapRequestConflict(
       "Initial Dev configuration requires an unregistered predecessor",

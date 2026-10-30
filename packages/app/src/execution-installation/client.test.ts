@@ -11,7 +11,12 @@ import {
   validateExecutionInstallation,
   type InstallationUnlock,
 } from "@getpaseo/protocol/execution-installation";
-import { maintenanceTaskTarget, installationMaintenancePrompt } from "./maintenance-task";
+import type { InstallationSnapshot } from "@getpaseo/protocol/installation-upgrades";
+import {
+  maintenanceTaskTarget,
+  installationMaintenancePrompt,
+  resolveMaintenanceTaskTarget,
+} from "./maintenance-task";
 
 const installation = validateExecutionInstallation({
   version: 1,
@@ -103,6 +108,20 @@ test("maintenance drafts target the host even if only the container is online an
   expect(() => maintenanceTaskTarget(installation, ["guest-id"])).toThrow("host environment");
   expect(() => maintenanceTaskTarget(null, ["guest-id"])).toThrow("host environment");
   expect(installationMaintenancePrompt("Review upstream")).toContain("wait for owner approval");
+});
+
+test("a served page without an installation descriptor is a container-only installation", () => {
+  // The coordinator serves every current installation's page with a descriptor.
+  expect(resolveMaintenanceTaskTarget(null, ["guest-id"], true)).toEqual({ status: "no-host" });
+  expect(() => maintenanceTaskTarget(null, ["guest-id"], true)).toThrow("no Host environment");
+  // Native apps, Electron and demos never receive a descriptor, so absence proves nothing.
+  expect(resolveMaintenanceTaskTarget(null, ["guest-id"], false)).toEqual({
+    status: "host-offline",
+  });
+  // A Host that exists but is offline keeps the reconnect message, never the installer card.
+  expect(resolveMaintenanceTaskTarget(installation, ["guest-id"], true)).toEqual({
+    status: "host-offline",
+  });
 });
 
 test("session-capable clients discard the password and restore verified connections", async () => {
@@ -725,4 +744,73 @@ test("full maintenance delegation requires unlocked access and a supported query
   expect(await client.maintenanceDelegation()).toEqual(preference);
   supported = false;
   await expect(client.maintenanceDelegation()).rejects.toThrow("Unavailable");
+});
+
+const hostOnly = validateExecutionInstallation({
+  version: 1,
+  installationId: "3386c661-7e90-4e01-abf7-e7ca3b9fca01",
+  origin: "http://localhost:6767",
+  environments: [{ kind: "host", serverId: "host-id", endpoint: "127.0.0.1:6768", useTls: false }],
+});
+
+test("a Host-only installation unlocks and restores its single connection", async () => {
+  const registrations: InstallationUnlock["connections"][] = [];
+  const client = new InstallationClient(hostOnly, {
+    request: async () => ({
+      installationId: hostOnly.installationId,
+      connections: [{ ...hostOnly.environments[0]!, password: "host-password" }],
+    }),
+    register: {
+      installExecutionEnvironments: async (connections) => {
+        registrations.push(connections);
+      },
+    },
+  });
+  await client.unlock("owner-password");
+  expect(registrations[0]?.map((environment) => environment.kind)).toEqual(["host"]);
+});
+
+test("snapshot and upgrade queries hide on older coordinators and bind restore parts", async () => {
+  const requests: [string, unknown][] = [];
+  let supported = false;
+  const snapshot: InstallationSnapshot = {
+    version: 1,
+    id: "20261030T120000Z",
+    createdAt: "2026-10-30T12:00:00.000Z",
+    reason: "owner",
+    parts: [{ kind: "host-home", source: "/Users/owner/.vorteo", files: 3, bytes: 10 }],
+  };
+  const client = new InstallationClient(installation, {
+    request: async (path, _password, body) => {
+      requests.push([path, body]);
+      if (!supported) throw new InstallationRouteUnavailable("Route unavailable");
+      if (path === "snapshots/restore")
+        return {
+          id: "6f1d7c2e-3c1b-4b8f-9d0a-1e2f3a4b5c6d",
+          snapshotId: snapshot.id,
+          status: "running",
+          step: "stop",
+          detail: "",
+          startedAt: snapshot.createdAt,
+          updatedAt: snapshot.createdAt,
+        };
+      return {
+        installationId: installation.installationId,
+        connections: installation.environments.map((environment) =>
+          Object.assign({ password: "password" }, environment),
+        ),
+      };
+    },
+    register: { installExecutionEnvironments: async () => {} },
+  });
+  await expect(client.snapshots()).rejects.toThrow("Unlock installation controls first");
+  supported = true;
+  await client.unlock("owner-password");
+  supported = false;
+  expect(await client.snapshots()).toBeNull();
+  expect(await client.upgradeStatus()).toBeNull();
+  supported = true;
+  const status = await client.restoreSnapshot(snapshot, ["host-home"]);
+  expect(status.snapshotId).toBe(snapshot.id);
+  expect(requests.at(-1)).toEqual(["snapshots/restore", { id: snapshot.id, parts: ["host-home"] }]);
 });

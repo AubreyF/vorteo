@@ -41,7 +41,7 @@ function useAttentionItems(): AttentionItem[] {
     items.push({
       id: "update",
       label: "Vorteo update available",
-      hint: `${pluralize(update.data?.incomingCommits ?? 0, "new commit")} on main.`,
+      hint: `${pluralize(update.data?.incomingCommits ?? 0, "new commit")} in ${update.data?.latestRelease ?? "the latest release"}.`,
       pane: "maintenance.updates",
     });
   }

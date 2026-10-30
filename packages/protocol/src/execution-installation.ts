@@ -111,6 +111,8 @@ export const InstallationNameSchema = z.string().trim().min(1).max(40);
 
 // This descriptor comes from the installed UI origin, never from an agent daemon.
 // Credentials are exchanged only after owner authentication, not in the HTML.
+// A Host-only installation lists exactly one environment, the Host. An installation
+// with a Dev container lists the Host and Dev; validateExecutionInstallation checks kinds.
 export const ExecutionInstallationSchema = z.strictObject({
   version: z.literal(1),
   installationId: z.string().uuid(),
@@ -119,7 +121,7 @@ export const ExecutionInstallationSchema = z.strictObject({
   idleRestarts: z.boolean().optional(),
   gracefulRestarts: z.boolean().optional(),
   origin: z.url(),
-  environments: z.array(InstallationEnvironmentSchema).length(2),
+  environments: z.array(InstallationEnvironmentSchema).min(1).max(2),
 });
 export type ExecutionInstallation = z.infer<typeof ExecutionInstallationSchema>;
 
@@ -128,7 +130,7 @@ export const InstallationConnectionSchema = InstallationEnvironmentSchema.extend
 });
 export const InstallationUnlockSchema = z.strictObject({
   installationId: z.string().uuid(),
-  connections: z.array(InstallationConnectionSchema).length(2),
+  connections: z.array(InstallationConnectionSchema).min(1).max(2),
 });
 export type InstallationUnlock = z.infer<typeof InstallationUnlockSchema>;
 
@@ -606,6 +608,13 @@ export const EXECUTION_ENVIRONMENT_LABELS: Record<ExecutionEnvironmentKind, stri
   host: "Host: full account access",
 };
 
+/** True when the installation includes a Dev container beside the Host. */
+export function installationHasContainer(
+  installation: Pick<ExecutionInstallation, "environments">,
+): boolean {
+  return installation.environments.some((environment) => environment.kind === "container");
+}
+
 export function validateExecutionInstallation(input: unknown): ExecutionInstallation {
   const installation = ExecutionInstallationSchema.parse(input);
   const origin = new URL(installation.origin);
@@ -615,12 +624,14 @@ export function validateExecutionInstallation(input: unknown): ExecutionInstalla
   if (origin.protocol !== "https:" && !(origin.protocol === "http:" && isLoopback)) {
     throw new Error("Remote installation connections require HTTPS");
   }
+  const count = installation.environments.length;
   const kinds = new Set(installation.environments.map((environment) => environment.kind));
   const ids = new Set(installation.environments.map((environment) => environment.serverId));
   const endpoints = new Set(installation.environments.map((environment) => environment.endpoint));
-  if (kinds.size !== 2 || ids.size !== 2 || endpoints.size !== 2) {
+  if (kinds.size !== count || ids.size !== count || endpoints.size !== count) {
     throw new Error("Installation requires distinct host and container identities and endpoints");
   }
+  if (!kinds.has("host")) throw new Error("Installation requires a Host environment");
   for (const environment of installation.environments) {
     const endpoint = new URL(`https://${environment.endpoint}`);
     if (endpoint.host !== environment.endpoint || endpoint.username || endpoint.password) {

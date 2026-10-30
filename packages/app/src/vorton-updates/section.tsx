@@ -1,5 +1,8 @@
 import { ActionFooter } from "@/components/ui/action-footer";
-import { useMaintenanceTask } from "@/execution-installation/use-maintenance-task";
+import {
+  useMaintenanceTask,
+  useMaintenanceTaskTarget,
+} from "@/execution-installation/use-maintenance-task";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -14,10 +17,15 @@ import { useFormPreferences } from "@/hooks/use-form-preferences";
 import { buildUpdatePrompt, VORTON_REPOSITORY, type VortonUpdate } from "./check";
 import { useVortonUpdate, VORTON_BUILD_COMMIT } from "./use-update";
 import { UpdateSuccessBadge } from "./success-badge";
+import { InstallationUpgradeSection } from "./installation-upgrade";
+import { LegacyInstallationCard } from "./legacy-installation-card";
 
 function statusText(update: VortonUpdate | undefined, t: TFunction): string {
   if (!update) return t("settings.about.vortonUpdates.idle");
-  return t(`settings.about.vortonUpdates.${update.status}`, { count: update.incomingCommits });
+  return t(`settings.about.vortonUpdates.${update.status}`, {
+    count: update.incomingCommits,
+    release: update.latestRelease ?? "the latest release",
+  });
 }
 
 export function VortonUpdatesSection() {
@@ -25,16 +33,25 @@ export function VortonUpdatesSection() {
   const { t } = useTranslation();
   const update = useVortonUpdate();
   const prepareTask = useMaintenanceTask();
+  // A container-only installation has no Host to run the task; explain how to add one.
+  const legacy = useMaintenanceTaskTarget().status === "no-host";
   const checking = update.isFetching || update.feedback.phase === "checking";
   const showSuccess = update.feedback.phase === "success" && !update.isFetching;
+  const hideInstructions = showSuccess || legacy;
   const help = useCallback(() => {
-    prepareTask(buildUpdatePrompt(VORTON_BUILD_COMMIT, update.data?.latestCommit ?? null));
-  }, [prepareTask, update.data?.latestCommit]);
+    prepareTask(
+      buildUpdatePrompt(
+        VORTON_BUILD_COMMIT,
+        update.data?.latestCommit ?? null,
+        update.data?.latestRelease ?? null,
+      ),
+    );
+  }, [prepareTask, update.data?.latestCommit, update.data?.latestRelease]);
   const changes = useCallback(() => {
     const url =
       VORTON_BUILD_COMMIT && update.data && update.data.status !== "unpublished"
         ? `${VORTON_REPOSITORY}/compare/${VORTON_BUILD_COMMIT}...${update.data.latestCommit}`
-        : `${VORTON_REPOSITORY}/commits/main`;
+        : `${VORTON_REPOSITORY}/releases/latest`;
     void openExternalUrl(url);
   }, [update.data]);
   if (preferencesLoading) return null;
@@ -80,16 +97,19 @@ export function VortonUpdatesSection() {
           <Button variant="outline" size="md" onPress={changes}>
             {t("settings.about.vortonUpdates.changes")}
           </Button>
-          <Button size="md" onPress={help} testID="vorton-help-update">
-            Prepare host update task
-          </Button>
+          {legacy ? null : (
+            <Button size="md" onPress={help} testID="vorton-help-update">
+              Prepare host update task
+            </Button>
+          )}
         </ActionFooter>
         <View style={styles.hintArea} testID="vorton-update-feedback-area">
-          {/* Keep the instructions in layout so feedback never moves the card or buttons. */}
+          {/* Keep the instructions in layout so feedback never moves the card or buttons.
+              The legacy card below replaces them; the line still holds check feedback. */}
           <Text
-            style={[styles.hint, showSuccess && styles.hiddenHint]}
-            accessibilityElementsHidden={showSuccess}
-            importantForAccessibility={showSuccess ? "no-hide-descendants" : "auto"}
+            style={[styles.hint, hideInstructions && styles.hiddenHint]}
+            accessibilityElementsHidden={hideInstructions}
+            importantForAccessibility={hideInstructions ? "no-hide-descendants" : "auto"}
             testID="vorton-update-instructions"
           >
             Review and edit the host task, select a project and agent, then send it when ready.
@@ -104,6 +124,8 @@ export function VortonUpdatesSection() {
             </View>
           )}
         </View>
+        {/* A container-only installation cannot upgrade itself; it needs a Host first. */}
+        {legacy ? <LegacyInstallationCard /> : <InstallationUpgradeSection update={update.data} />}
       </View>
     </SettingsSection>
   );

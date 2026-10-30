@@ -21,6 +21,7 @@ import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { buildSettingsHostSectionRoute, buildSettingsSectionRoute } from "@/utils/host-routes";
 import { readExecutionInstallation } from "@/execution-installation/policy";
 import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { AccountsFirstGate } from "@/accounts-first/screen";
 
 export function OpenProjectScreen() {
   const { t } = useTranslation();
@@ -59,35 +60,38 @@ export function OpenProjectScreen() {
   return (
     <View style={styles.container}>
       <MenuHeader borderless />
-      <View style={styles.content}>
-        <TitlebarDragRegion />
-        <View style={styles.logo}>
-          <VorteoLogo size={96} />
+      {/* After the owner's first sign-in, connect accounts before the usual home tiles. */}
+      <AccountsFirstGate>
+        <View style={styles.content}>
+          <TitlebarDragRegion />
+          <View style={styles.logo}>
+            <VorteoLogo size={96} />
+          </View>
+          {hosts.map((host) => (
+            <HostError key={host.serverId} serverId={host.serverId} label={host.label} />
+          ))}
+          <View style={styles.tiles}>
+            <HomeTile
+              icon={FolderOpen}
+              title={t("openProject.tiles.addProject.title")}
+              description={t("openProject.tiles.addProject.description")}
+              onPress={handleOpenPicker}
+              testID="open-project-submit"
+              accent
+            />
+            <HomeTile
+              icon={Plug}
+              title={t("openProject.tiles.setupProviders.title")}
+              description={t("openProject.tiles.setupProviders.description")}
+              onPress={handleOpenProviders}
+              testID="open-project-setup-providers"
+            />
+          </View>
         </View>
-        {hosts.map((host) => (
-          <HostError key={host.serverId} serverId={host.serverId} label={host.label} />
-        ))}
-        <View style={styles.tiles}>
-          <HomeTile
-            icon={FolderOpen}
-            title={t("openProject.tiles.addProject.title")}
-            description={t("openProject.tiles.addProject.description")}
-            onPress={handleOpenPicker}
-            testID="open-project-submit"
-            accent
-          />
-          <HomeTile
-            icon={Plug}
-            title={t("openProject.tiles.setupProviders.title")}
-            description={t("openProject.tiles.setupProviders.description")}
-            onPress={handleOpenProviders}
-            testID="open-project-setup-providers"
-          />
+        <View style={styles.communityRow}>
+          <CommunityLinks />
         </View>
-      </View>
-      <View style={styles.communityRow}>
-        <CommunityLinks />
-      </View>
+      </AccountsFirstGate>
     </View>
   );
 }

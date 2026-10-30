@@ -43,7 +43,7 @@ export function createDaemonStandingRuntime(
   updates: Record<RestartJob["target"], StandingUpdater | null>,
   ports: DaemonStandingPorts = { inspect: inspectEnrollmentDaemonIdentity, now: Date.now },
 ) {
-  const registrationRequired = config.container.persistentRegistration !== undefined;
+  const registrationRequired = config.container?.persistentRegistration !== undefined;
   const configuration = retainCustodyBinding(config, requireRegistration);
   const inspectionPorts = retainCustodyBinding(ports, requireRegistration);
   const clock = ports.now;
@@ -111,7 +111,7 @@ export function createDaemonStandingRuntime(
   /** This prerequisite grants no standing, interruption or Factory authority. */
   function assertRegistrationReadiness(target: RestartJob["target"]): void {
     if (target !== "container-daemon") return;
-    if (!registrationRequired && config.container.persistentRegistration === undefined) return;
+    if (!registrationRequired && config.container?.persistentRegistration === undefined) return;
     try {
       requireRegistration(registrationRequired, "configuration changed");
       configuration.check();

@@ -7,7 +7,7 @@ import {
   checkProviderLaunchAvailable,
   resolveProviderLaunch,
 } from "../../agent/provider-launch-config.js";
-import type { InstallationConfig } from "../config.js";
+import { requireEnvironmentDaemon, type InstallationConfig } from "../config.js";
 import { createInstallationRegistrationAdmission } from "../daemon.js";
 import type { InstallationSettingsService } from "../settings/service.js";
 import { ClaudeSetupAuthority } from "./claude-setup-authority.js";
@@ -97,7 +97,7 @@ export function createClaudeSetupRuntime(
         (item) => item.serverId === delivery.serverId,
       );
       if (!environment) throw new ClaudeSetupDeliveryError();
-      const target = environment.kind === "host" ? config.host : config.container;
+      const target = requireEnvironmentDaemon(config, environment.kind);
       // Credential withdrawal remains available while ordinary Dev work is fenced.
       if (delivery.credential !== null)
         assertReady(environment.kind === "host" ? "host" : "container-daemon");

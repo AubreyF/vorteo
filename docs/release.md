@@ -68,6 +68,52 @@ node scripts/sync-github-rulesets.mjs [--apply]
 ```
 
 Without `--apply` it only reports drift and exits 1 when GitHub differs. Applying changes repository settings: only Builds runs it, and only with the owner's recorded approval for that change. `scripts/publish-main.mjs` reads the same required checks, so delivery waits for them whether or not the rulesets are applied.
+<a id="install-tests"></a>
+
+## Install tests
+
+Run the [Install tests](../.github/workflows/install-tests.yml) workflow on the commit you are about to tag, from the Actions tab with its ref. It is manual only and never tags. Two jobs install through `install.sh --yes` piped to `bash`, using the checkout under test (`VORTEO_INSTALL_SOURCE`):
+
+| Job   | Runner          | Proves                                                                                                                                                                                                                                                                                                                                                                  |
+| ----- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Linux | `ubuntu-latest` | Dev in gate mode, local access, systemd user services: the welcome page loads on localhost, owner sign-in works, Host and Dev report ready, Dev cannot reach the Docker host gateway or `10.0.0.0/8` and reaches the npm registry through the gate. Then a standalone container deployment from the previous release is wrapped and keeps its Dev `server-id` and home. |
+| macOS | `macos-latest`  | Host-only install with launchd agents, the same welcome and sign-in checks, then `vorteo uninstall`. GitHub's macOS runners have no Docker.                                                                                                                                                                                                                             |
+
+The drivers live in [`scripts/release/e2e/`](../scripts/release/e2e/); the `CONTRACT` block in `install-e2e.mjs` holds every assumption about the installer. When user systemd does not run on the runner, the Linux job falls back to `VORTEO_SERVICE_MANAGER=process` and says so in the job summary.
+
+[`scripts/release/latest.mjs`](../scripts/release/latest.mjs) resolves the release an installer or in-app upgrade installs: the newest `release-<counter>` tag for stable, or the newest tag of either kind for beta, honoring `VORTEO_VERSION` (a tag name or counter). It exits 2 when no release exists.
+
+<a id="install-address"></a>
+
+### Install address
+
+`https://terranlabs.com/vorteo/install` redirects to the installer attached to the newest stable release. The owner sets this up once in Cloudflare for the `terranlabs.com` zone:
+
+1. Open **Rules**, then **Overview**, and choose **Create rule**, then **Redirect Rule** (a Single Redirect).
+2. Name it `Vorteo install address`.
+3. Under **If incoming requests match**, choose **Custom filter expression** and enter:
+
+   ```text
+   (http.host eq "terranlabs.com" and http.request.uri.path eq "/vorteo/install")
+   ```
+
+4. Under **Then**, choose type **Static**, URL `https://github.com/terran-labs/vorteo/releases/latest/download/install.sh`, status code **302**, and leave **Preserve query string** off.
+5. Deploy it. Place it above any other redirect rule that matches `/vorteo/*`.
+
+Redirect Rules run only on proxied traffic. If nothing else serves `terranlabs.com`, add a proxied DNS record for it: type `AAAA`, name `@`, content `100::`. Use 302, not 301, so clients never cache the target and each new release takes effect immediately.
+
+Verify from any machine:
+
+```bash
+curl -fsSIL https://terranlabs.com/vorteo/install
+```
+
+The first response must be `302` with `location: https://github.com/terran-labs/vorteo/releases/latest/download/install.sh`, followed by GitHub's redirect to the asset and a final `200`. `curl -fsSL https://terranlabs.com/vorteo/install | head -n 3` prints the start of the script without running it.
+
+**Before the first release.** `releases/latest/download/install.sh` answers `404` until a release carries `install.sh`, so the command fails with a curl error. Two ways through:
+
+- Tag the first stable release with `scripts/vorteo-release.mjs tag --channel stable --release` after its install tests pass. `--release` attaches `install.sh`, so the address works with no Cloudflare change.
+- To check the address and the script download sooner, point the same rule at `https://raw.githubusercontent.com/terran-labs/vorteo/main/install.sh`, still with 302, and verify with the same `curl -fsSIL` command. Switch it back after the first release. The script still installs only a tagged release, so until one exists it stops after resolving none.
 
 ## Upstream release procedure
 

@@ -14,6 +14,8 @@
 // Common options: --remote origin, --branch main, --repo owner/name.
 // Exit status 0 means done (or ready, for a dry run); 1 means refused.
 import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { findGitleaks, git, isAncestor, parseArgs, repositoryRoot } from "./lib/delivery-git.mjs";
 import { resolveRepository, runGh } from "./lib/github.mjs";
@@ -159,16 +161,38 @@ export function createTag(plan, env = process.env) {
   return pushed;
 }
 
-/** Publishes a GitHub Release for the tag; beta releases are prereleases and never "latest". */
+/**
+ * Writes the tagged commit's `install.sh` to a private temporary file for upload, or
+ * returns null for a commit that predates the one-command installer.
+ */
+function installerAsset(plan) {
+  let script;
+  try {
+    script = git(plan.root, ["show", `${plan.commit}:install.sh`]);
+  } catch {
+    return null;
+  }
+  const directory = mkdtempSync(path.join(tmpdir(), "vorteo-release-"));
+  const file = path.join(directory, "install.sh");
+  writeFileSync(file, script.endsWith("\n") ? script : `${script}\n`, { mode: 0o600 });
+  return file;
+}
+
+/**
+ * Publishes a GitHub Release for the tag; beta releases are prereleases and never "latest".
+ * The release carries `install.sh`, which https://terranlabs.com/vorteo/install redirects to.
+ */
 export function createRelease(plan, { gh = runGh, repository } = {}) {
   const changelog = git(plan.root, ["show", `${plan.commit}:VORTEO_CHANGELOG.md`]);
   const notes = releaseNotes(changelog, plan.previous, plan.counter) || "No changelog entries.";
   const channelFlags = plan.channel === "beta" ? ["--prerelease", "--latest=false"] : ["--latest"];
+  const asset = installerAsset(plan);
   gh(
     [
       "release",
       "create",
       plan.name,
+      ...(asset ? [asset] : []),
       "-R",
       repository,
       "--verify-tag",

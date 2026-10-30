@@ -1039,7 +1039,7 @@ async function inspectDev(
       result.selection === expected.selectionPath,
     "Dev observed account or selection differs from enrollment",
   );
-  const reference = config.container.persistentRegistration;
+  const reference = config.container?.persistentRegistration;
   if (reference) {
     const { custody, roots, startup, writableMounts } = registrationCustody;
     custody.capture([reference.receiptFile]);
@@ -1051,7 +1051,7 @@ async function inspectDev(
       expected,
       startup,
     });
-    const plan = config.container.supervisorMaintenance;
+    const plan = config.container?.supervisorMaintenance;
     requireMatch(plan, "Dev supervisor maintenance plan is unavailable");
     custody.capture([plan.script, plan.node]);
     await protectedPaths([plan.script, plan.node], roots, ports.uid);

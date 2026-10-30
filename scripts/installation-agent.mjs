@@ -41,13 +41,24 @@ function planBindings(values) {
 /** This client is copied alone into Dev. Use built-ins, not an undeclared
  * dispatcher dependency, to avoid fetch's shorter independent headers timeout.
  * One deadline covers connection, headers and body; failure never retries. */
+/**
+ * Plain HTTP is allowed only where nothing crosses an untrusted network: Host loopback, and
+ * a gate-mode Dev's route to the coordinator. `host.docker.internal` resolves only inside
+ * the gate, so that request travels Dev's private network to the gate and on to the Host.
+ */
+export function plainHttpAllowed(hostname, env = process.env) {
+  return (
+    ["127.0.0.1", "localhost"].includes(hostname) ||
+    (hostname === "host.docker.internal" && env.PASEO_NETWORK_MODE === "gate")
+  );
+}
+
 export async function postCoordinatorRequest(url, options, timers = { setTimeout, clearTimeout }) {
   const send = url.protocol === "https:" ? httpsRequest : httpRequest;
   if (
     url.username ||
     url.password ||
-    (url.protocol !== "https:" &&
-      !(url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname)))
+    (url.protocol !== "https:" && !(url.protocol === "http:" && plainHttpAllowed(url.hostname)))
   )
     throw new Error("TLS without URL credentials is required");
   const controller = new AbortController();
@@ -146,8 +157,7 @@ if (
     throw new Error("Factory recovery requires --factory-runtime-plan");
   const config = JSON.parse(readFileSync(values.config, "utf8"));
   const base = new URL(config.origin);
-  const local = base.hostname === "127.0.0.1" || base.hostname === "localhost";
-  if (base.protocol !== "https:" && !(base.protocol === "http:" && local))
+  if (base.protocol !== "https:" && !(base.protocol === "http:" && plainHttpAllowed(base.hostname)))
     throw new Error("TLS is required");
   if (values["require-owner-approval"]) {
     if (

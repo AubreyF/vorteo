@@ -7,6 +7,8 @@ import {
   hostLaunchdService,
   InstallationConfigSchema,
   claudeHostRefreshEnabled,
+  daemonTargets,
+  remoteAccess,
 } from "./config.js";
 
 const SYSTEMD_SERVICE = {
@@ -117,5 +119,111 @@ describe("Host-owned Claude refresh", () => {
     expect(claudeHostRefreshEnabled(base)).toBe(false);
     expect(claudeHostRefreshEnabled({ ...base, claudeHostRefresh: true })).toBe(true);
     expect(claudeHostRefreshEnabled({ ...base, claudeHostRefresh: false })).toBe(false);
+  });
+});
+
+describe("Host-only, local-only and deployment configuration", () => {
+  let directory: string;
+  let file: string;
+  const launchd = { launchdService: "gui/501/local.vorteo.fixture.host" };
+
+  beforeEach(async () => {
+    directory = await mkdtemp(path.join(tmpdir(), "installation-config-"));
+    file = path.join(directory, "config.json");
+  });
+
+  afterEach(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  async function read(value: Record<string, unknown>) {
+    await writeFile(file, JSON.stringify(value));
+    return readInstallationConfig(file);
+  }
+
+  function hostOnly(changes: Record<string, unknown> = {}) {
+    const { container: _container, ...base } = config(launchd);
+    return {
+      ...base,
+      public: { ...base.public, environments: [base.public.environments[0]] },
+      ...changes,
+    };
+  }
+
+  test("keeps an existing two-environment configuration exactly as written", async () => {
+    const input = config(launchd);
+    const parsed = await read(input);
+    expect(parsed).toEqual(input);
+    expect(daemonTargets(parsed)).toEqual(["host", "container-daemon"]);
+    expect(remoteAccess(parsed)).toBe("tailscale");
+  });
+
+  test("accepts a Host-only installation without a container", async () => {
+    const parsed = await read(hostOnly());
+    expect(parsed.container).toBeUndefined();
+    expect(parsed.public.environments.map((item) => item.kind)).toEqual(["host"]);
+    expect(daemonTargets(parsed)).toEqual(["host"]);
+  });
+
+  test("requires the container and its public environment together", async () => {
+    await expect(
+      read({ ...hostOnly(), container: { endpoint: "127.0.0.1:2", password: "container" } }),
+    ).rejects.toThrow("public container environment");
+    const { container: _container, ...withoutContainer } = config(launchd);
+    await expect(read(withoutContainer)).rejects.toThrow("only the Host");
+  });
+
+  test("local-only access serves exactly http://localhost:<listenPort>", async () => {
+    const local = (origin: string, changes: Record<string, unknown> = {}) =>
+      hostOnly({
+        public: { ...hostOnly().public, origin },
+        access: { remote: "none" },
+        ...changes,
+      });
+    expect(remoteAccess(await read(local("http://localhost:4000")))).toBe("none");
+    await expect(read(local("http://127.0.0.1:4000"))).rejects.toThrow("localhost");
+    await expect(read(local("https://example.test"))).rejects.toThrow("localhost");
+    await expect(
+      read(local("http://localhost:4000", { recoveryOrigin: "https://recovery.example.test" })),
+    ).rejects.toThrow("recovery");
+  });
+
+  test("deployment paths are absolute and Dev settings need a container", async () => {
+    const deployment = {
+      installRoot: "/home/owner/vorteo",
+      sourceDirectory: "/home/owner/vorteo/source",
+      coordinator: {
+        releaseLink: "/home/owner/vorteo/host/coordinator-current",
+        service: { launchdService: "gui/501/local.vorteo.fixture.installation" },
+      },
+    };
+    expect((await read(hostOnly({ deployment }))).deployment).toEqual(deployment);
+    await expect(
+      read(hostOnly({ deployment: { ...deployment, sourceDirectory: "vorteo/source" } })),
+    ).rejects.toThrow();
+    await expect(
+      read(
+        hostOnly({
+          deployment: { ...deployment, containerDirectory: "/home/owner/vorteo/container" },
+        }),
+      ),
+    ).rejects.toThrow("Dev container settings");
+  });
+
+  test("a gate route names an exact authority", async () => {
+    const access = {
+      remote: "none",
+      gateRoute: { authority: "host.docker.internal:4000", listenAddress: "172.17.0.1" },
+    };
+    const input = config(launchd);
+    const parsed = await read({
+      ...input,
+      public: { ...input.public, origin: "http://localhost:4000" },
+      access,
+    });
+    expect(parsed.access).toEqual(access);
+    await expect(
+      read({ ...input, access: { remote: "tailscale", gateRoute: { authority: "http://gate" } } }),
+    ).rejects.toThrow();
   });
 });

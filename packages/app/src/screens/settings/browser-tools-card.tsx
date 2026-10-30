@@ -3,6 +3,7 @@ import { Text, View } from "react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useInstallationSettings } from "@/execution-installation/settings";
+import { installationHasDev } from "@/execution-installation/policy";
 import { Switch } from "@/components/ui/switch";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useHostRuntimeIsConnected } from "@/runtime/host-runtime";
@@ -60,8 +61,10 @@ export function BrowserToolsOptInCard({ serverId }: { serverId: string }) {
           <Text style={settingsStyles.rowHint}>{state.warning}</Text>
           {isShared ? (
             <Text style={settingsStyles.rowHint}>
-              Shared default for Host and Dev container. Use environment exceptions to restrict
-              browser access. The protected installation interface does not expose its own tabs.
+              {installationHasDev(installation)
+                ? "Shared default for Host and Dev container. Use environment exceptions to restrict browser access."
+                : "Shared setting for the Host."}{" "}
+              The protected installation interface does not expose its own tabs.
             </Text>
           ) : null}
           {mutationView.loadingText ? (

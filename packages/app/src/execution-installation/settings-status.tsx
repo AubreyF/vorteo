@@ -12,6 +12,7 @@ import { settingsStyles } from "@/styles/settings";
 import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
 import { useReportActionError } from "@/hooks/use-action-error";
 import { useInstallationSettings } from "./settings";
+import { installationHasDev } from "./policy";
 import {
   conflictFieldLabel,
   defaultConflictChoices,
@@ -298,7 +299,11 @@ export function InstallationSettingsStatus({ children }: { children: ReactNode }
     return (
       <Alert
         variant="warning"
-        description="Waiting to read both environments before migrating shared settings. Existing settings have not been changed."
+        description={
+          installationHasDev(installation)
+            ? "Waiting to read both environments before migrating shared settings. Existing settings have not been changed."
+            : "Waiting to read the Host before migrating shared settings. Existing settings have not been changed."
+        }
       />
     );
   const pending = Object.entries(data.sources).filter(
