@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-30): README states Windows is not yet supported by the installer and links planned WSL support (#35). Documentation only.
+
 Maintenance review (2026-10-30): the installer installs missing Node.js 24, Git, Docker and Tailscale after an explicit yes for each, from `scripts/installer/prerequisites.sh` embedded in `install.sh` with a drift test; `--skip-prerequisites` reports fixes instead. Verified with fakes only; no real install of any prerequisite has run. README unchanged.
 Maintenance review (2026-10-30): drop the fast-follow label in favor of `priority:high`. Documentation only; README unchanged.
 

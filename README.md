@@ -81,6 +81,8 @@ It creates:
 - an optional Dev container where agents work, which needs Docker.
 - optional Tailscale access from your other devices. Without it, open `http://localhost` on this computer.
 
+On Windows, the installer probably won't work yet, even inside WSL. Full WSL support is planned in [#35](https://github.com/terran-labs/vorteo/issues/35).
+
 Every later change happens in the interface, from connecting accounts to updating Vorteo. An older installation, including a container-only one, upgrades with the same command and keeps its Dev environment, agents and files. See [host and container execution](docs/execution-installation.md) for what it installs.
 
 ### Instructions for installation agents
