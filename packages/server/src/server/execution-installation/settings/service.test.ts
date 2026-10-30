@@ -1134,15 +1134,16 @@ test("new plugin providers enroll once with only locally observed bindings and r
     id: "plugin/agents/plugin-agent",
     providerType: "plugin-agent",
     bindings: { host: "plugin-agent" },
-    policy: { label: "Plugin agent", enabled: true },
+    // Enrollment leaves `enabled` unset, so Host detection decides until the owner chooses.
+    policy: { label: "Plugin agent" },
   });
   expect(journal.backups.some((backup) => backup.reason === "plugin-provider-enrollment")).toBe(
     true,
   );
   expect(host.config.providers["plugin-agent"]).toMatchObject({
-    enabled: true,
     env: { PRIVATE: "host-secret" },
   });
+  expect(host.config.providers["plugin-agent"]?.enabled).toBeUndefined();
   enrolled.settings!.providerDefinitions!.find((entry) => entry.id === definition.id)!.policy = {
     label: "Owner name",
     enabled: false,

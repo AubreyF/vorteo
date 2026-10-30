@@ -377,7 +377,9 @@ test("plugin enrollment requires an approved running source and rejects local ac
     plugins: [plugin],
     providers: { "plugin-runtime": {} },
   };
-  expect(enrollInstallationPluginProviders(input)).toHaveLength(1);
+  const [enrolled] = enrollInstallationPluginProviders(input);
+  // Enrollment is not an owner choice, so the provider stays on the detection default.
+  expect(enrolled?.policy).toEqual({ label: "Runtime" });
   expect(
     enrollInstallationPluginProviders({ ...input, plugins: [{ ...plugin, id: "unapproved" }] }),
   ).toEqual([]);

@@ -1064,6 +1064,26 @@ describe("plugin provider launch and status", () => {
     }
   });
 
+  test("a missing executable has no catalogue identity, so snapshots report it unavailable", async () => {
+    const harness = createProviderHarness();
+    const registration: ProviderRegistration = {
+      ...harness.registration,
+      command: ["paseo-nonexistent-provider-executable"],
+      async getCatalogCacheKey() {
+        throw new Error("The catalogue key must not be requested without a launch");
+      },
+    };
+    const registry = new PluginAgentClientRegistry(createTestLogger());
+    registry.replace([registration]);
+    try {
+      const client = registry.clients()[registration.id]!;
+      await expect(client.getCatalogCacheKey!({ scope: "global" })).resolves.toBeUndefined();
+      expect(await client.isAvailable()).toBe(false);
+    } finally {
+      await registry.shutdown();
+    }
+  });
+
   test.each([
     { mode: "default" as const },
     { mode: "append" as const, args: ["extra"] },
