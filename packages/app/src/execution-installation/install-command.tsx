@@ -8,7 +8,8 @@ import { copyToClipboard } from "@/utils/copy-to-clipboard";
  * The one command that creates an installation, upgrades one, or wraps a container-only
  * installation into the Host architecture. The address redirects to the latest tested release.
  */
-export const VORTEO_INSTALL_COMMAND = "curl -fsSL https://terranlabs.com/vorteo/install | bash";
+export const VORTEO_INSTALL_COMMAND =
+  "curl -fsSL https://github.com/terran-labs/vorteo/releases/latest/download/install.sh | bash";
 
 /** The install command as selectable text with a copy button. */
 export function InstallCommand({

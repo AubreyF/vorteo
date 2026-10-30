@@ -25,7 +25,7 @@ A handoff is required only when the remaining work has no supported tool route o
 Install and upgrade with the one-command installer, run on the computer that hosts the installation:
 
 ```sh
-curl -fsSL https://terranlabs.com/vorteo/install | bash
+curl -fsSL https://github.com/terran-labs/vorteo/releases/latest/download/install.sh | bash
 ```
 
 It creates a new installation, or wraps an existing one, including a container-only deployment, into the Host architecture while keeping Dev's identity, home, workspace and agents. Connect provider accounts in the interface afterward. An agent inside a container cannot run it for its own installation; hand the command to the owner instead of preparing a host continuity prompt. Optional macOS preview and recovery tools are separate from the standard installation.

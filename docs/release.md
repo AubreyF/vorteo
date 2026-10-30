@@ -87,33 +87,15 @@ The drivers live in [`scripts/release/e2e/`](../scripts/release/e2e/); the `CONT
 
 ### Install address
 
-`https://terranlabs.com/vorteo/install` redirects to the installer attached to the newest stable release. The owner sets this up once in Cloudflare for the `terranlabs.com` zone:
-
-1. Open **Rules**, then **Overview**, and choose **Create rule**, then **Redirect Rule** (a Single Redirect).
-2. Name it `Vorteo install address`.
-3. Under **If incoming requests match**, choose **Custom filter expression** and enter:
-
-   ```text
-   (http.host eq "terranlabs.com" and http.request.uri.path eq "/vorteo/install")
-   ```
-
-4. Under **Then**, choose type **Static**, URL `https://github.com/terran-labs/vorteo/releases/latest/download/install.sh`, status code **302**, and leave **Preserve query string** off.
-5. Deploy it. Place it above any other redirect rule that matches `/vorteo/*`.
-
-Redirect Rules run only on proxied traffic. If nothing else serves `terranlabs.com`, add a proxied DNS record for it: type `AAAA`, name `@`, content `100::`. Use 302, not 301, so clients never cache the target and each new release takes effect immediately.
-
-Verify from any machine:
+The official install command reads the installer straight from the repository's newest stable release:
 
 ```bash
-curl -fsSIL https://terranlabs.com/vorteo/install
+curl -fsSL https://github.com/terran-labs/vorteo/releases/latest/download/install.sh | bash
 ```
 
-The first response must be `302` with `location: https://github.com/terran-labs/vorteo/releases/latest/download/install.sh`, followed by GitHub's redirect to the asset and a final `200`. `curl -fsSL https://terranlabs.com/vorteo/install | head -n 3` prints the start of the script without running it.
+GitHub serves the `install.sh` attached to that release, so the command never runs untested code from `main`. `scripts/vorteo-release.mjs tag --channel stable --release` attaches `install.sh` when it creates a release. Until the first stable release exists, the address answers `404`.
 
-**Before the first release.** `releases/latest/download/install.sh` answers `404` until a release carries `install.sh`, so the command fails with a curl error. Two ways through:
-
-- Tag the first stable release with `scripts/vorteo-release.mjs tag --channel stable --release` after its install tests pass. `--release` attaches `install.sh`, so the address works with no Cloudflare change.
-- To check the address and the script download sooner, point the same rule at `https://raw.githubusercontent.com/terran-labs/vorteo/main/install.sh`, still with 302, and verify with the same `curl -fsSIL` command. Switch it back after the first release. The script still installs only a tagged release, so until one exists it stops after resolving none.
+Check the address without running the script: `curl -fsSL https://github.com/terran-labs/vorteo/releases/latest/download/install.sh | head -n 3`.
 
 ## Upstream release procedure
 

@@ -71,7 +71,7 @@ See the [Vorteo customizations](docs/vorteo-customizations.md) for the full feat
 Run this on the Mac or Linux computer that will host Vorteo, or give it to your agent:
 
 ```sh
-curl -fsSL https://terranlabs.com/vorteo/install | bash
+curl -fsSL https://github.com/terran-labs/vorteo/releases/latest/download/install.sh | bash
 ```
 
 It creates:

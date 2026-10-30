@@ -11,7 +11,7 @@ category: Getting started
 Install Vorteo, including its optional Dev container, with one command on the computer that runs Docker:
 
 ```sh
-curl -fsSL https://terranlabs.com/vorteo/install | bash
+curl -fsSL https://github.com/terran-labs/vorteo/releases/latest/download/install.sh | bash
 ```
 
 It asks a few questions, then prints the address to open. Every later change, including updates, happens in the interface.

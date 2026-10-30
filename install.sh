@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Vorteo installer for macOS and Linux.
 #
-#   curl -fsSL https://terranlabs.com/vorteo/install | bash
+#   curl -fsSL https://github.com/terran-labs/vorteo/releases/latest/download/install.sh | bash
 #
 # It fetches the latest tested Vorteo release into ~/vorteo/source, asks a few questions,
 # shows the plan, and hands the work to the installer engine in that release
@@ -874,7 +874,7 @@ vorteo_install() {
 
   # The GitHub repository is named here only.
   local repository="terran-labs/vorteo"
-  local install_address="https://terranlabs.com/vorteo/install"
+  local install_address="https://github.com/terran-labs/vorteo/releases/latest/download/install.sh"
   local tailscale_download="https://tailscale.com/download"
   local minimum_node=24
 

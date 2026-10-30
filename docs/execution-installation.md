@@ -3,7 +3,7 @@
 An installation has a native Host daemon, a coordinator that serves the protected web interface, and an optional Dev container. Install and upgrade it with one command on the Host computer:
 
 ```sh
-curl -fsSL https://terranlabs.com/vorteo/install | bash
+curl -fsSL https://github.com/terran-labs/vorteo/releases/latest/download/install.sh | bash
 ```
 
 The installer creates the installation, or wraps an existing one, including a container-only deployment, while keeping Dev's identity, home, workspace and agents. Every later change, including updates, happens in the interface. This guide is the reference for what it installs and how the installation operates.

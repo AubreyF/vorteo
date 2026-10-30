@@ -37,7 +37,9 @@ test.each([1280, 390])("explains the one command and copies it at %ipx", async (
   expect(card.textContent).not.toContain("Connect this installation's host environment");
   expect(
     document.querySelector('[data-testid="vorton-legacy-install-command-text"]')!.textContent,
-  ).toBe("curl -fsSL https://terranlabs.com/vorteo/install | bash");
+  ).toBe(
+    "curl -fsSL https://github.com/terran-labs/vorteo/releases/latest/download/install.sh | bash",
+  );
   expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
   const button = document.querySelector<HTMLElement>(
     '[data-testid="vorton-legacy-install-command-copy"]',

@@ -3,7 +3,7 @@
 Install and upgrade Vorteo with one command on the computer that runs Docker:
 
 ```sh
-curl -fsSL https://terranlabs.com/vorteo/install | bash
+curl -fsSL https://github.com/terran-labs/vorteo/releases/latest/download/install.sh | bash
 ```
 
 It creates the Dev container from these files when you choose one, adopts an existing deployment made by `install.sh`, and keeps its identity, home, workspace and agents. Installation agents: follow the [installation agent instructions](../../README.md#instructions-for-installation-agents). Later updates, including the Dev container image, happen in the interface.

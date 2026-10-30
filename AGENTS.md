@@ -9,7 +9,7 @@ If you were asked to update or upgrade a Vorteo installation, you are running in
 Tell the owner to run this on the computer that runs Docker:
 
 ```sh
-curl -fsSL https://terranlabs.com/vorteo/install | bash
+curl -fsSL https://github.com/terran-labs/vorteo/releases/latest/download/install.sh | bash
 ```
 
 It keeps this Dev environment, its agents and files, and adds the Host that installs later updates from Settings.

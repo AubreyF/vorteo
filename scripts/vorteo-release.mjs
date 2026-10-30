@@ -180,7 +180,7 @@ function installerAsset(plan) {
 
 /**
  * Publishes a GitHub Release for the tag; beta releases are prereleases and never "latest".
- * The release carries `install.sh`, which https://terranlabs.com/vorteo/install redirects to.
+ * The release carries `install.sh`, which https://github.com/terran-labs/vorteo/releases/latest/download/install.sh redirects to.
  */
 export function createRelease(plan, { gh = runGh, repository } = {}) {
   const changelog = git(plan.root, ["show", `${plan.commit}:VORTEO_CHANGELOG.md`]);

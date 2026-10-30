@@ -3,7 +3,7 @@
 This page is the reference for Vorteo's Dev container. Install and upgrade with the one-command installer on the computer that runs Docker:
 
 ```sh
-curl -fsSL https://terranlabs.com/vorteo/install | bash
+curl -fsSL https://github.com/terran-labs/vorteo/releases/latest/download/install.sh | bash
 ```
 
 It creates the Dev container when you choose one, wraps a container-only installation into the Host architecture without losing its identity, home, workspace or agents, and leaves every later update to the interface. The [README](../README.md#install) has the short version. The sections below describe the container it manages and the lower-level scripts in [`docker/multiplex`](../docker/multiplex/README.md), for repair and inspection. Browser and mobile clients run on their own devices.

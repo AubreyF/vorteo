@@ -431,7 +431,7 @@ describe("install.sh", () => {
     assert.equal(failed.status, 1);
     assert.match(
       failed.stdout,
-      /curl -fsSL https:\/\/terranlabs\.com\/vorteo\/install \| bash -s -- --yes --name Two\\ Words$/m,
+      /curl -fsSL https:\/\/github\.com\/terran-labs\/vorteo\/releases\/latest\/download\/install\.sh \| bash -s -- --yes --name Two\\ Words$/m,
     );
   });
 
