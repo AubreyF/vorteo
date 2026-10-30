@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): restore accepted Settings tab repositioning and readiness polling, plus shared-queue viewport paint waits, on the diagnostic base. Assertions and application behavior are preserved. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): restore accepted typography, new-agent latency and saved-draft browser fixtures on the diagnostic base. Preserve assertions and the 3000ms application latency threshold; test budgets accommodate previously measured font and navigation delays without claiming those product defects are fixed. Runtime, interface source, README overview and onboarding remain unchanged.
 
 Maintenance review (2026-10-29): restore the accepted recovery fixture bundle-option reuse in the diagnostic branch. Production and interface source, test assertions and setup timeout are unchanged. This removes a known redundant transform path; the current CI SIGTERM cause remains unproven. README overview and onboarding are unchanged.
