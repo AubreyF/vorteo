@@ -301,6 +301,16 @@ function labResult(lab) {
 export async function detectExisting(context, { docker = true } = {}) {
   const current = currentInstallation(context.root);
   if (current) return current;
+  // A folder other than the default names exactly where to install: an installation found
+  // elsewhere on this machine is never adopted in its place.
+  if (path.resolve(context.root) !== path.join(context.home, "vorteo")) {
+    const here = findHostRoots(context).find(
+      (found) => path.resolve(found.root) === path.resolve(context.root),
+    );
+    return here && here.kind !== "current"
+      ? legacyHostResult(here, [])
+      : { kind: "none", paths: {} };
+  }
   // An old Host installation wins over its own Dev deployment, which would otherwise be
   // found below as a legacy container and wrapped into a second installation.
   const [host, ...others] = findHostRoots(context);

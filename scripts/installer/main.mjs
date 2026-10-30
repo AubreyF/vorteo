@@ -84,6 +84,7 @@ export async function main(
     allowPositionals: true,
     options: {
       json: { type: "boolean" },
+      help: { type: "boolean", short: "h" },
       root: { type: "string" },
       answers: { type: "string" },
       plan: { type: "string" },
@@ -94,6 +95,10 @@ export async function main(
       source: { type: "string" },
     },
   });
+  if (values.help) {
+    write(USAGE + "\n");
+    return 0;
+  }
   const context = provided ?? createContext({ root: values.root });
   const line = (value) => write(JSON.stringify(value) + "\n");
   const pretty = (value) => write(JSON.stringify(value, null, 2) + "\n");

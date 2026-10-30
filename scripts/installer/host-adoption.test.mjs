@@ -291,6 +291,16 @@ describe("detection", () => {
     for (const secret of SECRETS) expect(JSON.stringify(existing)).not.toContain(secret);
   });
 
+  test("a non-default --root installs there instead of adopting an installation elsewhere", async () => {
+    const { context } = machine();
+    legacyInstallation(context.home, { root: labRoot(context) });
+    const trial = { ...context, root: path.join(context.home, "vorteo-trial") };
+    expect(await detectExisting(trial)).toEqual({ kind: "none", paths: {} });
+    // Pointing --root at the old installation itself still offers to upgrade it.
+    const here = { ...context, root: labRoot(context) };
+    expect(await detectExisting(here)).toMatchObject({ kind: "legacy-host" });
+  });
+
   test("an arbitrary root is found through its coordinator's LaunchAgent", async () => {
     const { context } = machine();
     const root = path.join(context.home, "Installations", "vorteo-host");
