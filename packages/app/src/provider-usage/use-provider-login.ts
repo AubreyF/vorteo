@@ -1,11 +1,51 @@
 import { readExecutionInstallation } from "@/execution-installation/policy";
 import { claudeSetupRequest } from "./claude-setup-login";
+import {
+  codexInstallationRequest,
+  codexInstallationSignInAvailable,
+} from "./codex-installation-login";
 import { useCallback, useEffect, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ProviderLoginState } from "@getpaseo/protocol/provider-login";
 import { useFetchQuery } from "@/data/query";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { providerUsageQueryKey } from "./use-provider-usage";
+
+/**
+ * Whether this account signs in once for the installation through the coordinator. Claude always
+ * does inside an installation. Codex does when the coordinator runs Host-owned Codex sign-in;
+ * otherwise each environment keeps its own sign-in.
+ */
+export function useSharedInstallationSignIn(
+  serverId: string | null,
+  provider: "claude" | "codex",
+): boolean {
+  const installation = readExecutionInstallation();
+  const inInstallation = Boolean(
+    installation?.environments.some((environment) => environment.serverId === serverId),
+  );
+  const codex = useFetchQuery({
+    queryKey: ["codex-installation-sign-in", installation?.installationId],
+    queryFn: codexInstallationSignInAvailable,
+    enabled: inInstallation && provider === "codex",
+    staleTimeMs: 60_000,
+    dataShape: "value",
+    retry: false,
+  });
+  return inInstallation && (provider === "claude" || codex.data === true);
+}
+
+function installationRequest(
+  provider: "claude" | "codex",
+  serverId: string,
+  providerId: string,
+  operation: "read" | "start" | "cancel" | "sign-out",
+  attempt?: { attemptId: string },
+) {
+  return provider === "claude"
+    ? claudeSetupRequest(serverId, providerId, operation, attempt)
+    : codexInstallationRequest(serverId, providerId, operation, attempt);
+}
 
 export function useProviderLogin(
   serverId: string | null,
@@ -15,40 +55,43 @@ export function useProviderLogin(
   const client = useHostRuntimeClient(serverId ?? "");
   const hostConnected = useHostRuntimeIsConnected(serverId ?? "");
   const installation = readExecutionInstallation();
-  const sharedClaude =
-    provider === "claude" &&
-    Boolean(installation?.environments.some((environment) => environment.serverId === serverId));
-  const connected = sharedClaude || hostConnected;
+  const shared = useSharedInstallationSignIn(serverId, provider);
+  const sharedClaude = shared && provider === "claude";
+  const connected = shared || hostConnected;
   const cache = useQueryClient();
   const key = useMemo(() => ["providerLogin", serverId, providerId], [serverId, providerId]);
   const action = useMutation({
     gcTime: 0,
     mutationFn: async (operation: "start" | "cancel" | "sign-out" | { code: string }) => {
-      if ((!client && !sharedClaude) || !connected)
+      if ((!client && !shared) || !connected)
         throw new Error("Reconnect to the host and try again.");
       await cache.cancelQueries({ queryKey: key });
       if (operation === "sign-out") {
-        if (!sharedClaude) throw new Error("Installation subscription connection required.");
-        return (await claudeSetupRequest(serverId!, providerId, "sign-out")).login;
+        if (!shared) throw new Error("Installation subscription connection required.");
+        return (await installationRequest(provider, serverId!, providerId, "sign-out")).login;
       }
       if (operation === "start") {
-        if (sharedClaude) return (await claudeSetupRequest(serverId!, providerId, "start")).login;
+        if (shared)
+          return (await installationRequest(provider, serverId!, providerId, "start")).login;
         return (await client!.startProviderLogin(providerId)).state;
       }
       const state = cache.getQueryData<ProviderLoginState>(key);
       if (!state || state.status === "idle")
         throw new Error("Refresh the sign-in status and try again.");
-      if (sharedClaude)
+      if (sharedClaude && typeof operation === "object")
         return (
-          await claudeSetupRequest(
-            serverId!,
-            providerId,
-            typeof operation === "object" ? "submit" : "cancel",
-            {
-              attemptId: state.attemptId,
-              ...(typeof operation === "object" ? { code: operation.code } : {}),
-            },
-          )
+          await claudeSetupRequest(serverId!, providerId, "submit", {
+            attemptId: state.attemptId,
+            code: operation.code,
+          })
+        ).login;
+      if (shared && typeof operation === "object")
+        throw new Error("Codex sign-in uses a device code and takes no pasted code.");
+      if (shared)
+        return (
+          await installationRequest(provider, serverId!, providerId, "cancel", {
+            attemptId: state.attemptId,
+          })
         ).login;
       if (typeof operation === "object")
         return (await client!.submitProviderLoginCode(providerId, state.attemptId, operation.code))
@@ -57,11 +100,11 @@ export function useProviderLogin(
     },
     onSuccess: (state) => cache.setQueryData(key, state),
   });
-  const enabled = Boolean((client || sharedClaude) && connected && !action.isPending);
+  const enabled = Boolean((client || shared) && connected && !action.isPending);
   const query = useFetchQuery({
     queryKey: key,
     queryFn: async () => {
-      if (sharedClaude) return (await claudeSetupRequest(serverId!, providerId, "read")).login;
+      if (shared) return (await installationRequest(provider, serverId!, providerId, "read")).login;
       if (!client) throw new Error("Host unavailable");
       return (await client.readProviderLogin(providerId)).state;
     },
@@ -73,10 +116,16 @@ export function useProviderLogin(
     retry: false,
   });
   const synchronization = useFetchQuery({
-    queryKey: ["claude-setup-connection", installation?.installationId, serverId, providerId],
-    queryFn: async () => (await claudeSetupRequest(serverId!, providerId, "read")).connection,
-    enabled: sharedClaude,
-    refetchInterval: sharedClaude ? 2000 : false,
+    queryKey: [
+      provider === "claude" ? "claude-setup-connection" : "codex-installation-connection",
+      installation?.installationId,
+      serverId,
+      providerId,
+    ],
+    queryFn: async () =>
+      (await installationRequest(provider, serverId!, providerId, "read")).connection,
+    enabled: shared,
+    refetchInterval: shared ? 2000 : false,
     staleTimeMs: 0,
     dataShape: "value",
     gcTime: 0,
@@ -110,6 +159,8 @@ export function useProviderLogin(
   }, [cache, completedId, serverId, providerId]);
   return {
     state: query.data,
+    /** One sign-in for the whole installation, through the coordinator. */
+    shared,
     sharedClaude,
     synchronization: synchronization.data,
     connected,

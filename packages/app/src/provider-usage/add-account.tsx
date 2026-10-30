@@ -29,6 +29,7 @@ import { daemonConfigQueryKey } from "@/data/daemon-config";
 import { ProviderLoginPanel } from "./login-panel";
 import { claudeFullSignInAvailable } from "./claude-setup-login";
 import { openAccountForm, suggestedAccountName, type CreatedCodexAccount } from "./account-form";
+import { useSharedInstallationSignIn } from "./use-provider-login";
 
 interface AddAccountProps {
   serverId: string;
@@ -192,6 +193,7 @@ function AccountForm({
   const [signInChoice, setSignInChoice] = useState<"full" | "setup-token">("full");
   const signIn = fullAvailable && signInChoice === "full" ? "full" : undefined;
   const { model, state } = useAccountForm({ ...props, signIn });
+  const shared = useSharedInstallationSignIn(props.serverId, props.provider);
   const connected = useHostRuntimeIsConnected(props.serverId);
   const size = useIsCompactFormFactor() ? "md" : "sm";
   if (state.phase === "created")
@@ -199,7 +201,11 @@ function AccountForm({
       <>
         <Text style={styles.text}>{state.account.name} added.</Text>
         {readExecutionInstallation() ? (
-          <Text style={styles.text}>{createdAccountHint(props.provider)}</Text>
+          <Text style={styles.text}>
+            {shared
+              ? `Sign in once below. This ${props.provider === "claude" ? "Claude" : "Codex"} connection is shared by Host and Dev, unless you exclude an environment.`
+              : createdAccountHint(props.provider)}
+          </Text>
         ) : null}
         <ProviderLoginPanel
           serverId={props.serverId}

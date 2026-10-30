@@ -9,6 +9,7 @@ import {
   claudeHostRefreshEnabled,
   daemonTargets,
   remoteAccess,
+  codexHostRefreshEnabled,
 } from "./config.js";
 
 const SYSTEMD_SERVICE = {
@@ -225,5 +226,18 @@ describe("Host-only, local-only and deployment configuration", () => {
     await expect(
       read({ ...input, access: { remote: "tailscale", gateRoute: { authority: "http://gate" } } }),
     ).rejects.toThrow();
+  });
+});
+
+describe("Host-owned Codex sign-in", () => {
+  test("is off by default and turns on only with an explicit true", () => {
+    const base = InstallationConfigSchema.parse(
+      config({ launchdService: "gui/501/local.vorteo.fixture" }),
+    );
+    expect(codexHostRefreshEnabled(base)).toBe(false);
+    expect(
+      codexHostRefreshEnabled(InstallationConfigSchema.parse({ ...base, codexHostRefresh: true })),
+    ).toBe(true);
+    expect(codexHostRefreshEnabled({ ...base, codexHostRefresh: false })).toBe(false);
   });
 });

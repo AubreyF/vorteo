@@ -52,6 +52,11 @@ export const REVIEWED_CONFIGURATION_SETTINGS = {
     renewal: true,
     legacyField: "claudeHostRefreshConfiguration",
   },
+  codexHostRefresh: {
+    path: ["codexHostRefresh"],
+    value: z.literal(true),
+    renewal: true,
+  },
   engineRestart: {
     path: ["container", "engineRestart"],
     value: EngineRestartConfigurationSchema,

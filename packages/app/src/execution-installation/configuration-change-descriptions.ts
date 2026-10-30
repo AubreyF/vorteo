@@ -27,6 +27,10 @@ const DESCRIPTIONS: Descriptions = {
     config === null
       ? "Turn off Host-owned refresh for full sign-in Claude accounts. Dev loses those accounts when their current access expires, within about 8 hours, and new full sign-in accounts can no longer be added. Host use and setup-token accounts are unaffected."
       : "Turn on Host-owned refresh for full sign-in Claude accounts. The Host keeps each account signed in and sends Dev short-lived access, so long Dev turns survive token expiry. Adding a full sign-in account becomes available once every environment supports it.",
+  codexHostRefresh: (config) =>
+    config === null
+      ? "Turn off one-time Codex sign-in for the installation. Dev loses shared Codex accounts when their current access expires, and each environment needs its own sign-in again. Host use is unaffected."
+      : "Turn on one-time Codex sign-in for the installation. Shared Codex accounts sign in once on the Host, which keeps them fresh and sends Dev access without a second sign-in. It becomes available once every environment supports it.",
   engineRestart: (config) =>
     config === null
       ? "Remove the tracked Docker restart plan."

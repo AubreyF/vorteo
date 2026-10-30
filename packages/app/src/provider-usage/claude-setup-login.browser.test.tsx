@@ -3,10 +3,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
 import { ProviderLoginPanel } from "./login-panel";
-import { useProviderLogin } from "./use-provider-login";
+import { useProviderLogin, useSharedInstallationSignIn } from "./use-provider-login";
 vi.mock("@/utils/copy-to-clipboard", () => ({ copyToClipboard: vi.fn() }));
 vi.mock("@/utils/open-external-url", () => ({ openExternalUrl: vi.fn() }));
-vi.mock("./use-provider-login", () => ({ useProviderLogin: vi.fn() }));
+vi.mock("./use-provider-login", () => ({
+  useProviderLogin: vi.fn(),
+  useSharedInstallationSignIn: vi.fn(),
+}));
 vi.mock("@/stores/session-store", () => ({
   useSessionStore: (select: (state: unknown) => unknown) =>
     select({
@@ -42,6 +45,7 @@ test("shared success shows pending delivery and allows renewal or installation-w
       attemptId: "11111111-1111-4111-8111-111111111111",
       accountLabel: null,
     },
+    shared: true,
     sharedClaude: true,
     synchronization: {
       connected: true,
@@ -90,6 +94,7 @@ test("shared success shows pending delivery and allows renewal or installation-w
 test("disconnect does not hide an offline environment awaiting credential removal", () => {
   vi.mocked(useProviderLogin).mockReturnValue({
     state: { status: "idle" },
+    shared: true,
     sharedClaude: true,
     synchronization: {
       connected: false,
@@ -124,4 +129,45 @@ test("disconnect does not hide an offline environment awaiting credential remova
   expect(container.textContent).toContain(
     "Credential removal will finish automatically when connections return",
   );
+});
+
+test("a shared Codex account connects once and shows Dev synchronization", async () => {
+  const start = vi.fn();
+  // Opened from Dev, whose daemon session is not loaded here: the coordinator handles it.
+  vi.mocked(useSharedInstallationSignIn).mockReturnValue(true);
+  vi.mocked(useProviderLogin).mockReturnValue({
+    state: { status: "idle" },
+    shared: true,
+    sharedClaude: false,
+    synchronization: {
+      connected: true,
+      accountLabel: "owner@example.com",
+      environments: [{ serverId: "dev", status: "ready" }],
+    },
+    connected: true,
+    busy: false,
+    actionPending: false,
+    readFailed: false,
+    actionFailed: false,
+    refreshing: false,
+    start,
+    signOut: vi.fn(),
+    cancel: vi.fn(),
+    submitCode: vi.fn(),
+    refresh: vi.fn(),
+  });
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+  act(() =>
+    root.render(
+      <ProviderLoginPanel serverId="dev" providerId="codex-one" name="Pro" provider="codex" />,
+    ),
+  );
+  expect(container.textContent).toContain("Connect Codex once");
+  expect(container.textContent).toContain("Connected and ready. Signed in as owner@example.com.");
+  expect(container.textContent).not.toContain("for this environment");
+  await page.getByRole("button", { name: "Connect Codex" }).click();
+  expect(start).toHaveBeenCalledOnce();
+  expect(vi.mocked(useProviderLogin)).toHaveBeenCalledWith("dev", "codex-one", "codex");
 });

@@ -27,6 +27,7 @@ afterEach(() => {
 
 function harness(
   devFeatures = { installationSettingsAuthority: true, providerSecretDelivery: true },
+  extra: { codexHostRefresh?: boolean } = {},
 ) {
   const stateDir = mkdtempSync(join(tmpdir(), "provider-secrets-runtime-"));
   directories.push(stateDir);
@@ -41,6 +42,7 @@ function harness(
     },
     host: { endpoint: "127.0.0.1:1", password: "synthetic-host-password" },
     container: { endpoint: "127.0.0.1:2", password: "synthetic-dev-password" },
+    ...extra,
   } as unknown as InstallationConfig;
   const codexCreation = randomUUID();
   const definitions: InstallationProvider[] = [
@@ -203,6 +205,17 @@ test("older Dev daemons are detected by feature flag and Codex accounts ask for 
       ],
     });
     expect(openai!.accountSignIn).toBeUndefined();
+  } finally {
+    h.close();
+  }
+});
+
+test("Codex accounts report no per-environment sign-in once the Host owns Codex sign-in", async () => {
+  const h = harness(undefined, { codexHostRefresh: true });
+  try {
+    const read = JSON.parse((await h.call("read", {})).text);
+    const [, codex] = ProviderSecretsReadResponseSchema.parse(read).definitions;
+    expect(codex!.accountSignIn).toBeUndefined();
   } finally {
     h.close();
   }

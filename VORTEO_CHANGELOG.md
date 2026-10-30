@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.939 - 2026-10-30
+
+### Added
+
+- Codex accounts connect once for an installation: the Host signs in through device code, is the only refresh writer, and delivers access-only sign-ins to Dev with per-environment sync status, behind `codexHostRefresh`. New installations turn on both `claudeHostRefresh` and `codexHostRefresh`.
+
+### Changed
+
+- Claude and Codex Host-owned refresh share one refresh state machine and Dev writer. Claude behavior is unchanged.
+
+### Fixed
+
+- Codex delivery no longer assumes a Dev container, so Host-only installations build and run.
+
 ## 0.11.0-beta.3.vorteo.938 - 2026-10-30
 
 ### Added

@@ -130,6 +130,10 @@ export function buildCoordinatorConfig({
           }
         : {}),
     },
+    // Provider accounts connect once for the installation: the Host signs in and refreshes,
+    // and every environment receives the same connection (AGENTS.md account contract).
+    claudeHostRefresh: true,
+    codexHostRefresh: true,
     listenPort: plan.ports.coordinator,
     // Served through the coordinator's link, so its replacement brings the interface along.
     webDistDir: path.join(plan.paths.coordinatorReleaseLink, WEB_DIST),

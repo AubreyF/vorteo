@@ -41,6 +41,8 @@ import type { ClaudeOAuthRuntime } from "./accounts/claude-oauth-runtime.js";
 import type { ClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import { mountProviderSecretsRoutes } from "./accounts/provider-secrets-routes.js";
 import type { ProviderSecretsRuntime } from "./accounts/provider-secrets-runtime.js";
+import { mountCodexSignInRoutes } from "./accounts/codex-signin-routes.js";
+import type { CodexSignInRuntime } from "./accounts/codex-signin-runtime.js";
 import {
   SkillSourceSchema,
   InstallationSkillSchema,
@@ -383,6 +385,7 @@ export function createInstallationServer(
   providerSecrets?: ProviderSecretsRuntime,
   // The private configuration file, captured by safety snapshots. Omitted in tests.
   files?: { configFile: string },
+  codexSignIn?: CodexSignInRuntime,
 ) {
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
   const instructionRequests = new InstructionRequests(
@@ -1874,6 +1877,7 @@ export function createInstallationServer(
   });
   if (claudeSetup) mountClaudeSetupRoutes(app, claudeSetup);
   if (claudeOAuth) mountClaudeOAuthRoutes(app, claudeOAuth);
+  if (codexSignIn) mountCodexSignInRoutes(app, codexSignIn);
   if (providerSecrets) mountProviderSecretsRoutes(app, providerSecrets);
   app.post("/api/installation/owner/lock", (req, res) => {
     sessions.revoke(sessionToken(req), sessionOrigin(req));

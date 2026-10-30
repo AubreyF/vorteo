@@ -147,8 +147,10 @@ export const InstallationConfigSchema = z.strictObject({
   previewMonitor: PreviewMonitorConfigurationSchema.optional(),
   restartApprovalPolicy: z.strictObject({ hostRequestsAfter: z.string().datetime() }).optional(),
   containerSourceUpdates: ContainerSourceUpdatesSchema.optional(),
-  /** On by default. Full sign-in Claude accounts with Host-owned refresh; `false` opts out. */
+  /** Off by default. Full sign-in Claude accounts with Host-owned refresh; `true` opts in. */
   claudeHostRefresh: z.boolean().optional(),
+  /** Off by default. Shared Codex accounts sign in once on the Host and reach Dev; `true` opts in. */
+  codexHostRefresh: z.boolean().optional(),
   sourceUpdates: z
     .strictObject({
       sourceRepository: z.string().startsWith("/"),
@@ -227,6 +229,11 @@ export function daemonTargets(
 
 export function remoteAccess(config: Pick<InstallationConfig, "access">): "tailscale" | "none" {
   return config.access?.remote ?? "tailscale";
+}
+
+/** Same rule as Claude: only an explicit `codexHostRefresh: true` enables it. */
+export function codexHostRefreshEnabled(config: Pick<InstallationConfig, "codexHostRefresh">) {
+  return config.codexHostRefresh === true;
 }
 
 export function hostLaunchdService(config: InstallationConfig): string {
