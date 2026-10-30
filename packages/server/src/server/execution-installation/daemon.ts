@@ -441,9 +441,17 @@ export function createInstallationRestartExecutor(
         await client.close();
       }
     } else if (target === "host") {
-      await execFileAsync("/bin/launchctl", ["kickstart", "-k", hostLaunchdService(config)], {
-        timeout: 15_000,
-      });
+      // Restart the installation's own Host service: launchd on macOS, a systemd user unit on Linux.
+      if ("launchdService" in config.host)
+        await execFileAsync("/bin/launchctl", ["kickstart", "-k", hostLaunchdService(config)], {
+          timeout: 15_000,
+        });
+      else
+        await execFileAsync(
+          "/usr/bin/systemctl",
+          ["--user", "restart", config.host.systemdService.unit],
+          { timeout: 15_000 },
+        );
     } else {
       const client = await connectInstallationDaemon(config, kind);
       try {

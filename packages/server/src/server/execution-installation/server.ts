@@ -832,7 +832,11 @@ export function createInstallationServer(
     if (!coordinatorRequests)
       return {
         ...unavailable,
-        reason: "Update the coordinator to expose its durable maintenance ledger.",
+        // The ledger binds the launchd Host service; systemd Hosts have no coordinator maintenance yet.
+        reason:
+          "systemdService" in config.host
+            ? "Coordinator maintenance is not available on a systemd Host yet."
+            : "Update the coordinator to expose its durable maintenance ledger.",
       };
     try {
       const open = openBootstrapRequests(coordinatorRequests.list());

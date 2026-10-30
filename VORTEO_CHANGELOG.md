@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.964 - 2026-10-30
+
+### Fixed
+
+- Restart now works on a Linux Host: the coordinator restarts the Host daemon through its systemd user unit (`systemctl --user restart`) instead of launchd. Coordinator maintenance on a systemd Host says it is not available yet instead of asking for a coordinator update. Adapted from christiantwu's systemd Host coordinator work in #5.
+
 ## 0.11.0-beta.3.vorteo.963 - 2026-10-30
 
 ### Changed
