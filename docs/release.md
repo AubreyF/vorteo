@@ -28,9 +28,50 @@ The initial baseline covers custom behavior through `0.9.0-beta.2.vorton.40`; it
 
 Expo bundles the custom changelog with each build. What's new interleaves it with the independently fetched Paseo changelog by date, newest first. Entries identify their source and share one Show more control. Equal dates retain authored order within each source, with Vorteo entries first; undated entries appear last. Upstream loading or failure does not hide bundled custom notes. The Full changelog link opens [Vorteo's repository changelog](https://github.com/AubreyF/vorteo/blob/main/VORTEO_CHANGELOG.md); newer upstream notes do not imply those changes are installed locally.
 
+<a id="vorteo-releases"></a>
+
+## Vorteo releases
+
+Vorteo releases are Git tags on commits already on `main`. Installations build from source, so a tag names exactly what to install and nothing is rebuilt for promotion.
+
+| Channel | Tag                      | Follows                   | Who tags                                                                    |
+| ------- | ------------------------ | ------------------------- | --------------------------------------------------------------------------- |
+| Beta    | `release-<counter>-beta` | Newest beta or stable tag | An owner installation's Builds, after its own install passes acceptance     |
+| Stable  | `release-<counter>`      | Newest stable tag         | Builds, only when the owner asks, on a commit that already has its beta tag |
+
+`<counter>` is the [Vorteo version counter](#vorton-commit-versions) in the tagged commit's `package.json`. A lab that develops Vorteo tracks `main` itself and needs no tag. Production follows stable.
+
+- The `release-` prefix matches no upstream release trigger. Upstream's desktop, Android, app deployment and release-note workflows run on glob patterns such as `v*`, which matches any tag starting with "v", including `vorteo-*`; the Android and desktop workflows would build and publish GitHub Releases in this repository. Upstream's EAS app also starts store builds on `v*` tags. A CI test checks every workflow tag trigger against both tag forms.
+- Tags are permanent. Never move, delete or reuse one; fix forward with a newer commit and a new tag. The tag ruleset blocks updates and deletion.
+- Stable goes on the same commit as an existing beta tag, so stable installs code that already ran as beta. A newer tag in a channel must have a higher counter than every earlier tag in it.
+- An installation verifies its installed commit and counter, not "the latest tag".
+
+```sh
+node scripts/vorteo-release.mjs tag --channel beta --commit <installed commit> [--release] [--dry-run]
+node scripts/vorteo-release.mjs tag --channel stable --commit <beta-tagged commit> [--release]
+node scripts/vorteo-release.mjs latest --channel beta|stable --installed <version or counter>
+node scripts/vorteo-release.mjs list [--channel beta|stable]
+```
+
+`tag` runs only in Builds. It fetches `main`, refuses a commit that is not on it, an existing tag, an older counter and a stable tag without its beta, then pushes an annotated tag and reads it back from the remote. `--commit` is required: name the commit the installation actually installed. A GitHub merge commit carries the same counter as its head, so tagging `main` would mark a commit nobody installed. Under [pull request delivery](task-delivery.md#deliver-to-main-through-a-pull-request) the installed commit is an ancestor of `main`. A failed push removes the local tag so a retry can run. `--release` also publishes a GitHub Release whose notes are the changelog entries since the previous tag in that channel. Beta releases are prereleases and never marked latest.
+
+`latest` is the discovery primitive. It reads `git ls-remote --tags` from the configured remote, which needs no token and works for forks, and prints the newest tag above the installed counter as JSON, or `null`. Offering that tag as an approvable update in installation controls is not built yet; it will use the tracked source-update approval.
+
+<a id="github-rulesets"></a>
+
+### GitHub rulesets
+
+[`.github/rulesets`](../.github/rulesets) holds the repository rules. `main.json` requires a pull request with merge commits only, zero approving reviews, resolved conversations, no force-push or deletion, and up-to-date `changes`, `format`, `lint`, `typecheck` and `scan` checks from GitHub Actions. `changes` runs the delivery and release script tests. `release-tags.json` makes `release-*` tags immutable. Neither has bypass actors, so they bind the owner too. Zero approvals let Builds merge its own pull requests; `scripts/publish-main.mjs` holds every other pull request for the owner's approval. The required checks are the CI jobs that pass reliably; add a job once it is consistently green on `main`, never to make a red check required.
+
+```sh
+node scripts/sync-github-rulesets.mjs [--apply]
+```
+
+Without `--apply` it only reports drift and exits 1 when GitHub differs. Applying changes repository settings: only Builds runs it, and only with the owner's recorded approval for that change. `scripts/publish-main.mjs` reads the same required checks, so delivery waits for them whether or not the rulesets are applied.
+
 ## Upstream release procedure
 
-The procedures below describe the upstream stable and beta release tracks.
+The procedures below describe upstream Paseo's stable and beta release tracks. They create `v*` tags and run upstream publication; do not use them for Vorteo. Use [Vorteo releases](#vorteo-releases) instead.
 
 For pending custom-branch distribution work, see the [automatic desktop builds and updates proposal](desktop-auto-builds.md).
 

@@ -4,6 +4,64 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.929 - 2026-10-29
+
+### Maintenance
+
+- Reconcile the reviewed sidebar focus changes with current pull-request delivery tooling and server HTTP fixtures. Preserve complete browser tests, both documentation histories and all existing delivery gates.
+
+## 0.11.0-beta.3.vorteo.928 - 2026-10-29
+
+### Maintenance
+
+- Merge main with the server-test fixture repair into the pull request delivery branch, keeping both changelog histories, including the two entries that each claimed version 924 on parallel branches.
+- `scripts/publish-main.mjs --pr <number> --dry-run` now says it checked the pull request's state, base, head, ancestry and required-check policy, and that it did not check the local tree or secret scanner, which that path never inspects.
+
+## 0.11.0-beta.3.vorteo.927 - 2026-10-29
+
+### Fixed
+
+- Pull request delivery ignores approvals from the GitHub account running Builds, because agents share its token; contributors' pull requests wait for the owner to merge them on GitHub or for an approver with a separate account. Builds integrates a contributor's branch only after the owner approves that pull request.
+- Reviews by deleted users or apps are skipped instead of failing the permission lookup.
+- The release-tag trigger test treats `workflow_run` as starting on any tag and accepts a repository guard only as a top-level condition that `||` cannot bypass.
+
+## 0.11.0-beta.3.vorteo.926 - 2026-10-29
+
+### Fixed
+
+- Pull request approval authority is explicit: the repository owner plus delegates listed in `.github/delivery-approvers.json`, read from the base branch so a pull request cannot add its own approver. Write access alone no longer counts as delegated owner approval, and only an approver's own account can merge its pull requests without further review. The list starts empty.
+
+## 0.11.0-beta.3.vorteo.925 - 2026-10-29
+
+### Fixed
+
+- Pull request delivery stops on a change request from any reviewer with write access, including on this installation's own pull requests, and confirms reviewer write access through GitHub's permission API instead of the review's association label.
+- A skipped required check counts only for `format`, `lint` and `typecheck`, and only when `changes`, whose path filter decides those jobs, passed on the same commit.
+- The release-tag trigger test reads unfiltered `push:` and `create` triggers, `tags-ignore`, flow lists, comments and character classes, and checks every job in a release-triggered workflow. It records that the read-only secret scan runs on every tag push.
+
+### Maintenance
+
+- The delivery docs say Level 4 interface-only changes install by guarded static publication without a daemon restart, and define a writer's GitHub approval as the owner's review.
+
+## 0.11.0-beta.3.vorteo.924 - 2026-10-29
+
+### Added
+
+- Beta and stable release tags: `release-<counter>-beta` and `release-<counter>`, created by Builds with `scripts/vorteo-release.mjs tag --commit <installed commit>`. Stable goes only on a commit that already has its beta tag, tags are never moved or reused, and `latest` reports the newest tag for a channel through `git ls-remote`. A CI test proves the names start no upstream release workflow; `vorteo-*` would have matched `v*`. No tags exist yet, and installations do not yet offer them as updates.
+- Checked-in GitHub rulesets for `main` (pull request, merge commits only, no force-push or deletion, required `changes`, format, lint, typecheck and secret scan) and immutable `release-*` tags, with `scripts/sync-github-rulesets.mjs` to report or apply drift. They are not applied on GitHub yet.
+
+### Changed
+
+- `scripts/publish-main.mjs` delivers through a pull request: it pushes the branch, waits for the ruleset's required checks from GitHub Actions on the exact head, merges with a merge commit pinned to that head and proves `main` contains it. Only pull requests opened by the account running Builds merge on their checks; others need a current owner approval on their head, checked again before the merge. Branches are kept unless `--delete-branch` is passed.
+- The pre-push hook refuses direct pushes to `main` from everyone, Builds included, and release tag pushes outside Builds.
+- The agent guide, task delivery and release docs describe pull request delivery, the Level 3 and Level 4 delivery order, release channels and required checks as a floor that never replaces integration checks, review, rollback or installation acceptance. Restart control detail moved to task delivery, alongside the earlier relocation of delivery rules. The release skills follow the Vorteo flow instead of upstream's `v*` releases.
+
+## 0.11.0-beta.3.vorteo.924 - 2026-10-29
+
+### Maintenance
+
+- Send the configured Host header on the wire in preview-monitor and session-host HTTP tests, matching the existing server test helper. Preserve authentication assertions and production origin guards.
+
 ## 0.11.0-beta.3.vorteo.924 - 2026-10-29
 
 ### Maintenance
