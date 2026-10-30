@@ -1,28 +1,30 @@
 # Vorteo roadmap
 
-Priorities below describe unfinished work. The [customizations inventory](vorteo-customizations.md) covers implemented features, including Codex goal controls, shared queues, account connectors, skill management and Host/Dev container coordination. Deployment and device acceptance remain installation-specific.
+Unfinished work lives in [GitHub issues](https://github.com/terran-labs/vorteo/issues), one issue per outcome. Designs live in [plans](plans/); issues link to them. The [customizations inventory](vorteo-customizations.md) covers what is already implemented.
 
-## Current priorities
+## Priorities
 
-- **Finish appearance delivery and acceptance.** The six-theme interface, Freed controls, floating sidebars and isolated browser demo have desktop and compact browser coverage. Complete source integration, guarded publication and installed owner review. Native font assets compile and embed, but iOS 27 startup currently stops before the interface renders; native typography, touch and Electron acceptance remain open. Validate blocked-goal recovery against the installed daemon and provider through the tracked update workflow. After appearance acceptance, conduct measured UI performance optimization and a comprehensive security review, then propose further improvements from those findings.
+Every open issue carries one priority label. Priority orders selection; it never grants authority to integrate, publish or install.
 
-- **Complete quota reserve controls.** Connect the existing daemon policy to profile and task controls, capability checks and end-to-end acceptance. See [reserve integration](agent-presets.md#implementation-and-deployment-status).
-- **Finish installation and workflow acceptance.** Verify native host setup, real account sign-in and tasks, supervisor/Pi delegation, skill availability, physical devices, dictation, accessibility and performance. Use the [host acceptance checklist](host-handoff.md#acceptance) and [execution guide](execution-installation.md); record remaining deployment work against actual installation evidence.
-- **Deliver private desktop updates.** Automate custom-branch builds and updates for macOS, Windows and Linux. See the [desktop build proposal](desktop-auto-builds.md).
+| Label               | Meaning                                              |
+| ------------------- | ---------------------------------------------------- |
+| `priority:critical` | Breaks installations or loses data. Drop other work. |
+| `priority:high`     | The current release or the work right after it.      |
+| `priority:normal`   | Planned, after the high items.                       |
+| `priority:low`      | Worth doing when convenient.                         |
 
-## Next capabilities
+`fast-follow` marks high items planned immediately after the current release. `debt` marks independently closable technical or process debt.
 
-- **Grow the Vorteo System project.** Keep the Vorteo source clone in step with each installed update without disturbing operators' worktrees. Ship the Optimization Runner's tasks and schedule in source, installed by launchd on the Host, supervisord in the Dev container and the daemon scheduler on plain installs. Add a Monitoring role with cheap Host and Dev collectors and threshold-driven advice. See [Vorteo System project](system-project.md#limitations).
+## Factory states
 
-- **Recover installation services before login.** Future work, explicitly outside the current unattended-maintenance delivery. Evaluate system-level service registration, credential access and container startup before a user session exists. Current recovery acceptance begins after login with the container runtime available.
+Agent work uses the same labels as Freed: `factory:ready` (an agent may take it), `factory:running`, `factory:blocked` (waiting on a decision or dependency) and `factory:human-review` (needs the owner).
 
-- **Broker service credentials.** Define environment identities and bounded grants, then implement a credential broker and first GitHub connector. Resolve operation scope, identity, key custody, revocation and recovery before implementation. See [environment grants](plans/execution-environments/environment-grants.md) and the [broker plan](plans/execution-environments/credential-broker.md).
-- **Extend goals across providers.** Build on the existing Codex-native controls with durable objectives, checkpoints, completion evidence and reviewed handoffs across models. Coordinate budgets, queue delivery, quota admission and restart recovery through one continuation owner. Qualify Codex Secondary and Pi first, then other providers; do not run competing native and daemon continuation loops.
-- **Expand execution isolation.** Evaluate task containers, Apple Container, folder grants and environment authorization as separately scoped projects. Keep credential, browser-trust and installation-recovery research in the [execution environment plans](plans/execution-environments/README.md#independent-future-projects). The deferred [signed-in browser profiles](plans/execution-environments/browser-profiles.md) design records storage, sign-in, grant and isolation findings for granting limited logins to chosen workspaces.
+## Views
 
-- **Rename the container user to `vorteo`.** The image, entrypoint, compose file, HTTPS broker, tests and docs still use `paseo` and `/home/paseo`. Existing volumes, agent worktrees and task artifacts live under that home, so the rename needs a migration with compatibility paths and an approved restart. The Add project interface already hides the container home path.
-- **Browse the whole filesystem on native hosts.** The folder browser's daemon roots cover only the home folder on a native host, so other locations must be typed. Add a filesystem root for non-container daemons behind a capability, keeping container roots limited to shares and container storage.
+- [Fast follows](https://github.com/terran-labs/vorteo/issues?q=is%3Aopen+label%3Afast-follow)
+- [High priority](https://github.com/terran-labs/vorteo/issues?q=is%3Aopen+label%3Apriority%3Ahigh)
+- [Ready for the factory](https://github.com/terran-labs/vorteo/issues?q=is%3Aopen+label%3Afactory%3Aready)
 
 ## Keep pace with Paseo
 
-Every upstream merge must compare incoming behavior with the [customizations inventory](vorteo-customizations.md#upstream-comparison), credit inherited features and revise these priorities. The integrated `0.11.0-beta.3` baseline already overlaps in usage visibility, provider configuration, mobile controls and skill deduplication. Preserve remaining custom behavior until implementation and tests establish parity; track any resulting retirement work here.
+Every upstream merge compares incoming behavior with the [customizations inventory](vorteo-customizations.md#upstream-comparison), credits inherited features and opens or closes issues for any resulting retirement work.

@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-30): move unfinished work to GitHub issues with Freed's priority and factory labels, reduce the roadmap to an index, and plan gate credential attachment. No runtime behavior changed; README unchanged.
+
 Maintenance review (2026-10-30): add Host-owned Codex sign-in shared with Dev behind `codexHostRefresh` (new `accounts/codex-signin-*` and shared `accounts/host-owned-*` modules, owner routes under `/api/installation/owner/codex/signin`, daemon feature `codexInstallationSignIn`); new installations enable Claude and Codex Host refresh. Token lifetime and refresh behavior await a live check. README unchanged.
 
 Maintenance review (2026-10-30): add the one-command installation (front door, installer engine on macOS and Linux, `vorteo` command, legacy wrap), Host-only and local-only installations, release-tag interface upgrades with snapshots, the accounts first screen, the no-Host update card and the manual install tests; retire the lab installation guide. Codex still signs in per environment, the accounts screen's dismissal is per device, and production's automatic move to gate mode is not built. README onboarding changes to the one command.

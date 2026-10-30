@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.940 - 2026-10-30
+
+### Maintenance
+
+- Track unfinished work as GitHub issues with priority, fast-follow and factory labels matching Freed; the roadmap becomes an index of the priority system and issue views. Plan gate credential attachment, where the Host holds each provider connection once and the network gate attaches it per request.
+
 ## 0.11.0-beta.3.vorteo.939 - 2026-10-30
 
 ### Added
