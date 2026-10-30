@@ -47,6 +47,20 @@ interface ProjectDraft {
 }
 
 /** The single app boundary that turns host-local projects into grouped display projects. */
+/**
+ * A daemon's Vorteo System project (key `system:<serverId>`) can be empty, as in a Dev
+ * container the Host's runner covers. It stays for source setup but gets no sidebar row.
+ */
+function listedProjects(session: {
+  projects: Iterable<ProjectDescriptor>;
+  workspaces: readonly WorkspaceDescriptor[];
+}): ProjectDescriptor[] {
+  const occupied = new Set(session.workspaces.map((workspace) => workspace.projectId));
+  return Array.from(session.projects).filter(
+    (project) => !project.projectKey?.startsWith("system:") || occupied.has(project.projectId),
+  );
+}
+
 export function buildWorkspaceStructureProjects(input: {
   sessions: WorkspaceStructureSession[];
 }): WorkspaceStructureProject[] {
@@ -60,7 +74,7 @@ export function buildWorkspaceStructureProjects(input: {
   const viewKeyByServerProjectId = new Map<string, Map<string, string>>();
 
   for (const session of sessions) {
-    for (const project of session.projects) {
+    for (const project of listedProjects(session)) {
       projectEntries.push({
         serverId: session.serverId,
         projectsRoot: session.projectsRoot ?? null,

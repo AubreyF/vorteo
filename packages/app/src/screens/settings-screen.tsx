@@ -1,3 +1,5 @@
+import { SidebarIdentityFooter } from "@/components/sidebar-identity-footer";
+import { InstallationNameSection } from "@/screens/settings/general/installation-name-section";
 import { DataSaverSection } from "@/screens/settings/general/data-saver-section";
 import { InstallationConnectionCheck } from "@/execution-installation/connection-check-wrapper";
 import { InstallationRestartBanner, InstallationControls } from "@/execution-installation/panel";
@@ -908,7 +910,6 @@ function SidebarSectionButton({
 }
 
 interface SettingsSidebarProps {
-  appVersionText: string;
   sections: readonly SettingsPageSection[];
   selectedSection: SettingsSectionId | null;
   onSelectSection: (section: SettingsSectionId) => void;
@@ -919,7 +920,6 @@ interface SettingsSidebarProps {
 }
 
 function SettingsSidebar({
-  appVersionText,
   sections,
   selectedSection,
   onSelectSection,
@@ -1051,15 +1051,10 @@ function SettingsSidebar({
             {sidebarBody}
           </ScrollView>
           <InstallationRestartBanner placement="sidebar" />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`${appVersionText}, check for updates`}
-            onPress={openUpdates}
-            style={sidebarStyles.versionButton}
-            testID="settings-sidebar-version"
-          >
-            <Text style={sidebarStyles.version}>{appVersionText}</Text>
-          </Pressable>
+          <SidebarIdentityFooter
+            onOpenUpdates={openUpdates}
+            versionTestID="settings-sidebar-version"
+          />
         </View>
       ) : (
         sidebarBody
@@ -1101,6 +1096,7 @@ function installationPane(section: InstallationPaneSection) {
 /** Each catalog pane's body. Panes reuse the existing settings components. */
 const PANE_RENDERERS: Record<string, (context: PaneContext) => ReactNode> = {
   "general.attention": (context) => <AttentionSection onOpenPane={context.onOpenPane} />,
+  "general.installation": () => <InstallationNameSection />,
   "general.notifications": () => <DesktopNotificationsSection />,
   "general.about": (context) => (
     <AboutSection appVersionText={context.appVersionText} isDesktopApp={context.isDesktopApp} />
@@ -1504,7 +1500,6 @@ export default function SettingsScreen({
                 <SettingsSearchBox search={search} />
               </View>
               <SettingsSidebar
-                appVersionText={appVersionText}
                 sections={sections}
                 selectedSection={null}
                 onSelectSection={navigation.handleSelectSection}
@@ -1538,7 +1533,6 @@ export default function SettingsScreen({
       <View style={desktopStyles.row}>
         <WindowChromeRegion corners="top-left">
           <SettingsSidebar
-            appVersionText={appVersionText}
             sections={sections}
             selectedSection={selectedSection}
             onSelectSection={navigation.handleSelectSection}
@@ -1653,16 +1647,6 @@ const sidebarStyles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     paddingHorizontal: theme.spacing[2],
     paddingTop: theme.spacing[2],
-  },
-  version: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.foregroundMuted,
-    textAlign: "center",
-  },
-  versionButton: {
-    minHeight: 44,
-    justifyContent: "center",
-    padding: theme.spacing[3],
   },
   modeHeader: {
     height: VORTON_HEADER_HEIGHT,

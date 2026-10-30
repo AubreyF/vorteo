@@ -165,6 +165,14 @@ export function installationAccountBindingsComplete(
   return definitions.every((definition) => {
     const inactive = definition.removed || definition.policy.enabled === false;
     if (inactive || excludedIds.includes(definition.id)) return true;
+    // An environment's own provider, with no shared account behind it, belongs to that
+    // environment by identity; another environment can never be missing it.
+    if (
+      definition.accountId === undefined &&
+      definition.accountSetup === undefined &&
+      definition.id.startsWith("environment/")
+    )
+      return true;
     const account =
       definition.accountId !== undefined ||
       definition.accountSetup !== undefined ||

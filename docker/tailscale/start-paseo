@@ -2,9 +2,17 @@
 set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 unset BASH_ENV ENV PYTHONPATH PYTHONHOME
-hostname="$(/usr/bin/python3 -I /opt/personal-tailscale/network.py)"
-export PASEO_HOSTNAMES="$hostname${PASEO_HOSTNAMES:+,$PASEO_HOSTNAMES}"
-export PASEO_CORS_ORIGINS="https://$hostname${PASEO_CORS_ORIGINS:+,$PASEO_CORS_ORIGINS}"
+if [[ "${PASEO_NETWORK_MODE:-tailscale}" == gate ]]; then
+  # The Host edge owns this environment's public names; compose supplies them.
+  if [[ -z "${PASEO_HOSTNAMES:-}" || -z "${PASEO_CORS_ORIGINS:-}" ]]; then
+    echo 'Gate mode needs PASEO_HOSTNAMES and PASEO_CORS_ORIGINS.' >&2
+    exit 1
+  fi
+else
+  hostname="$(/usr/bin/python3 -I /opt/personal-tailscale/network.py)"
+  export PASEO_HOSTNAMES="$hostname${PASEO_HOSTNAMES:+,$PASEO_HOSTNAMES}"
+  export PASEO_CORS_ORIGINS="https://$hostname${PASEO_CORS_ORIGINS:+,$PASEO_CORS_ORIGINS}"
+fi
 while IFS= read -r name; do
   case "$name" in TS_*|TAILSCALE_*) unset "$name" ;; esac
 done < <(compgen -e)

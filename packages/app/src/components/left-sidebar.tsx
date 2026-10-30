@@ -1,3 +1,4 @@
+import { SidebarIdentityFooter } from "@/components/sidebar-identity-footer";
 import { SidebarSyncNotice } from "@/sidebar-state/status";
 import { useLayoutEffect } from "react";
 import { useSidebarSpacing } from "@/styles/sidebar-spacing";
@@ -927,6 +928,7 @@ function MobileSidebar({
           <InstallationRestartBanner placement="sidebar" />
           <DemoControls />
           {<SidebarFooterRows onBeforeNavigate={closeSidebar} />}
+          <SidebarIdentityFooter />
         </SidebarInsetContext.Provider>
       </View>
     </MobilePanelOverlay>
@@ -1235,6 +1237,7 @@ function DesktopSidebar({
           <InstallationRestartBanner placement={compact ? "rail" : "sidebar"} />
           {!compact ? <DemoControls /> : null}
           {!compact ? <SidebarFooterRows /> : null}
+          {!compact ? <SidebarIdentityFooter /> : null}
 
           <SidebarResizeHandle
             edge="right"

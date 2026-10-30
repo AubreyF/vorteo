@@ -12,6 +12,8 @@ import { InstallationControls, InstallationRestartBanner } from "./panel";
 import { sessionHostJobFixture, sessionHostStatusFixture } from "./session-host-review.fixture";
 import type { SessionHostAction, SessionHostOverview } from "./session-host-review";
 
+vi.mock("@/utils/copy-to-clipboard", () => ({ copyToClipboard: vi.fn() }));
+
 const capture = vi.hoisted(() => ({
   model: undefined as InstallationPanelModel | undefined,
 }));

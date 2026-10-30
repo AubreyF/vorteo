@@ -106,11 +106,15 @@ export const InstallationEnvironmentSchema = z.strictObject({
 });
 export type InstallationEnvironment = z.infer<typeof InstallationEnvironmentSchema>;
 
+/** An owner-chosen display name; the interface falls back to "Vorteo". */
+export const InstallationNameSchema = z.string().trim().min(1).max(40);
+
 // This descriptor comes from the installed UI origin, never from an agent daemon.
 // Credentials are exchanged only after owner authentication, not in the HTML.
 export const ExecutionInstallationSchema = z.strictObject({
   version: z.literal(1),
   installationId: z.string().uuid(),
+  name: InstallationNameSchema.optional(),
   profileSharing: z.boolean().optional(),
   idleRestarts: z.boolean().optional(),
   gracefulRestarts: z.boolean().optional(),

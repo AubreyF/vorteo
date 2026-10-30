@@ -437,7 +437,7 @@ test("saved data saver skips optional fonts before app code and toggles without 
   const button = doc.getElementById("boot-data-saver");
   if (!button) throw new Error("Data saver control missing");
   expect(button.getAttribute("aria-pressed")).toBe("true");
-  expect(doc.querySelector<HTMLImageElement>(".boot-mark")?.src).toMatch(/^data:image\/svg\+xml/);
+  expect(doc.getElementById("boot-tinted-mark")).not.toBeNull();
   button.click();
   expect(button.getAttribute("aria-pressed")).toBe("false");
   await expect
@@ -471,46 +471,22 @@ test("data saver reports session-only success when browser storage refuses savin
   );
 });
 
-test("the inline V vector preserves the original mark silhouette without a logo download", async () => {
-  await page.viewport(390, 620);
-  const { doc, origin } = await openLoader();
-  const candidate = doc.querySelector<HTMLImageElement>(".boot-mark");
-  if (!candidate) throw new Error("Default V mark missing");
-  expect(candidate.src).toMatch(/^data:image\/svg\+xml/);
-  const original = doc.createElement("img");
-  const body = await fetch(`${origin}/startup-original-mark`).then((r) => r.json());
-  original.src = body.dataUrl;
-  await Promise.all([candidate.decode(), original.decode()]);
-  function mask(image: HTMLImageElement) {
-    const canvas = doc.createElement("canvas");
-    canvas.width = 144;
-    canvas.height = 144;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Canvas unavailable");
-    context.drawImage(image, 0, 0, 144, 144);
-    const data = context.getImageData(0, 0, 144, 144).data;
-    return Array.from({ length: 144 * 144 }, (_, i) => data[i * 4 + 3] > 127);
-  }
-  const a = mask(original),
-    b = mask(candidate);
-  let intersection = 0,
-    union = 0;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] || b[i]) union++;
-    if (a[i] && b[i]) intersection++;
-  }
-  expect(union).toBeGreaterThan(100);
-  // The existing traced vector allows antialiasing differences while retaining the V outline.
-  expect(intersection / union).toBeGreaterThanOrEqual(0.95);
-  console.info("V mark silhouette overlap", { intersection, union, ratio: intersection / union });
-  original.style.cssText = "width:144px;height:144px";
-  const comparison = doc.createElement("div");
-  comparison.style.cssText = "display:flex;justify-content:center;gap:16px";
-  comparison.append(original, candidate.cloneNode());
-  const cloned = comparison.lastElementChild as HTMLElement;
-  cloned.style.cssText = "position:static;width:144px;height:144px";
-  doc.getElementById("boot-status")?.append(comparison);
-  await page.screenshot({ path: "v-vector-comparison.png" });
+test("the boot V tints the one approved master with the cached palette", async () => {
+  const { doc } = await openLoader(
+    "/startup-fixture",
+    'localStorage.setItem("vorteo-boot-brand-v1",JSON.stringify({mode:"gradient",start:"#bba4ff",end:"#69c8ff",background:"#111111",foreground:"#eeeeee",colorScheme:"dark"}));',
+  );
+  const marks = doc.querySelectorAll(".boot-mark");
+  expect(marks).toHaveLength(1);
+  expect(doc.querySelector("#boot-status img")).toBeNull();
+  const style = getComputedStyle(marks[0]);
+  // Shading comes from the master itself, so the loop stays shaded in every palette.
+  expect(style.backgroundImage).toMatch(/vorteo-logo-white-[a-f0-9]+\.png/);
+  expect(style.backgroundBlendMode).toContain("multiply");
+  expect(style.maskImage || style.webkitMaskImage).toMatch(/vorteo-logo-white-[a-f0-9]+\.png/);
+  const root = doc.documentElement.style;
+  expect(root.getPropertyValue("--boot-mark-start")).toBe("#bba4ff");
+  expect(root.getPropertyValue("--boot-mark-end")).toBe("#69c8ff");
 });
 
 test("elapsed time uses the shared formatter directly beneath the progress bar", async () => {

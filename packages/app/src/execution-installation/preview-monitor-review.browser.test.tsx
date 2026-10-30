@@ -9,6 +9,8 @@ import { confirmDialog } from "@/utils/confirm-dialog";
 import { monitorReviewFixture } from "./preview-monitor-review.fixture";
 import { DaemonAutomationControl, InstallationControls, RestartActions } from "./panel";
 
+vi.mock("@/utils/copy-to-clipboard", () => ({ copyToClipboard: vi.fn() }));
+
 const capture = vi.hoisted(() => ({
   model: undefined as InstallationPanelModel | undefined,
 }));

@@ -86,7 +86,9 @@ import {
   restartBlockingReason,
   restartRepairGuidance,
   restartActionDisabledReason,
+  passwordCopyCommand,
 } from "./panel-model";
+import { copyToClipboard } from "@/utils/copy-to-clipboard";
 import type {
   MaintenanceService,
   ProfileSharingStatus,
@@ -178,6 +180,44 @@ function InstallationWelcomeForm({ model }: { model: InstallationPanelModel }) {
       >
         {state.busy ? "Connecting..." : "Connect"}
       </Button>
+      {state.passwordFile ? <PasswordFileHint passwordFile={state.passwordFile} /> : null}
+    </View>
+  );
+}
+
+// The coordinator reports the path only when the file exists. The command runs
+// on the Host; the password itself never passes through this page.
+function PasswordFileHint({ passwordFile }: { passwordFile: string }) {
+  const command = passwordCopyCommand(passwordFile);
+  const [notice, setNotice] = useState<string | null>(null);
+  const copy = useCallback(async () => {
+    try {
+      await copyToClipboard(command);
+      setNotice("Command copied. Run it in Terminal on your Host, then paste the password above.");
+    } catch {
+      setNotice("Could not copy the command. Select it above and copy it manually.");
+    }
+  }, [command]);
+  return (
+    <View testID="installation-password-hint">
+      <Text style={styles.text}>
+        The host installer generated this password. It is in this file on your Host:
+      </Text>
+      <Text selectable style={styles.text} testID="installation-password-file">
+        {passwordFile}
+      </Text>
+      <Text style={styles.text}>To copy it to the clipboard on your Host, run:</Text>
+      <Text selectable style={styles.text} testID="installation-password-command">
+        {command}
+      </Text>
+      <Button variant="outline" onPress={copy} testID="installation-password-copy-command">
+        Copy command
+      </Button>
+      {notice ? (
+        <Text accessibilityLiveRegion="polite" style={styles.text}>
+          {notice}
+        </Text>
+      ) : null}
     </View>
   );
 }

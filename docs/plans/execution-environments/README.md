@@ -77,6 +77,7 @@ Each linked document owns a separately deliverable project with its own acceptan
 | [Linux Host](linux-host.md)                                    | Run the Host half on Linux as `systemd --user` services with equivalent trust anchors           |
 | [Host directory grants](directory-grants.md)                   | Browse and share folders without manual Docker commands                                         |
 | [Environment and task grants](environment-grants.md)           | Host-issued identities and bounded operations for lower-trust environments                      |
+| [Environment network gate](network-gate.md)                    | One audited Host-owned path in and out of every container; no tailnet, Host or LAN reach        |
 | [Credential broker and GitHub connector](credential-broker.md) | Protected credentials and typed, approved GitHub operations                                     |
 | [Native Freed installations](freed-native.md)                  | Concurrent macOS installations with separate data and authority                                 |
 | [Linux Freed soak testing](freed-linux.md)                     | Reproducible headless soak runs with bounded resources                                          |

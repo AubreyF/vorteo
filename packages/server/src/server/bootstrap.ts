@@ -168,7 +168,10 @@ import { startIdleSessionRelease } from "./agent/idle-release.js";
 import { ensureAgentLoaded } from "./agent/agent-loading.js";
 import type { SessionHostConnector } from "./session-host/connector.js";
 import { bootstrapWorkspaceRegistries } from "./workspace-registry-bootstrap.js";
-import { seedSystemProjectAtStartup } from "./system-project/ensure-system-project.js";
+import {
+  isInstallationManaged,
+  startSystemProjectSeeding,
+} from "./system-project/ensure-system-project.js";
 import { WorkspaceReconciliationService } from "./workspace-reconciliation-service.js";
 import {
   FileBackedProjectRegistry,
@@ -1178,11 +1181,14 @@ export async function createPaseoDaemon(
     logger,
   });
   // Before reconciliation, so system folders exist when it checks for missing directories.
-  await seedSystemProjectAtStartup({
+  await startSystemProjectSeeding({
     enabled: config.systemProjectEnabled,
     paseoHome: config.paseoHome,
     serverId,
     sharedProviderPreferences: config.sharedProviderPreferences,
+    installationManaged: isInstallationManaged(process.env),
+    onBindingChange: (handler) =>
+      daemonConfigStore.onFieldChange("sharedProviderPreferences", handler),
     projectRegistry,
     workspaceRegistry: archiveWorkspaceRegistry,
     logger,

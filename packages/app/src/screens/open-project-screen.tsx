@@ -4,12 +4,11 @@ import { useTranslation } from "react-i18next";
 import { View, Text, Pressable } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useRouter } from "expo-router";
-import { FolderOpen, Inbox, Plug } from "lucide-react-native";
+import { FolderOpen, Plug } from "lucide-react-native";
 import { VorteoLogo } from "@/components/icons/paseo-logo";
 import { CommunityLinks } from "@/components/community-links";
 import { MenuHeader } from "@/components/headers/menu-header";
 import { useOpenAddProject } from "@/hooks/use-open-add-project";
-import { useImportSession } from "@/hooks/use-import-session";
 import { useHostChooser } from "@/hosts/host-chooser";
 import { usePanelStore } from "@/stores/panel-store";
 import {
@@ -19,7 +18,8 @@ import {
   HEADER_TOP_PADDING_MOBILE,
 } from "@/constants/layout";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
-import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
+import { buildSettingsHostSectionRoute, buildSettingsSectionRoute } from "@/utils/host-routes";
+import { readExecutionInstallation } from "@/execution-installation/policy";
 import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
 
 export function OpenProjectScreen() {
@@ -28,7 +28,6 @@ export function OpenProjectScreen() {
   const router = useRouter();
   const openDesktopAgentList = usePanelStore((s) => s.openDesktopAgentList);
   const openProjectPicker = useOpenAddProject();
-  const importSession = useImportSession();
   const chooseHost = useHostChooser();
 
   const isCompactLayout = useIsCompactFormFactor();
@@ -44,6 +43,11 @@ export function OpenProjectScreen() {
   }, [openProjectPicker]);
 
   const handleOpenProviders = useCallback(() => {
+    // Accounts connect once to the installation and reach every environment.
+    if (readExecutionInstallation()) {
+      router.push(buildSettingsSectionRoute("accounts"));
+      return;
+    }
     chooseHost({
       title: "Choose host",
       onChooseHost: (serverId) => {
@@ -58,7 +62,7 @@ export function OpenProjectScreen() {
       <View style={styles.content}>
         <TitlebarDragRegion />
         <View style={styles.logo}>
-          <VorteoLogo size={52} />
+          <VorteoLogo size={96} />
         </View>
         {hosts.map((host) => (
           <HostError key={host.serverId} serverId={host.serverId} label={host.label} />
@@ -73,13 +77,6 @@ export function OpenProjectScreen() {
             accent
           />
           <HomeTile
-            icon={Inbox}
-            title={t("openProject.tiles.importSession.title")}
-            description={t("openProject.tiles.importSession.description")}
-            onPress={importSession.open}
-            testID="open-project-import-session"
-          />
-          <HomeTile
             icon={Plug}
             title={t("openProject.tiles.setupProviders.title")}
             description={t("openProject.tiles.setupProviders.description")}
@@ -91,7 +88,6 @@ export function OpenProjectScreen() {
       <View style={styles.communityRow}>
         <CommunityLinks />
       </View>
-      {importSession.sheet}
     </View>
   );
 }

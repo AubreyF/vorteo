@@ -47,6 +47,7 @@ import {
 } from "@getpaseo/protocol/plugin-installation";
 import { OwnerSessions, OWNER_SESSION_MAX_AGE } from "./owner-sessions.js";
 import { createInstallationProfiles } from "./profiles/runtime.js";
+import { createInstallationNameStore } from "./installation-name.js";
 import { ProfileSharingConflict } from "./profiles/merge.js";
 import { ProviderPreferencesValidationError } from "../agent/provider-preferences/validation.js";
 import type { InstallationProfiles } from "./profiles/service.js";
@@ -1882,6 +1883,13 @@ export function createInstallationServer(
     const input = z.strictObject({ selection: AgentSkillSelectionSchema }).parse(req.body);
     void settings.previewSkills(input.selection).then((sources) => res.json({ sources }), next);
   });
+  const installationName = createInstallationNameStore(config.stateDir);
+  app.patch("/api/installation/owner/name", (req, res) => {
+    const input = z.strictObject({ name: z.string().nullable() }).parse(req.body);
+    // An empty name restores the default rather than saving a blank title.
+    const name = installationName.write(input.name?.trim() ? input.name : null);
+    res.json({ name: name ?? null });
+  });
   app.patch("/api/installation/owner/settings", (req, res, next) => {
     const input = InstallationSettingsUpdateSchema.parse(req.body);
     const removalAware = req.get("X-Vorteo-Provider-Removal") === "1";
@@ -2145,14 +2153,15 @@ export function createInstallationServer(
       distDir: config.webDistDir,
       label: "Vorteo",
       logger,
-      installation: {
+      installation: () => ({
         ...config.public,
+        name: installationName.read(),
         origin,
         environments: local ? localInstallationEnvironments(config) : config.public.environments,
         profileSharing: true,
         idleRestarts: Boolean(executor.inspect && executor.restartWhenIdle),
         gracefulRestarts: Boolean(executor.holdCurrentTurns && executor.releaseCurrentTurns),
-      },
+      }),
     });
   const canonicalWebUi = webUi(config.public.origin);
   const recoveryWebUi = config.recoveryOrigin ? webUi(config.recoveryOrigin) : canonicalWebUi;

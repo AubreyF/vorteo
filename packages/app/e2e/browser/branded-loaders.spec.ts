@@ -130,15 +130,10 @@ for (const theme of ["starship-light", "starship-dark", "scriptorium", "midas", 
       await expect(mark).toBeVisible();
       expect((await mark.boundingBox())!.width).toBeCloseTo(43.2, 1);
       await page.screenshot({ path: info.outputPath(`logo-${theme}.png`) });
-      if (theme.startsWith("starship")) {
-        await expect(mark.locator("img")).toHaveAttribute(
-          "src",
-          new RegExp(theme === "starship-light" ? "vorteo-color" : "vorteo-white"),
-        );
-      } else {
-        await expectLoopShading(mark);
-        expect(await mark.locator("stop").count()).toBe(2);
-      }
+      // Every palette tints the same master, so the loop is shaded everywhere.
+      await expectLoopShading(mark);
+      expect(await mark.locator("stop").count()).toBe(2);
+      await expect(mark.locator("img")).toHaveCount(0);
       const brand = await page.evaluate(() =>
         JSON.parse(localStorage.getItem("vorteo-boot-brand-v1")!),
       );
@@ -153,15 +148,9 @@ for (const theme of ["starship-light", "starship-dark", "scriptorium", "midas", 
       );
       await page.reload({ waitUntil: "domcontentloaded" });
       await expect(page.locator("#boot-status")).toBeVisible();
-      if (brand.mode === "gradient") {
-        await expect(page.locator("#boot-tinted-mark")).toBeVisible();
-        await expectLoopShading(page.locator("#boot-tinted-mark"));
-        await expect(page.locator("img.boot-mark")).toBeHidden();
-      } else {
-        await expect(page.locator("img.boot-mark")).toBeVisible();
-        if (brand.mode === "rainbow")
-          await expect(page.locator("img.boot-mark")).toHaveAttribute("src", /vorteo-logo-color/);
-      }
+      await expect(page.locator("#boot-tinted-mark")).toBeVisible();
+      await expectLoopShading(page.locator("#boot-tinted-mark"));
+      await expect(page.locator("img.boot-mark")).toHaveCount(0);
       await page.screenshot({ path: info.outputPath(`startup-logo-${theme}.png`) });
     } finally {
       gate.release();

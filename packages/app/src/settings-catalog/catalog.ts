@@ -159,6 +159,13 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDefinition[] = [
 export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   { id: "general.attention", section: "general", label: "Needs attention" },
   {
+    id: "general.installation",
+    section: "general",
+    label: "Installation name",
+    requiresInstallation: true,
+    keywords: ["name", "title", "rename", "lab"],
+  },
+  {
     id: "general.notifications",
     section: "general",
     label: "Notifications",
@@ -360,6 +367,15 @@ const installation = "installation" as const;
 const environment = "environment" as const;
 
 export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
+  {
+    id: "general.installation.name",
+    pane: "general.installation",
+    label: "Installation name",
+    hint: "Shown in the browser tab, the welcome page and the sidebar.",
+    keywords: ["name", "title", "rename"],
+    scope: installation,
+    requiresInstallation: true,
+  },
   // General
   {
     id: "general.notifications.permission",

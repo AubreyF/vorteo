@@ -22,6 +22,15 @@ The first broker executes typed requests itself. Transparent token substitution 
 
 Reuse protected release placement, service ownership and client admission from the host foundation after their acceptance is verified. Installation descriptors, server IDs and restart request tokens remain routing or lifecycle metadata. They confer no connector authority. Define broker approvals independently of restart approvals. Keep broker state, connector code and owner UI outside every guest-writable mount; audit daemon-supplied plugins as well as browser automation.
 
+## Owner requirements
+
+Recorded October 29, 2026. The broker is a core installation feature for every installation, not a single connector:
+
+- **Admin panel.** The owner adds, rotates and revokes credentials, grants each one to specific workspaces, and sees current grants, recent use and failures in the protected interface.
+- **Workspace allowlists.** A designated workspace can use only the credentials granted to it. A grant is enforceable only at an isolation boundary: workspaces that share an environment share its authority (see [environment grants](environment-grants.md)). A workspace that holds a credential grant therefore runs in its own environment. A grant to one workspace in a shared environment is attribution, and the admin panel must say so.
+- **Agent friendly.** Agents discover the credentials and routes their environment may use, and get clear refusals naming the missing grant, without ever reading a credential value.
+- **Complete use audit.** For each credential: which environment, workspace and agent used it, when, through which operation or route, to which destination, and with what outcome. Network requests that carried a credential are recorded exactly by the [environment network gate](network-gate.md), which attaches credentials and logs each attachment. Credentials held inside an environment cannot be audited this way.
+
 ## First workflow and unresolved decisions
 
 Proposed first operations are repository reads and draft pull-request creation for explicitly selected repositories. These are candidates for review, not a frozen API. Initially a draft may target an already published branch. Git fetch/push and publishing local changes require separately scoped transport work.

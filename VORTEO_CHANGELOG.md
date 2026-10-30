@@ -4,6 +4,28 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.923 - 2026-10-30
+
+### Added
+
+- Environment network gate (opt-in `PASEO_NETWORK_MODE=gate`): Dev sits on an internal Docker network whose only neighbor is a reviewed gate container. The gate proxies every outbound connection with resolve-then-check policy that refuses tailnet, Host, private and metadata ranges, relays inbound daemon traffic, supports exact named routes and writes one JSON line per connection. The gate image builds with Docker alone.
+- Installation name: owners name an installation in General settings. The tab title, welcome heading and both sidebar footers show it; the footers also show the version.
+- A field-by-field resolver for the first shared-settings migration, with a version choice for skills that share a name.
+- Plans: environment network gate and one-command installation.
+
+### Changed
+
+- The welcome page on an installation shows owner sign-in inline, with the password file path and a copy command; it no longer offers to create an installation. Demo moves beside Settings.
+- One approved V master renders every brand mark, tinted per theme with loop shading, including the startup loader. The unused color copy and vector path are removed.
+- Setup providers and the profile editor open the installation's Accounts page instead of choosing a host. The home Import session tile is removed, and an empty account list offers Manage accounts.
+- The Host installer seeds MCP agent tools the same way as Dev, so a new installation starts without a settings conflict.
+- An installation-managed daemon without its binding seeds no standalone System project, and seeds as its assigned environment once bound.
+
+### Fixed
+
+- A paired Dev container archives the Optimizer it created while standalone instead of showing a duplicate Vorteo System project, and an empty System project no longer gets a sidebar row.
+- Shared settings could never finish applying because each environment's own Claude and Codex providers counted as missing accounts in the other.
+
 ## 0.11.0-beta.3.vorteo.922 - 2026-10-29
 
 ### Maintenance
