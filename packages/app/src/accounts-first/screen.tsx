@@ -10,18 +10,64 @@ import { readExecutionInstallation } from "@/execution-installation/policy";
 import { useInstallationSettings } from "@/execution-installation/settings";
 import { useInstallationName } from "@/execution-installation/installation-name";
 import { AddClaudeAccountButton, AddCodexAccountButton } from "@/provider-usage/add-account";
+import {
+  ACCOUNT_PROVIDER_LABELS,
+  type ExistingConnection,
+} from "@/provider-usage/existing-connection";
+import { useInstallationConnectOnce } from "@/provider-usage/use-provider-login";
+import { useProviderUsage } from "@/provider-usage/use-provider-usage";
 import type { Theme } from "@/styles/theme";
 import { buildSettingsSectionRoute } from "@/utils/host-routes";
-import { accountsFirstServerId, decideAccountsFirst, type AccountsFirstDecision } from "./model";
+import {
+  accountsFirstConnections,
+  accountsFirstServerId,
+  decideAccountsFirst,
+  type AccountProvider,
+  type AccountsFirstConnection,
+  type AccountsFirstDecision,
+} from "./model";
 import { accountsFirstHydration, useAccountsFirstStore } from "./store";
 
 const ClaudeIcon = withUnistyles(ClaudeMark);
 const CodexIcon = withUnistyles(CodexMark);
 const foreground = (theme: Theme) => ({ color: theme.colors.foreground });
 
+// How long the first screen waits for the Host to connect before judging without its usage.
+const HOST_USAGE_GRACE_MS = 5000;
+
+type ConnectionsState = Parameters<typeof decideAccountsFirst>[0]["connections"];
+
+function connectionsState(input: {
+  settings: ReturnType<typeof useInstallationSettings>;
+  usage: ReturnType<typeof useProviderUsage>;
+  connectOnce: ReturnType<typeof useInstallationConnectOnce>;
+  hostServerId: string | null;
+  graceOver: boolean;
+}): ConnectionsState {
+  const { settings, usage, connectOnce } = input;
+  if (settings.isError) return { status: "error" };
+  if (!settings.data || !input.hostServerId) return { status: "loading" };
+  if (connectOnce.claude === undefined || connectOnce.codex === undefined)
+    return { status: "loading" };
+  const ready = usage.view.kind === "ready";
+  if (!ready && usage.canFetch && usage.view.kind === "loading") return { status: "loading" };
+  // The Host runtime connects after the page loads; give it a moment before deciding.
+  if (!ready && !usage.canFetch && !input.graceOver) return { status: "loading" };
+  return {
+    status: "ready",
+    connections: accountsFirstConnections({
+      definitions: settings.data.settings?.providerDefinitions,
+      hostServerId: input.hostServerId,
+      hostUsage: usage.view.kind === "ready" ? usage.view.payload.providers : undefined,
+      connectOnce: { claude: connectOnce.claude, codex: connectOnce.codex },
+    }),
+  };
+}
+
 /**
- * Whether the home screen should show the accounts first screen: an installation page whose
- * owner has not connected any account and has not skipped this screen on this device.
+ * Whether the home screen should show the accounts first screen: an installation page with an
+ * enabled provider that is not connected yet, whose owner has not skipped this screen on this
+ * device.
  */
 export function useAccountsFirst() {
   const installation = readExecutionInstallation();
@@ -35,22 +81,35 @@ export function useAccountsFirst() {
     accountsFirstHydration.get,
   );
   const [decision, setDecision] = useState<AccountsFirstDecision>("pending");
+  // Keep reading while the screen shows, so a connection made in it appears as Connected.
   const check =
-    decision === "pending" &&
+    decision !== "hide" &&
     hydrated &&
     installationId !== null &&
     !dismissed.includes(installationId);
   const settings = useInstallationSettings(check);
-  let settingsState: Parameters<typeof decideAccountsFirst>[0]["settings"] = { status: "loading" };
-  if (settings.isError) settingsState = { status: "error" };
-  else if (settings.data)
-    settingsState = { status: "ready", definitions: settings.data.settings?.providerDefinitions };
+  const usage = useProviderUsage(serverKey, { enabled: check });
+  const connectOnce = useInstallationConnectOnce(check);
+  const [graceOver, setGraceOver] = useState(false);
+  const waitingForHost = check && !usage.canFetch && !graceOver;
+  useEffect(() => {
+    if (!waitingForHost) return;
+    const timer = setTimeout(() => setGraceOver(true), HOST_USAGE_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [waitingForHost]);
+  const connections = connectionsState({
+    settings,
+    usage,
+    connectOnce,
+    hostServerId: serverKey,
+    graceOver,
+  });
   const next = decideAccountsFirst({
     previous: decision,
     installationId,
     hydrated,
     dismissed,
-    settings: settingsState,
+    connections,
   });
   useEffect(() => {
     if (next !== decision) setDecision(next);
@@ -58,32 +117,108 @@ export function useAccountsFirst() {
   const dismiss = useCallback(() => {
     if (installationId) dismissInstallation(installationId);
   }, [installationId, dismissInstallation]);
-  return { visible: next === "show" && serverKey !== null, serverId: serverKey, dismiss };
+  return {
+    visible: next === "show" && serverKey !== null,
+    serverId: serverKey,
+    dismiss,
+    connections: connections.status === "ready" ? connections.connections : NO_CONNECTIONS,
+    codexConnectOnce: connectOnce.codex === true,
+  };
 }
+
+const NO_CONNECTIONS: readonly AccountsFirstConnection[] = [];
 
 /** The home screen, or the accounts first screen in its place while it applies. */
 export function AccountsFirstGate({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const { visible, serverId, dismiss } = useAccountsFirst();
+  const { visible, serverId, dismiss, connections, codexConnectOnce } = useAccountsFirst();
   const openAccounts = useCallback(() => {
     router.push(buildSettingsSectionRoute("accounts"));
   }, [router]);
   if (!visible || !serverId) return children;
-  return <AccountsFirstScreen serverId={serverId} onDone={dismiss} onOpenAccounts={openAccounts} />;
+  return (
+    <AccountsFirstScreen
+      serverId={serverId}
+      connections={connections}
+      codexConnectOnce={codexConnectOnce}
+      onDone={dismiss}
+      onOpenAccounts={openAccounts}
+    />
+  );
+}
+
+const SHARED_SIGN_IN = "Sign in once. Host and Dev share the connection.";
+// Only while `codexHostRefresh` is off: Codex accounts then keep one sign-in per environment.
+const CODEX_PER_ENVIRONMENT =
+  "Signs in on the Host. Dev needs its own sign-in until one-time Codex sign-in is on.";
+
+/** "Connected as Claude 1." or the Host's own CLI sign-in with its plan. */
+export function connectedText(provider: AccountProvider, connection: ExistingConnection): string {
+  if (!connection.isDefault) return `Connected as ${connection.name}.`;
+  const plan = connection.plan ? `, ${connection.plan} plan` : "";
+  return `Connected through the Host's ${ACCOUNT_PROVIDER_LABELS[provider]} sign-in${plan}.`;
+}
+
+function ProviderRow({
+  entry,
+  serverId,
+  codexConnectOnce,
+  divider,
+  onCreated,
+}: {
+  entry: AccountsFirstConnection;
+  serverId: string;
+  codexConnectOnce: boolean;
+  divider: boolean;
+  onCreated: () => void;
+}) {
+  const claude = entry.provider === "claude";
+  const AddButton = claude ? AddClaudeAccountButton : AddCodexAccountButton;
+  let detail = claude || codexConnectOnce ? SHARED_SIGN_IN : CODEX_PER_ENVIRONMENT;
+  if (entry.connection) detail = connectedText(entry.provider, entry.connection);
+  return (
+    <View
+      style={divider ? styles.rowWithDivider : styles.row}
+      testID={`accounts-first-${entry.provider}`}
+    >
+      {claude ? (
+        <ClaudeIcon size={24} uniProps={foreground} />
+      ) : (
+        <CodexIcon size={24} uniProps={foreground} />
+      )}
+      <View style={styles.rowText}>
+        <Text style={styles.rowTitle}>{claude ? "Claude" : "Codex (ChatGPT)"}</Text>
+        <Text style={styles.muted} testID={`accounts-first-${entry.provider}-status`}>
+          {detail}
+        </Text>
+      </View>
+      <AddButton
+        serverId={serverId}
+        label={entry.connection ? "Add another" : "Connect"}
+        onCreated={onCreated}
+      />
+    </View>
+  );
 }
 
 export function AccountsFirstScreen({
   serverId,
+  connections,
+  codexConnectOnce,
   onDone,
   onOpenAccounts,
 }: {
   serverId: string;
+  connections: readonly AccountsFirstConnection[];
+  codexConnectOnce: boolean;
   onDone: () => void;
   onOpenAccounts: () => void;
 }) {
   const installationName = useInstallationName();
   const [added, setAdded] = useState(false);
   const markAdded = useCallback(() => setAdded(true), []);
+  const shown = connections.filter((entry) => entry.enabled);
+  const anyConnected = added || shown.some((entry) => entry.connection !== null);
   return (
     <ScrollView
       style={styles.scroll}
@@ -102,32 +237,24 @@ export function AccountsFirstScreen({
           </Text>
         </View>
         <View style={styles.list}>
-          <View style={styles.row} testID="accounts-first-claude">
-            <ClaudeIcon size={24} uniProps={foreground} />
-            <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>Claude</Text>
-              <Text style={styles.muted}>Sign in once. Host and Dev share the connection.</Text>
-            </View>
-            <AddClaudeAccountButton serverId={serverId} label="Connect" onCreated={markAdded} />
-          </View>
-          <View style={[styles.row, styles.rowDivider]} testID="accounts-first-codex">
-            <CodexIcon size={24} uniProps={foreground} />
-            <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>Codex (ChatGPT)</Text>
-              <Text style={styles.muted}>
-                Signs in on the Host. Dev still asks for its own sign-in in Accounts & profiles.
-              </Text>
-            </View>
-            <AddCodexAccountButton serverId={serverId} label="Connect" onCreated={markAdded} />
-          </View>
+          {shown.map((entry, index) => (
+            <ProviderRow
+              key={entry.provider}
+              entry={entry}
+              serverId={serverId}
+              codexConnectOnce={codexConnectOnce}
+              divider={index > 0}
+              onCreated={markAdded}
+            />
+          ))}
         </View>
         <View style={styles.footer}>
           <Button
-            variant={added ? "default" : "ghost"}
+            variant={anyConnected ? "default" : "ghost"}
             onPress={onDone}
             testID="accounts-first-done"
           >
-            {added ? "Continue" : "Skip for now"}
+            {anyConnected ? "Continue" : "Skip for now"}
           </Button>
           <Button variant="ghost" onPress={onOpenAccounts} testID="accounts-first-open-settings">
             Other providers
@@ -179,7 +306,15 @@ const styles = StyleSheet.create((theme) => ({
     padding: theme.spacing[4],
     minHeight: 72,
   },
-  rowDivider: { borderTopWidth: 1, borderTopColor: theme.colors.border },
+  rowWithDivider: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[3],
+    padding: theme.spacing[4],
+    minHeight: 72,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
   rowText: { flex: 1, gap: theme.spacing[1] },
   rowTitle: {
     color: theme.colors.foreground,
