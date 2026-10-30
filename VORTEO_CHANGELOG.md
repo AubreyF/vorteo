@@ -8,6 +8,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ### Maintenance
 
+- Browser tests follow the removed theme dropdown and the terran-labs repository, and take the first Unreleased What's new entry. The keyboard reorder test is marked fixme while #55 tracks its intermittent missing drop line, which also occurs on main.
+
+## Unreleased - 2026-10-30
+
+### Maintenance
+
 - Host snapshot and legacy upgrade tests skip on Windows CI, where their POSIX Host paths cannot exist; Windows Hosts remain planned in #35.
 
 ## Unreleased - 2026-10-30

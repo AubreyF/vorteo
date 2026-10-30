@@ -17,7 +17,7 @@ const DISCORD_DESTINATION =
 const GITHUB_ISSUE_DESTINATION =
   /^https:\/\/github\.com\/(?:getpaseo\/paseo\/issues\/new(?:\/choose)?(?:[/?#]|$)|login\?return_to=https%3A%2F%2Fgithub\.com%2Fgetpaseo%2Fpaseo%2Fissues%2Fnew$)/;
 const CHANGELOG_DESTINATION =
-  /^https:\/\/github\.com\/AubreyF\/vorteo\/blob\/main\/VORTEO_CHANGELOG\.md(?:[?#]|$)/;
+  /^https:\/\/github\.com\/terran-labs\/vorteo\/blob\/main\/VORTEO_CHANGELOG\.md(?:[?#]|$)/;
 // The name and the version are separate cells of a key/value row, so they meet with no space
 // between them in the row's text content.
 const APP_VERSION = /^Vorteo\s*v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -243,7 +243,7 @@ test("automatically reveals older interleaved release notes while scrolling", as
   await expect(entries.first()).toHaveAttribute("data-testid", "changelog-release-9.2.0");
   await expect(entries.first().getByText("Paseo", { exact: true })).toBeVisible();
   await expect(entries.nth(1).getByText("Vorteo", { exact: true })).toBeVisible();
-  await expect(release(sheet, latestCustomRelease.version)).toBeVisible();
+  await expect(release(sheet, latestCustomRelease.version).first()).toBeVisible();
   await expect(sheet.getByTestId("changelog-show-more")).toHaveCount(0);
   await expect
     .poll(async () => {
@@ -276,12 +276,12 @@ test("keeps Vorteo notes readable when Paseo fails and retries upstream", async 
   await page.getByTestId("settings-whats-new").click();
   const sheet = page.getByTestId("changelog-sheet");
   await expect(sheet).toBeVisible();
-  await expect(release(sheet, latestCustomRelease.version)).toBeVisible();
+  await expect(release(sheet, latestCustomRelease.version).first()).toBeVisible();
   await expect(sheet.getByTestId("changelog-error")).toBeVisible();
   await page.unroute(url);
   // Date the fixture ahead of every real release so it sorts first and is rendered.
   await serveChangelog(page, ["## 9.1.0 - 2030-01-01", "", "- Upstream recovered"]);
   await sheet.getByTestId("changelog-retry").click();
   await expect(sheet.getByText("Upstream recovered")).toBeVisible();
-  await expect(release(sheet, latestCustomRelease.version)).toBeVisible();
+  await expect(release(sheet, latestCustomRelease.version).first()).toBeVisible();
 });
