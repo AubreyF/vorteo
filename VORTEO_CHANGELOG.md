@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.921 - 2026-10-29
+
+### Maintenance
+
+- Reuse the reviewed account-picker browser fixture on the diagnostic base: wait for viewport transitions and sample up to three chooser openings for motion. Reduced-motion and final-frame assertions remain; repeated sampling can miss an intermittent absent stagger. Application behavior is unchanged.
+
 ## 0.11.0-beta.3.vorteo.920 - 2026-10-29
 
 ### Maintenance

@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): restore the accepted account-picker viewport waits and bounded motion sampling on the diagnostic base. All nine browser cases pass locally. Sampling can miss an intermittent absent stagger; no animation fix is claimed. Runtime, README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): restore accepted Settings tab repositioning and readiness polling, plus shared-queue viewport paint waits, on the diagnostic base. Assertions and application behavior are preserved. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): restore accepted typography, new-agent latency and saved-draft browser fixtures on the diagnostic base. Preserve assertions and the 3000ms application latency threshold; test budgets accommodate previously measured font and navigation delays without claiming those product defects are fixed. Runtime, interface source, README overview and onboarding remain unchanged.
