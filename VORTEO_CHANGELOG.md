@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.949 - 2026-10-30
+
+### Fixed
+
+- Stopping the installer stops everything it started: `install.sh` stops its whole process tree, and the engine stops its builds and Docker steps before exiting. An adoption stopped during its release build previously kept running.
+- `gate.sh enable` removes the project's leftover gate networks before starting gate mode, so a deployment with a hand-built gate no longer fails on a reused subnet.
+
 ## 0.11.0-beta.3.vorteo.948 - 2026-10-30
 
 ### Fixed

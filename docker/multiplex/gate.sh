@@ -91,6 +91,16 @@ docker compose --project-directory "$deployment" --env-file "$next" -f "$deploym
 
 echo 'Moving Dev to gate mode. Active tasks will be interrupted; persistent state is retained.'
 paseo_compose down
+# A Compose file other than this deployment's (for example a hand-built gate) can leave the
+# project's networks behind, and Compose would reuse them with their old subnet.
+for network in environment egress; do
+  if docker network inspect "${instance}_$network" >/dev/null 2>&1 &&
+    ! docker network rm "${instance}_$network" >/dev/null; then
+    echo "Network ${instance}_$network is still in use; stop what uses it, then rerun." >&2
+    rollback >&2
+    exit 1
+  fi
+done
 mv "$next" "$deployment/.env"
 printf '%s\n' 1 > "$deployment/.gate-mode"
 if paseo_compose up -d --pull never && paseo_wait; then

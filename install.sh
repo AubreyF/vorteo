@@ -1197,7 +1197,13 @@ vorteo_install() {
     fail "Could not create a temporary folder." "Check that ${TMPDIR:-/tmp} is writable."
   work="$VORTEO_INSTALL_WORK"
   trap 'rm -rf "$VORTEO_INSTALL_WORK"' EXIT
-  trap 'exit 130' INT TERM
+  # Stopping the installer stops everything it started: the engine, builds and Docker steps.
+  vorteo_stop_tree() {
+    local child
+    for child in $(pgrep -P "$1" 2>/dev/null); do vorteo_stop_tree "$child"; done
+    if [ "$1" != "$$" ]; then kill "$1" 2>/dev/null; fi
+  }
+  trap 'trap - INT TERM; vorteo_stop_tree $$; exit 130' INT TERM
 
   say "${bold}Vorteo installer${reset}"
 

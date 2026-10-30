@@ -24,6 +24,7 @@ import { detect } from "./detect.mjs";
 import { adoptHost, createHostAdoptionPlan } from "./host-adoption.mjs";
 import { createPlan } from "./plan.mjs";
 import { isMainModule } from "../is-main-module.mjs";
+import { stopRunning } from "./primitives.mjs";
 
 const USAGE =
   "Usage: main.mjs detect|plan --answers <file>|plan --adopt [--source <dir>]|apply --plan <file>|status|uninstall [--keep-data]|repair|adopt [--source <dir>] [--outcome <file>]|host-release --revision <commit> --outcome <file> [--json] [--root <folder>]";
@@ -118,4 +119,13 @@ export async function main(
   }
 }
 
-if (isMainModule(import.meta.url)) process.exitCode = await main(process.argv.slice(2));
+if (isMainModule(import.meta.url)) {
+  // Stopping the installer stops its builds and Docker steps too, then exits.
+  const codes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
+  for (const [signal, code] of Object.entries(codes))
+    process.on(signal, () => {
+      stopRunning(signal);
+      process.exit(code);
+    });
+  process.exitCode = await main(process.argv.slice(2));
+}

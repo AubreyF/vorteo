@@ -40,13 +40,26 @@ export function writeJson(file, data) {
   privateWrite(file, JSON.stringify(data, null, 2) + "\n");
 }
 
+// Commands still running, so a stopped installer never leaves a build or Docker step behind.
+const running = new Set();
+
 /** Runs a command without a shell and returns its trimmed standard output. */
 export async function run(command, args, options = {}) {
-  const result = await execute(command, args, {
+  const pending = execute(command, args, {
     maxBuffer: 32 * 1024 * 1024,
     ...options,
   });
-  return result.stdout.trim();
+  running.add(pending.child);
+  try {
+    return (await pending).stdout.trim();
+  } finally {
+    running.delete(pending.child);
+  }
+}
+
+/** Stops every command this process started; called when the installer itself is stopped. */
+export function stopRunning(signal = "SIGTERM") {
+  for (const child of running) child.kill(signal);
 }
 
 /** Runs a long build step, keeping its output in a private log instead of the terminal. */

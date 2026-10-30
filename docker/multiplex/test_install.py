@@ -315,6 +315,11 @@ class GateSwitchTests(InstallTests):
         self.assertIn(str(self.deployment / 'compose.yaml'), down)
         self.assertNotIn('-v', down)
         self.assertIn(str(self.deployment / 'compose.gate.yaml'), [call for call in compose if 'up' in call][-1])
+        # Networks a hand-built gate left behind are removed, so Compose cannot reuse their old subnet.
+        calls = self.calls()
+        removed = calls.index(['network', 'rm', 'paseo-' + 'c' * 12 + '_environment'])
+        last_up = max(index for index, call in enumerate(calls) if call[0] == 'compose' and 'up' in call)
+        self.assertLess(removed, last_up)
 
     def test_failed_health_rolls_back_to_tailscale_mode(self):
         self.assertEqual(self.install().returncode, 0)
