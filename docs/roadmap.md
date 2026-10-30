@@ -1,6 +1,6 @@
 # Vorteo roadmap
 
-Unfinished work lives in [GitHub issues](https://github.com/terran-labs/vorteo/issues), one issue per outcome. Designs live in [plans](plans/); issues link to them. The [customizations inventory](vorteo-customizations.md) covers what is already implemented.
+Unfinished work lives in [GitHub issues](https://github.com/terran-labs/vorteo/issues), one issue per outcome. Each issue holds its own plan, decisions and risks; the docs describe only what is built. The [customizations inventory](vorteo-customizations.md) covers what is already implemented.
 
 ## Priorities
 

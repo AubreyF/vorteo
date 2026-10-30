@@ -149,7 +149,7 @@ Only [Builds](#builds-coordinator) submits and follows restart, source-update an
 
 ## Installation account connections
 
-Provider accounts connect to the installation and synchronize to Host and Dev by default. Do not add per-environment sign-in flows or another environment selector. Only an explicit post-connection environment exclusion may disable an account in one environment. Report synchronization pending until every non-excluded environment verifies the same account. Follow [installation account connections](docs/plans/execution-environments/provider-auth.md) for authentication, refresh and migration requirements; this is the required contract, not a claim that the current installation already implements it.
+Provider accounts connect to the installation and synchronize to Host and Dev by default. Do not add per-environment sign-in flows or another environment selector. Only an explicit post-connection environment exclusion may disable an account in one environment. Report synchronization pending until every non-excluded environment verifies the same account. Follow [installation account connections](docs/providers.md#installation-account-connections) for authentication, refresh and migration requirements; this is the required contract, not a claim that every installation already implements it.
 
 ## Check your work
 

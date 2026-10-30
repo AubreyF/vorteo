@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Installer engine command line. The installer UX (install.sh) calls it; see
-// docs/plans/execution-environments/one-command-installation.md.
+// docs/execution-installation.md#one-command-installation-contract.
 //
 //   detect --json                    What exists here and which prerequisites are met.
 //   plan --answers <file> --json     {plan, summary} from the answers; changes nothing.

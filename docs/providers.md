@@ -70,6 +70,17 @@ A Dev `auth.json` that already holds a refresh token came from a sign-in made in
 
 Unverified until the owner's live sign-in check: the lifetime and `exp` claim of ChatGPT access tokens (a token without a readable `exp` is not projected), whether `account/read` with `refreshToken: true` always rotates the grant, and how Dev Codex behaves when its access token is rejected before a newer projection arrives. An account whose Codex config selects keyring storage has no `auth.json` on the Host and reports that it needs sign-in.
 
+## Installation account connections
+
+This is the required contract for provider accounts on an installation.
+
+- An account connects once to the installation. Host and Dev use that same verified provider account by default, and the connection flow has no environment choice. An explicit exclusion, set after connection, is the only reason to disable it in one environment. Keep the existing profile selector for environment, account and profile; never silently substitute another account.
+- A connection is ready only after every non-excluded environment verifies the account. An offline environment leaves synchronization pending and resumes when it returns, without a second sign-in or a duplicate account record.
+- Credential payloads stay out of shared settings, browser state, logs and source control. Only the selected account's authentication moves, through the installation's authenticated transport; daemon, coordinator, Docker and unrelated Host credentials never do.
+- One refresh writer per rotating credential: the Host. Copying an authentication file once is not lasting synchronization.
+- Reconnect, sign-out and recovery run as one durable operation. A retry keeps the same account identity, and a stale result never restores a signed-out credential or undoes a later exclusion.
+- Existing unlinked accounts need identity verification before consolidation; matching labels do not prove two accounts are the same.
+
 ## Shared provider keys for installations
 
 The installation coordinator keeps static provider secrets for each shared provider definition: API keys and tokens whose environment variable name ends in `_KEY`, `_TOKEN`, `_SECRET` or `_PASSWORD`. `CLAUDE_CODE_OAUTH_TOKEN` is excluded because Claude subscription sync owns it. Runtime locations such as `CODEX_HOME`, `CLAUDE_CONFIG_DIR` and base URLs stay local. The canonical values live in the coordinator's private `provider-secrets/state.json`, mode 0600 in a 0700 directory, and are never logged.

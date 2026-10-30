@@ -6,7 +6,7 @@ An installation has a native Host daemon, a coordinator that serves the protecte
 curl -fsSL https://terranlabs.com/vorteo/install | bash
 ```
 
-The installer creates the installation, or wraps an existing one, including a container-only deployment, while keeping Dev's identity, home, workspace and agents. Every later change, including updates, happens in the interface. Its design, platform support and delivery status are in the [one-command installation plan](plans/execution-environments/one-command-installation.md). This guide is the reference for what it installs and how the installation operates.
+The installer creates the installation, or wraps an existing one, including a container-only deployment, while keeping Dev's identity, home, workspace and agents. Every later change, including updates, happens in the interface. This guide is the reference for what it installs and how the installation operates.
 
 An installation requires acceptance on the Host. Source checks alone do not establish that an installation is running or usable from a phone.
 
@@ -14,7 +14,7 @@ An installation requires acceptance on the Host. Source checks alone do not esta
 
 Open the address the installer printed and enter the owner password on the welcome page, then select Connect. Leaving the page discards the password draft and any sign-in error. On a page that no installation serves, Create New installation shows the install command; Demo opens isolated sample workspaces.
 
-After the owner's first sign-in to an installation with no connected provider accounts, the home screen offers to connect Claude and Codex accounts once for the whole installation, using the same account sheets as Accounts & profiles. Skip for now hides it for that installation on that device; connecting an account and choosing Continue does the same. Claude connections are shared by Host and Dev. Codex accounts are defined installation-wide but still sign in per environment; see [installation account connections](plans/execution-environments/provider-auth.md). The interface registers **Dev container** and **Host: full account access** together. New work defaults to the container. Selecting the host requires confirmation. Local versus new worktree remains a separate choice within the selected environment. Any project can contain workspaces from both environments, including workspaces that use different repositories. Each environment resolves its own directory and retains its own agents and credentials.
+After the owner's first sign-in to an installation with no connected provider accounts, the home screen offers to connect Claude and Codex accounts once for the whole installation, using the same account sheets as Accounts & profiles. Skip for now hides it for that installation on that device; connecting an account and choosing Continue does the same. Claude and Codex connections are shared by Host and Dev when the coordinator enables Host-owned refresh (`claudeHostRefresh`, `codexHostRefresh`), which new installations do; see [installation account connections](providers.md#installation-account-connections). The interface registers **Dev container** and **Host: full account access** together. New work defaults to the container. Selecting the host requires confirmation. Local versus new worktree remains a separate choice within the selected environment. Any project can contain workspaces from both environments, including workspaces that use different repositories. Each environment resolves its own directory and retains its own agents and credentials.
 
 New tasks choose **Environment**, **Account** and **Profile** together in the composer chooser. Desktop shows three columns; compact layouts use expandable sections. Project and isolation controls stay above the composer, without a separate environment dropdown. Switching environments keeps the draft text and attachments. Tasks created in Host and Dev container stay in the same visible workspace, with an environment label on each task tab. The app maps the workspace's exact folder through configured shared roots, preserving worktree paths. If no mapping exists, choose the folder once in the destination environment; later tasks in that workspace reuse it. Selecting an environment creates nothing until you start the task. Updated destination daemons must advertise `workspaceTaskEnvironments`.
 
@@ -91,6 +91,20 @@ An owner-managed HTTPS domain can serve the full protected interface through a t
 Set the coordinator's `public.origin` to the exact new HTTPS origin and add that origin to both daemons' explicit origin allowlists. Keep environment identities and endpoints unchanged. Restart only the coordinator to activate its configuration. Update installation and agent-client records to the new address. Back up each affected file and prepare rollback before deployment.
 
 Optional `redirectOrigins` lists previous protected HTTPS origins. They redirect page navigation to the canonical origin, preserving paths and queries. They refuse API calls, including owner authentication. Update maintenance clients rather than sending credentials through a redirect. The new origin has separate browser storage, so authenticate there to register the existing environment connections. Preserve old storage and do not copy guest plugins, automation state or credentials into the protected interface.
+
+### Dev network gate
+
+In gate mode (`PASEO_NETWORK_MODE=gate`, the installer's default for Dev), the network gate is Dev's only way in and out.
+
+- Dev sits on an `internal` Docker network whose only neighbor is the gate container. Dev runs no Tailscale, has no `NET_ADMIN`, tun device or `host.docker.internal` mapping, and publishes no ports.
+- Outbound, Dev uses the gate as an explicit proxy: `HTTP_PROXY` and `HTTPS_PROXY` point at `http://gate:3128`, Node uses them through `NODE_USE_ENV_PROXY=1`, and SSH tunnels through HTTP `CONNECT` with a `ProxyCommand`. A tool that ignores the proxy has no route and fails.
+- The gate resolves each destination itself and checks the resolved address, which defeats DNS rebinding. It refuses loopback, private IPv4, `100.64.0.0/10` (the tailnet), link-local including cloud metadata, unique-local IPv6 and Docker's Host gateway. The Standard policy allows the rest of the internet; Sealed allows only listed destinations.
+- Exact named routes (`host:port`) may reach a refused range. The coordinator's agent route is one, so Dev's installation client can make installation requests.
+- Inbound, the gate relays the Dev daemon from a Host loopback port, which the edge (Tailscale Serve or a custom domain) publishes.
+- The gate writes one JSON line per connection to `gate/logs/connections.jsonl` in the Dev deployment: time, environment, attributed agent when known, method, host and port, resolved address, decision and rule, bytes each way and duration. It never records payloads, headers or credentials, and it does not decrypt TLS.
+- The gate fails closed: if it stops, Dev loses the network. Dev previews are not yet available in gate mode ([#36](https://github.com/terran-labs/vorteo/issues/36)).
+
+The gate is one static binary in a `scratch` image (`docker/gate`), running as `nobody` with a read-only root, configured from Host-owned files that no environment mounts.
 
 ### Local installation access
 
@@ -713,7 +727,7 @@ A Host requester can require the matching owner button by passing `--require-own
 
 Install a compatible coordinator and rollback reader before using this option. Legacy response projection keeps older clients readable, but it does not make older journal readers compatible with persisted approval requirements. Unresolved bootstrap generations fence lifecycle admission; they do not provide journal compatibility after a successful handoff.
 
-This is coordinator functionality. Publishing the interface or updating a daemon does not activate it. An older coordinator without a tracked maintenance operation still needs the separately prepared, owner-approved bootstrap workflow. The [tracked coordinator bootstrap design](plans/execution-environments/coordinator-maintenance.md) specifies the first ownership transfer, authentication and acceptance gates. Never activate this policy through an untracked reload or replace a missing maintenance operation with a daemon restart.
+This is coordinator functionality. Publishing the interface or updating a daemon does not activate it. An older coordinator without a tracked maintenance operation still needs the separately prepared, owner-approved bootstrap workflow. The planned [verified coordinator replacement](https://github.com/terran-labs/vorteo/issues/41) specifies the first ownership transfer, authentication and acceptance gates. Never activate this policy through an untracked reload or replace a missing maintenance operation with a daemon restart.
 
 Restart recovery resumes only work held for the restart. It must preserve queued-message identity and order, attachments and goal usage, and leave manually paused, completed or blocked work alone. Sending a new continue message to every open thread is not a recovery mechanism. Isolated queue tests cover repeated journal recovery and changed-source refusal; installation acceptance must also verify actual replacement processes and resumed work on both environments.
 

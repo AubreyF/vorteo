@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.944 - 2026-10-30
+
+### Maintenance
+
+- Remove `docs/plans`. Plans for unbuilt work now live in their GitHub issues (#18, #25, #28, #30, #32 expanded; #36 to #51 created), and still-true facts moved to reference docs: a Dev network gate section in the execution guide, the installation account connection contract in the provider guide, and profile switching details in launch presets. Links across the repository point to those sections or issues.
+
 ## 0.11.0-beta.3.vorteo.943 - 2026-10-30
 
 ### Maintenance

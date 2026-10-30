@@ -14,6 +14,6 @@ One container includes Vorteo's daemon, Codex, Pi and Tailscale. Linux AMD64 and
 
 `install.sh` and `update.sh` are the lower-level container tools. Run them yourself only to repair or inspect a deployment, and never run `install.sh` over an existing deployment. `install.sh` builds the image from this checkout and creates private persistent storage; pass an existing image reference as its second argument to reuse it. `PASEO_HOST_LOOPBACK_PORT` publishes the daemon on host loopback only, which the Host needs.
 
-An installation's Dev container runs in gate mode instead: `PASEO_NETWORK_MODE=gate` puts Dev behind the [network gate](../../docs/plans/execution-environments/network-gate.md) with `compose.gate.yaml`, and `gate.sh enable` moves an existing deployment there, rolling back when Dev does not become healthy. The installer engine in `scripts/installer/` sets both up; a deployment in gate mode has a `.gate-mode` marker.
+An installation's Dev container runs in gate mode instead: `PASEO_NETWORK_MODE=gate` puts Dev behind the [network gate](../../docs/execution-installation.md#dev-network-gate) with `compose.gate.yaml`, and `gate.sh enable` moves an existing deployment there, rolling back when Dev does not become healthy. The installer engine in `scripts/installer/` sets both up; a deployment in gate mode has a `.gate-mode` marker.
 
 [Build, update and troubleshoot](../../docs/docker.md). [Optional workspace previews](../tailscale/README.md). Keep the deployment directory outside this checkout.

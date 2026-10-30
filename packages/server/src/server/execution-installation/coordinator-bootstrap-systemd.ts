@@ -19,7 +19,7 @@ type ProcessObservation = z.infer<typeof ProcessObservationSchema>;
 
 /** Linux counterpart of `gui/<uid>/<label>`: the owner account's user manager
  * and one coordinator unit. Plans cannot carry this form until the protocol
- * accepts it; see docs/plans/execution-environments/linux-host.md. */
+ * accepts it; see https://github.com/terran-labs/vorteo/issues/40. */
 const SystemdBootstrapServiceSchema = z
   .string()
   .regex(
