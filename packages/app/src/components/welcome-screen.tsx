@@ -24,7 +24,7 @@ import { isNative } from "@/constants/platform";
 import { toErrorMessage } from "@/utils/error-messages";
 const SETUP_HEADER = { title: "Create New installation" };
 const INSTALL_COMMAND =
-  'git clone https://github.com/AubreyF/vorteo.git "$HOME/vorteo-source" &&\n  bash "$HOME/vorteo-source/docker/multiplex/install.sh" "$HOME/vorteo"';
+  'git clone https://github.com/terran-labs/vorteo.git "$HOME/vorteo-source" &&\n  bash "$HOME/vorteo-source/docker/multiplex/install.sh" "$HOME/vorteo"';
 
 interface WelcomeAction {
   key: "new-installation" | "direct-connection";

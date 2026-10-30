@@ -76,7 +76,7 @@ function launchDesktop(args: string[]): void {
   const desktopApp = findDesktopApp();
   if (!desktopApp) {
     throw new Error(
-      "Vorteo desktop app not found. Install it from https://github.com/AubreyF/vorteo/releases",
+      "Vorteo desktop app not found. Install it from https://github.com/terran-labs/vorteo/releases",
     );
   }
 

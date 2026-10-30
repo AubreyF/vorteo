@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.924 - 2026-10-30
+
+### Changed
+
+- The Vorteo and Vorton repositories moved to the Terran Labs organization. Update checks, repository links, the upstream-merge prompt and documentation use `terran-labs/vorteo`; earlier GitHub addresses redirect.
+
+### Maintenance
+
+- Plan the one-command installation: one install command for macOS and Linux, Host-only and local-only installations, tested releases, interface upgrades with snapshots, and wrapping legacy installations.
+
 ## 0.11.0-beta.3.vorteo.923 - 2026-10-30
 
 ### Added

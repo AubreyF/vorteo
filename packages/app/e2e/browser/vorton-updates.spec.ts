@@ -5,7 +5,7 @@ import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-
 // This spec handles the "Set up worktree scripts" notice itself.
 test.use({ dismissWorktreeSetupCallout: false });
 
-const API = "https://api.github.com/repos/AubreyF/paseo";
+const API = "https://api.github.com/repos/terran-labs/vorteo";
 const latestCommit = "b".repeat(40);
 
 test("compact notices clear a growing composer and release its space after navigation", async ({

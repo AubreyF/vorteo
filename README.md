@@ -1,6 +1,6 @@
 # <img src="packages/app/assets/brand/vorteo-color.png" width="48" height="48" alt="Vorteo icon" /> Vorteo (Vorton + Paseo)
 
-- [Vorton](https://github.com/AubreyF/vorton) is an elegant visual control plane for AI operating systems and software factories.
+- [Vorton](https://github.com/terran-labs/vorton) is an elegant visual control plane for AI operating systems and software factories.
 - Vorteo extends [Paseo](https://github.com/getpaseo/paseo) for seamless Vorton integration. It also adds multiple Codex accounts, usage visibility, reusable profiles, task goals, cross-device message queuing, and a smoother ux. I've used it to build massive open-source projects such as [Freed](https://freed.wtf). I'm sharing it as open source to empower other OS devs with max agentic leverage and efficiency. Let's steer the course of history, together.
 
 ## Intelligent Frontier Account Pooling
@@ -71,7 +71,7 @@ See the [Vorteo customizations](docs/vorteo-customizations.md) for the full feat
 Give your agent this command, or run it yourself:
 
 ```sh
-git clone https://github.com/AubreyF/vorteo.git "$HOME/vorteo-source" &&
+git clone https://github.com/terran-labs/vorteo.git "$HOME/vorteo-source" &&
   bash "$HOME/vorteo-source/docker/multiplex/install.sh" "$HOME/vorteo"
 ```
 

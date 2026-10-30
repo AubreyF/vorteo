@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-export const VORTON_REPOSITORY = "https://github.com/AubreyF/paseo";
-const API = "https://api.github.com/repos/AubreyF/paseo";
+export const VORTON_REPOSITORY = "https://github.com/terran-labs/vorteo";
+const API = "https://api.github.com/repos/terran-labs/vorteo";
 const CommitSchema = z.object({ sha: z.string().regex(/^[a-f0-9]{40}$/) });
 const ComparisonSchema = z.object({
   status: z.enum(["ahead", "behind", "identical", "diverged"]),
