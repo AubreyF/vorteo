@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): disposable repository ruleset verification only. Close this test pull request without merging; no product, README overview or onboarding changes.
+
 Maintenance review (2026-10-29): merge main's server-test fixture repair into the pull request delivery branch, and correct the publisher's dry-run report for existing pull requests. No runtime behavior changed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): approvals from the account agents run as no longer count for pull request delivery, and the release-tag trigger test checks chained workflows and guard structure. Not on GitHub or installed yet. README overview and onboarding are unchanged.
