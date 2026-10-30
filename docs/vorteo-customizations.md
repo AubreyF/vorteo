@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-29): restore the accepted recovery fixture bundle-option reuse in the diagnostic branch. Production and interface source, test assertions and setup timeout are unchanged. This removes a known redundant transform path; the current CI SIGTERM cause remains unproven. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-29): relocate detailed agent delivery rules into mandatory linked documentation without changing authority or the existing instruction-size budget. Apply the previously reviewed formatting-only broker client correction to the diagnostic candidate. Runtime and interface behavior, README overview and onboarding remain unchanged; delivery gates still apply.
 
 Maintenance review (2026-10-29): refresh the coordinator diagnostic source candidate onto the served interface baseline, retaining app source, assets and UI generators. Server runtime uses the installed baseline plus the three accepted initialization diagnostic files; explicit reversions exclude unrelated server, broker, packaging and tooling changes. Source only; build, CI, retention, publication and lifecycle acceptance remain gated. Existing documentation history, README overview and onboarding are preserved.
