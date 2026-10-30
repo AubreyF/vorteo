@@ -28,6 +28,16 @@ Report published source, served interface and installed daemon revisions separat
 
 ## Builds delivery details
 
+### Standing delivery authority
+
+An instruction to ship authorizes the routine implementation, validation, integration, publication and installation steps covered by its authorization level. Builds owns scheduling, compatible batching, evidence reuse and ordinary recovery choices within that scope. Carry recorded authorization across handoffs and phases; do not ask the owner again merely because work reaches a new phase or a different worker performs it.
+
+Resolve technical uncertainty by inspecting source and evidence and running proportionate validation. Reviewers identify defects, unmet acceptance checks and applicable existing gates; a review does not create a new permission requirement. Distinguish a technical check from an owner decision and from the recorded approval required by the tracked lifecycle workflow.
+
+Ask the owner only when existing authorization leaves a consequential decision unresolved, such as a material change in outcome, irreversible action outside the agreed scope, or an exception to an explicit restriction. Prepare the concrete action and its consequences first, identify the exact restriction or missing decision, and combine related questions. Never ask again while the same question awaits an answer. Explicit holds, access boundaries, resource limits and tracked approvals remain binding; a general instruction to proceed does not silently remove them.
+
+Builds has a standing responsibility to advance authorized deliveries, with finite goals and acceptance checks for each outcome. A blocked dependency pauses only dependent work. Continue other authorized work and resume when evidence clears the dependency. An empty queue is idle, not permission to invent work; an owner pause remains a pause. Record blockers with the condition that clears them, and report verified delivery rather than repeated preparation summaries.
+
 These rules are mandatory for delivery preparation and handoff.
 
 - Feature implementation and unrelated CI triage belong to their existing feature or CI owners. Route source defects back with exact evidence and acceptance checks. Builds links the upstream defect and current owner as a concise delivery dependency, then verifies the returned fix. Do not turn its queue into broad feature implementation or a general make-CI-green project.
