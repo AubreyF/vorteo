@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-30): reconcile the combined sidebar and history candidate with main after diagnostic integration. Reviewed feature source is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-30): combine reviewed sidebar focus with bounded history and diagnostic ancestry. Preserve both feature implementations, keyboard and touch behavior, full browser specifications and delivery rules. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-30): integrate bounded history on the installed diagnostic ancestry. Preserve journal safety, capability fallback and current delivery rules. Pure model tests cover full-index replacement and incremental refresh decisions without browser or module mocks. Source integration does not imply daemon installation. README overview and onboarding are unchanged.
