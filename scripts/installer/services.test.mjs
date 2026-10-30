@@ -100,8 +100,12 @@ describe("launchd agents", () => {
   test("bootstrap once, reload through bootout, and move aside on removal", async () => {
     const home = temporaryHome();
     let registered = false;
-    const run = fakeRunner([["launchctl print", () => (registered ? "" : new Error("not found"))]]);
-    const manager = createLaunchdManager({ run, uid: 501, home });
+    const run = fakeRunner([
+      ["launchctl print", () => (registered ? "" : new Error("not found"))],
+      ["launchctl bootout", () => ((registered = false), "")],
+      ["launchctl bootstrap", () => ((registered = true), "")],
+    ]);
+    const manager = createLaunchdManager({ run, uid: 501, home, sleep: async () => {} });
     manager.write(service);
     const file = path.join(home, "Library/LaunchAgents", `${service.label}.plist`);
     expect(readFileSync(file, "utf8")).toBe(
@@ -109,7 +113,6 @@ describe("launchd agents", () => {
     );
     expect(readFileSync(file, "utf8")).toContain("a&quot;b$c%d\\e");
     await manager.start(service.label);
-    registered = true;
     await manager.start(service.label);
     await manager.reload(service.label);
     await manager.remove(service.label, path.join(home, "disabled"));
@@ -120,5 +123,28 @@ describe("launchd agents", () => {
       `launchctl bootstrap gui/501 ${file}`,
       `launchctl bootout gui/501/${service.label}`,
     ]);
+  });
+
+  test("reload waits for the old job to unload and retries a refused bootstrap", async () => {
+    const home = temporaryHome();
+    let polls = 0;
+    let refusals = 1;
+    const run = fakeRunner([
+      // Still registered for two polls after bootout, as launchd unloads asynchronously.
+      ["launchctl print", () => (polls++ < 3 ? "" : new Error("not found"))],
+      ["launchctl bootout", ""],
+      ["launchctl bootstrap", () => (refusals-- > 0 ? new Error("Bootstrap failed: 5") : "")],
+    ]);
+    const slept = [];
+    const manager = createLaunchdManager({
+      run,
+      uid: 501,
+      home,
+      sleep: async (ms) => slept.push(ms),
+    });
+    manager.write(service);
+    await manager.reload(service.label);
+    expect(run.commands().filter((command) => command.includes("bootstrap"))).toHaveLength(2);
+    expect(slept).toEqual([250, 250, 1000]);
   });
 });

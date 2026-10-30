@@ -26,7 +26,12 @@ export function plist(label, argv, environment, log, exitTimeOut) {
 /**
  * @param {{ run: Function, uid: number, home: string }} context
  */
-export function createLaunchdManager({ run, uid, home }) {
+export function createLaunchdManager({
+  run,
+  uid,
+  home,
+  sleep = (ms) => new Promise((done) => setTimeout(done, ms)),
+}) {
   const directory = path.join(home, "Library", "LaunchAgents");
   const target = (label) => `gui/${uid}/${label}`;
   const file = (label) => path.join(directory, `${label}.plist`);
@@ -59,8 +64,21 @@ export function createLaunchdManager({ run, uid, home }) {
     },
     /** Reloads the written definition: launchd keeps the loaded copy until bootout. */
     async reload(label) {
-      if (await isRegistered(label)) await run(LAUNCHCTL, ["bootout", target(label)]);
-      await run(LAUNCHCTL, ["bootstrap", `gui/${uid}`, file(label)]);
+      if (await isRegistered(label)) {
+        await run(LAUNCHCTL, ["bootout", target(label)]);
+        // bootout returns before the old job unloads; bootstrapping the same label too soon
+        // fails with "5: Input/output error".
+        for (let wait = 0; wait < 40 && (await isRegistered(label)); wait += 1) await sleep(250);
+      }
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          await run(LAUNCHCTL, ["bootstrap", `gui/${uid}`, file(label)]);
+          return;
+        } catch (error) {
+          if (attempt >= 5) throw error;
+          await sleep(1000);
+        }
+      }
     },
     async restart(label) {
       await run(LAUNCHCTL, ["kickstart", "-k", target(label)]);

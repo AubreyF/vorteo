@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.954 - 2026-10-30
+
+### Fixed
+
+- Restarting a launchd service waits for the old job to unload and retries a refused bootstrap, instead of failing with "5: Input/output error" and leaving the Host unregistered.
+
 ## 0.11.0-beta.3.vorteo.953 - 2026-10-30
 
 ### Fixed
