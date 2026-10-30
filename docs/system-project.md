@@ -13,6 +13,7 @@ Each daemon owns its own project, because Host and Dev have separate registries.
 | `vorteo/`         | Project root when `source.checkout` is unset. Empty until you set up Vorteo source, then a git clone. |
 | `runners/<role>/` | Working folder of each system-managed workspace.                                                      |
 | `system.json`     | Optional install-local settings, described below.                                                     |
+| `state.json`      | Daemon-owned record of the Optimizer agent and its heartbeat. Do not edit it.                         |
 
 On the Host, `$PASEO_HOME` is outside every guest-writable mount, as the [execution installation](execution-installation.md) rules require.
 
@@ -29,6 +30,16 @@ When a role leaves the list, its workspace keeps its history and becomes an ordi
 System-managed workspaces are always standing and protected. The registries refuse to archive, remove, move, rename or unprotect them, and refuse to rename, archive or remove the project, whichever client or tool asks. Deleting a thread in a system workspace is refused too, because archiving one already is. Pinning, labels and unread state still work.
 
 The project keeps its own key, `system:<serverId>`, whatever checkout backs it, so it never merges into another project's group. Its root follows `source.checkout` on every start, so a renamed or newly configured checkout takes effect after a restart.
+
+## The Optimizer
+
+The Vorteo :: Optimizer workspace holds one agent, **Optimizer**, that keeps the installation healthy and efficient. It reviews Host and Dev daemon health and logs, disk use of Vorteo state, stale workspaces and archived ones that still take space, failing provider connections, quota pressure, available Vorteo updates and settings that need attention. It reports each finding as a checklist item set to review, asks with open questions when you must choose, and ends each review with a journal entry. It never changes, restarts, updates, deletes or archives anything on its own: it acts only on an action you approve in its thread. Its standing instructions ship in [`optimizer-charter.ts`](../packages/server/src/server/system-project/optimizer-charter.ts) and become the agent's system prompt.
+
+The Host daemon, or a single-daemon install, creates the agent once a provider is usable: at startup when one already is, otherwise when the provider list or settings change, for example after you connect your first account. Usable means enabled and ready on that daemon, with a working sign in when the daemon reads usage for the provider, as it does for Claude and Codex. Signed-in connections come first, and the installation's default provider leads. The agent launches with that account's default workflow, or the default local profile for the provider, or the provider's own defaults when neither exists or the profile cannot launch. It starts in the provider's default permission mode, so any command that needs approval asks you first. Without a usable provider the daemon does nothing and raises nothing. The Dev container creates no Optimizer, because the Host's covers it.
+
+Creating the agent also runs the first review. The daemon then adds a heartbeat named **Optimizer review** that sends the agent a review prompt daily at 09:00 in the daemon's time zone. Each review is a turn in the Optimizer thread, so its usage shows there, and the heartbeat appears in Schedules, where you can change its cadence, pause it or delete it.
+
+The daemon records the agent and heartbeat in `system/state.json` before the first prompt runs and labels the agent `vorteo.system-agent`, so restarts never create a second one. An agent you archive or delete stays that way, and the heartbeat ends with it. A damaged `state.json` stops the daemon from creating anything until you fix or remove it; removing it lets the daemon look for the labelled agent before it creates one.
 
 ## Your own workspaces
 
@@ -75,4 +86,4 @@ Test daemons start without the project so fixture counts stay exact. Server test
 - Because the checkout lives in a folder the Dev container may share, the container can write to the Host System project's files. Source still reaches the running daemon only through a reviewed update.
 - The Vorteo source clone does not follow later updates yet. After an update, move its `local` branch to the newly installed commit yourself.
 - The Dev container's project has no system-managed workspace until monitoring ships its collector.
-- The Optimization Runner's scripts and launchd job are still installed by hand; [the roadmap](roadmap.md) tracks shipping them in source.
+- The Optimizer reports and recommends only. Threshold alerts and cheap collectors belong to a Monitoring role that has not shipped yet.

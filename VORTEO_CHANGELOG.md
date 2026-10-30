@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.963 - 2026-10-30
+
+### Added
+
+- The Vorteo :: Optimizer workspace now gets an Optimizer agent. Once a provider is usable on the Host or a single-daemon install, at startup or after you connect your first account, the daemon creates one agent there with standing instructions shipped in source and runs its first review. It reviews daemon health and logs, Vorteo disk use, stale and heavy archived workspaces, failing providers, quota pressure, updates and settings, and reports findings as checklist items, open questions and journal entries. It changes nothing without your approval.
+- A heartbeat named Optimizer review sends the agent a review daily at 09:00 in the daemon's time zone. It shows in Schedules, and each review's usage shows in the Optimizer thread.
+- The daemon records the agent in `system/state.json` and labels it, so restarts never create a second one and an agent you archive or delete is never recreated. Without a usable provider nothing happens and nothing asks for attention.
+
+### Known limitations
+
+- The agent starts in the provider's default permission mode, so commands that need approval wait for you, even during a scheduled review.
+- A ready provider the daemon reads no usage for, such as OpenCode, counts as usable without a confirmed sign in.
+- Verified only against isolated local daemons with the development mock provider; no real Claude or Codex review and no installed Host has run it yet.
+
 ## 0.11.0-beta.3.vorteo.962 - 2026-10-30
 
 ### Fixed
