@@ -32,7 +32,9 @@ export function openJournal(plan, now = () => new Date()) {
       );
     return createJournalHandle(file, existing, now);
   }
-  const occupied = ["host", "state", ...(plan.kind === "new" ? ["container"] : [])]
+  // A Host installation upgraded in place starts its journal inside its own files.
+  const kept = plan.kind === "adopt-host" ? [] : ["host", "state"];
+  const occupied = [...kept, ...(plan.kind === "new" ? ["container"] : [])]
     .map((name) => path.join(plan.paths.root, name))
     .filter(nonEmpty);
   if (occupied.length)

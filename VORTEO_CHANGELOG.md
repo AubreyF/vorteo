@@ -4,6 +4,21 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.945 - 2026-10-30
+
+### Added
+
+- Host installations made before the one-command installer reach its layout in place through their normal upgrade path: an upgrade from the interface, a Host source update, or `install.sh`, which offers to upgrade such an installation instead of creating a second one. The root, identity, owner password, credentials, homes, agents and data stay where they are.
+- Installer engine `adopt` and `plan --adopt`: detection of old Host roots in the lab layout, at `--root` or behind any `local.vorteo.*.installation` launchd agent or systemd unit; a journaled, resumable plan that adds the `source` checkout, the `host-current` and `coordinator-current` links, the `deployment` block and both connect-once account flags, moves Dev to gate mode with rollback behind a new Tailscale route, repoints its public endpoint and container ID pins, and restarts the services through their existing labels.
+
+### Changed
+
+- Installations without `deployment` but with the old installer's record now offer **Upgrade to `<tag>`**; the upgrade's snapshot step first runs the adoption detached and resumes after the coordinator restarts.
+
+### Maintenance
+
+- Not verified on a live installation; engine and coordinator paths are covered by fixtures with fake commands. Adoption rebuilds the Dev image once for gate mode and the upgrade builds it again for the release.
+
 ## 0.11.0-beta.3.vorteo.944 - 2026-10-30
 
 ### Maintenance

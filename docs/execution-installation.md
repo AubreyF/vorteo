@@ -152,6 +152,25 @@ Installation controls offer an upgrade to the latest GitHub release of `terran-l
 
 Snapshots go to `<installRoot>/state/snapshots/<time>/` with `manifest.json`; the newest five are kept. They hold coordinator state, the coordinator configuration, the Host daemon home, Dev's home and Dev's deployment files, without `.npm`, `.cache` and `.pnpm-store`. A restore first snapshots the current state, then a detached helper stops the coordinator, Host and Dev, replaces each part, and starts Dev, the Host and the coordinator.
 
+### Installations from before the installer
+
+A Host installation made by `scripts/install-execution-host.mjs install` from a hand-written plan has no `deployment`. It reaches the installer layout in place, through its normal upgrade path, and keeps its root, identity, owner password, credentials, homes, agents and data. Three paths run the same engine command, `node scripts/installer/main.mjs adopt --root <old root>`:
+
+- **An upgrade from the interface.** Such an installation offers **Upgrade to `<tag>`**. After approval, the snapshot step first launches the engine from the coordinator's own release, detached, with its outcome and log in `<stateDir>/upgrades/<id>/adoption.json` and `adoption.log`. The engine restarts the coordinator, which resumes the same upgrade with the new configuration: snapshot, fetch, Host, coordinator and Dev.
+- **A Host source update.** When a Host source update succeeds while the coordinator runs, a coordinator without `deployment` launches the same command once, with its outcome in `<stateDir>/adoption/`. After a failure, an upgrade from the interface retries it.
+- **`install.sh`.** On a machine with such an installation, found through `~/.local/share/vorteo-lab/host`, `--root`, or any `local.vorteo.*.installation` launchd agent or systemd unit, the installer prints the plan and asks once to upgrade it. It never creates a second installation around the same Dev container.
+
+The engine journals each step in `<old root>/state/install.json`, so a rerun resumes, and holds `<old root>/state/adoption.lock` while it runs. It:
+
+1. Keeps `coordinator.json` and `installation.json` as `*.before-adoption`, and the two service files in `state/adoption/`.
+2. Clones `<old root>/source` from the Host source repository, the recorded System checkout or GitHub, at the engine's commit. When the coordinator's release is a different commit, it builds `releases/<commit>` from that checkout, since the coordinator must read the new configuration.
+3. With Dev: builds the Dev and gate images, refreshes the deployment's lifecycle scripts (keeping each replaced one as `*.before-installer`), and runs `gate.sh enable`, which rolls back to Tailscale mode when Dev does not become healthy. The gate relay takes over the loopback port the coordinator already uses, and the gate routes include the interface origin's own authority. The engine then checks that Dev still answers with its pinned server ID.
+4. Points `releases/coordinator-current` and, without `sourceUpdates`, `releases/host-current` at the releases the services run, or at the new build.
+5. Writes the `deployment` block, `claudeHostRefresh` and `codexHostRefresh`, Dev's public endpoint `<tailnet name>:<free HTTPS port>`, and `webDistDir` and `host.startupValidation` through the links. Every pin of Dev's old container ID, such as `containerSourceUpdates.containerId`, moves to the recreated container. The coordinator release it restarts on must accept the file before it replaces the old one.
+6. Replaces each service's release entrypoint with the same path through its link, adds Dev's Tailscale HTTPS route, and reloads the Host daemon (when its launcher changed) and then the coordinator, through their existing labels.
+
+With `sourceUpdates`, the Host keeps its launcher, `sourceUpdates.currentReleaseLink` becomes `deployment.hostReleaseLink`, and upgrades build the Host through source updates. To return a file by hand, copy its `*.before-adoption` copy back; `gate.sh rollback` returns Dev to Tailscale mode.
+
 ## Setup on the host
 
 The one-command installer generates the plan below from the machine and runs this setup for you. This section is the reference for that step, for repair and inspection. Use the [host handoff workflow](host-handoff.md) only when the installer cannot run. The container session prepares source and validation; the host session gathers current Docker mounts, daemon identities, private networking, provider setup and service-context macOS permissions. Do not infer current deployment details from an old report.

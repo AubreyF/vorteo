@@ -96,15 +96,18 @@ function scriptEnvironment(s, extra = {}) {
 
 function gateEnvironment(s) {
   const { plan, outputs } = s;
+  // An adopted Host installation adds its recovery origin and its own interface origin's route.
+  const origins = [...interfaceOrigins(plan, outputs.hostname), ...(plan.dev.extraOrigins ?? [])];
+  const routes = [...gateRoutes(plan, outputs.hostname), ...(plan.dev.extraRoutes ?? [])];
   return {
     PASEO_NETWORK_MODE: "gate",
     PASEO_GATE_IMAGE: outputs.gateImage,
     PASEO_PUBLIC_HOSTNAME: devPublicHostname(plan, outputs.hostname),
-    PASEO_CORS_ORIGINS: interfaceOrigins(plan, outputs.hostname).join(","),
+    PASEO_CORS_ORIGINS: [...new Set(origins)].join(","),
     PASEO_PROJECTS_FOLDER: realpathSync(plan.paths.projectsFolder),
     PASEO_GATE_RELAY_PORT: String(plan.ports.devRelay),
     PASEO_GATE_SUBNET: plan.dev.subnet,
-    PASEO_GATE_ROUTES: gateRoutes(plan, outputs.hostname).join(","),
+    PASEO_GATE_ROUTES: [...new Set(routes)].join(","),
     PASEO_INSTALLATION_PENDING: "1",
   };
 }
@@ -370,7 +373,8 @@ async function release(s) {
       }),
   });
   writeJson(marker, { revision: plan.revision, builtAt: context.now().toISOString() });
-  selectRelease(plan);
+  // A Host installation upgraded in place selects its releases in adopt-links.
+  if (plan.kind !== "adopt-host") selectRelease(plan);
   return { message: `Built release ${plan.revision.slice(0, 12)}.` };
 }
 
@@ -541,11 +545,17 @@ async function ready(s) {
 }
 
 export function remoteRoutes(plan) {
-  return [
-    [plan.ports.https, plan.ports.coordinator],
-    [plan.ports.hostHttps, plan.ports.host],
-    ...(plan.devContainer ? [[plan.ports.devHttps, plan.ports.devRelay]] : []),
-  ].map(([port, local]) => ({ port, target: `http://127.0.0.1:${local}` }));
+  // A Host installation upgraded in place already serves its own routes; it adds Dev's.
+  const own =
+    plan.kind === "adopt-host"
+      ? []
+      : [
+          [plan.ports.https, plan.ports.coordinator],
+          [plan.ports.hostHttps, plan.ports.host],
+        ];
+  return [...own, ...(plan.devContainer ? [[plan.ports.devHttps, plan.ports.devRelay]] : [])].map(
+    ([port, local]) => ({ port, target: `http://127.0.0.1:${local}` }),
+  );
 }
 
 async function remote(s) {

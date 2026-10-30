@@ -11,8 +11,14 @@ import { createLaunchdManager } from "./launchd.mjs";
 import { PLAN_VERSION, publicOrigin } from "./plan.mjs";
 import { InstallerError } from "./primitives.mjs";
 import { STEPS, STEP_TITLES, pointLink, remoteRoutes } from "./steps.mjs";
+import { ADOPTION_STEPS, ADOPTION_STEP_TITLES } from "./host-adoption.mjs";
 import { createSystemdManager } from "./systemd.mjs";
 import { createProcessManager } from "./process-manager.mjs";
+
+// Looked up when a step runs: host-adoption.mjs imports this module, so its tables are
+// not ready while this module first loads.
+const stepFor = (name) => STEPS[name] ?? ADOPTION_STEPS[name];
+const titleFor = (name) => STEP_TITLES[name] ?? ADOPTION_STEP_TITLES[name];
 
 const RERUN =
   "Fix the problem above, then run the same apply command again; it resumes at this step.";
@@ -38,7 +44,7 @@ export function validatePlan(plan, context) {
       `The plan installs into ${plan.paths.root}, not ${context.root}.`,
       "Pass the plan's folder with --root, or plan again.",
     );
-  const unknown = plan.steps.filter((step) => !STEPS[step]);
+  const unknown = plan.steps.filter((step) => !stepFor(step));
   if (unknown.length)
     throw new InstallerError(
       `Unknown plan steps: ${unknown.join(", ")}.`,
@@ -62,10 +68,10 @@ async function runSteps(steps, state, emit, { force = false } = {}) {
       emit({ step, status: "skip", message: "Already done." });
       continue;
     }
-    emit({ step, status: "start", message: STEP_TITLES[step] });
+    emit({ step, status: "start", message: titleFor(step) });
     let result;
     try {
-      result = await STEPS[step](state);
+      result = await stepFor(step)(state);
     } catch (error) {
       state.journal.mark(step, "fail", error.message);
       emit({ step, status: "fail", message: error.message, fix: error.fix ?? RERUN });
@@ -225,7 +231,7 @@ async function stopDev(state, { keepData }) {
   const deployment = plan.paths.container;
   if (!plan.devContainer || !existsSync(path.join(deployment, ".container-installation")))
     return "No Dev container to stop.";
-  if (plan.kind === "adopt") {
+  if (plan.kind !== "new") {
     // The adopted deployment returns to the standalone Tailscale mode it came from.
     await context.run("bash", [path.join(deployment, "gate.sh"), "rollback"], {
       timeout: 10 * 60_000,

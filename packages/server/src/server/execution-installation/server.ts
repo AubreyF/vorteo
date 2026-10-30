@@ -636,6 +636,8 @@ export function createInstallationServer(
         discoverMaintenanceServices();
         await standingRuntime.refresh(restarts.list());
         await restarts.drain();
+        // An installation from before the installer moves to its layout after a Host update.
+        releaseRuntime?.adoptAfterSourceUpdate();
         // Upgrades wait on long builds and on Host update jobs this drain advances,
         // so they run beside it under their own guard.
         void releaseRuntime?.upgrades

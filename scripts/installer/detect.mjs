@@ -47,6 +47,8 @@ export function inspectDeployment(directory) {
     instance: env.PASEO_INSTANCE,
     gateMode: existsSync(path.join(directory, ".gate-mode")),
     loopbackPort: published === undefined ? undefined : Number(published),
+    // In gate mode the gate relay publishes Dev on this Host loopback port.
+    ...(env.PASEO_GATE_RELAY_PORT ? { relayPort: Number(env.PASEO_GATE_RELAY_PORT) } : {}),
     projectsFolder:
       projects?.services?.paseo?.environment?.PASEO_PROJECTS_ROOT ?? env.PASEO_PROJECTS_FOLDER,
   };
@@ -86,10 +88,14 @@ async function composeDirectories(context) {
  * checkout (any folder directly in the home folder), in the lab layout, or wherever a
  * Compose project with a `paseo` service was started.
  */
-export async function findLegacyDeployments(context, { exclude = [], docker = true } = {}) {
+export async function findLegacyDeployments(
+  context,
+  { exclude = [], docker = true, extra = [] } = {},
+) {
   const candidates = [
     context.root,
     path.join(context.root, "container"),
+    ...extra,
     ...childDirectories(context.home),
     ...(docker ? await composeDirectories(context) : []),
   ];
@@ -101,6 +107,116 @@ export async function findLegacyDeployments(context, { exclude = [], docker = tr
     seen.add(resolved);
     const deployment = inspectDeployment(resolved);
     if (deployment) found.push(deployment);
+  }
+  return found;
+}
+
+function xmlText(value) {
+  return value
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&apos;", "'")
+    .replaceAll("&amp;", "&");
+}
+
+/** Words of a systemd ExecStart= value, undoing the quoting systemdQuote applies. */
+function systemdWords(value) {
+  const words = [];
+  for (const match of value.matchAll(/"((?:[^"\\]|\\.)*)"|(\S+)/g)) {
+    const word = match[1] === undefined ? match[2] : match[1].replace(/\\(.)/g, "$1");
+    words.push(word.replaceAll("%%", "%").replaceAll("$$", "$"));
+  }
+  return words;
+}
+
+/** The program arguments a launchd plist or a systemd unit starts. */
+export function serviceArguments(text) {
+  const array = /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(text);
+  if (array) return [...array[1].matchAll(/<string>([^<]*)<\/string>/g)].map((m) => xmlText(m[1]));
+  const exec = /^ExecStart=(.*)$/m.exec(text);
+  return exec ? systemdWords(exec[1]) : [];
+}
+
+const SERVICE_FILES = [
+  { manager: "launchd", directory: ["Library", "LaunchAgents"], suffix: ".installation.plist" },
+  {
+    manager: "systemd-user",
+    directory: [".config", "systemd", "user"],
+    suffix: ".installation.service",
+  },
+];
+
+/** Installation roots named by local.vorteo.*.installation services: their config's folder. */
+export function serviceRoots(home) {
+  const roots = [];
+  for (const { directory, suffix } of SERVICE_FILES) {
+    const folder = path.join(home, ...directory);
+    let names = [];
+    try {
+      names = readdirSync(folder).filter(
+        (name) => name.startsWith("local.vorteo.") && name.endsWith(suffix),
+      );
+    } catch {
+      continue;
+    }
+    for (const name of names.toSorted()) {
+      let argv = [];
+      try {
+        argv = serviceArguments(readFileSync(path.join(folder, name), "utf8"));
+      } catch {
+        continue;
+      }
+      const configFile = argv.findLast((arg) => arg.endsWith(".json"));
+      if (configFile && path.isAbsolute(configFile)) roots.push(path.dirname(configFile));
+    }
+  }
+  return roots;
+}
+
+/**
+ * What a folder holding installation.json and its coordinator configuration is: an
+ * installer-made installation (`current`, with its root), an old Host root
+ * (`legacy-host`), or nothing. Reads only; secrets never leave this function.
+ */
+export function inspectHostRoot(root) {
+  const record = readJson(path.join(root, "installation.json"));
+  if (!record || typeof record !== "object") return null;
+  const configFile = record.configFile ?? path.join(root, "coordinator.json");
+  const config = readJson(configFile);
+  if (!config?.public?.installationId) return null;
+  if (config.deployment?.installRoot)
+    return { kind: "current", root: config.deployment.installRoot };
+  if (existsSync(path.join(root, JOURNAL))) return { kind: "current", root };
+  return {
+    kind: "legacy-host",
+    root,
+    configFile,
+    installationId: config.public.installationId,
+    origin: config.public.origin,
+    container: Boolean(config.container),
+    sourceUpdates: Boolean(config.sourceUpdates),
+  };
+}
+
+/**
+ * Old Host roots, most specific first: the --root folder, the earlier lab layout, then
+ * any root a local.vorteo.*.installation launchd agent or systemd unit runs.
+ */
+export function findHostRoots(context) {
+  const candidates = [
+    context.root,
+    path.join(context.home, LAB_DIRECTORY, "host"),
+    ...serviceRoots(context.home),
+  ];
+  const seen = new Set();
+  const found = [];
+  for (const candidate of candidates) {
+    const resolved = path.resolve(candidate);
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    const host = inspectHostRoot(resolved);
+    if (host) found.push(host);
   }
   return found;
 }
@@ -117,20 +233,49 @@ function inspectLab(home) {
   };
 }
 
+/** An in-place upgrade that stopped part way is still offered as one, so a rerun resumes it. */
+function stoppedAdoption(root, journal) {
+  return {
+    kind: "legacy-host",
+    resume: true,
+    paths: { root, host: root, coordinatorConfig: journal.plan.paths.coordinatorConfig },
+    installationId: journal.installationId,
+    origin: journal.plan.origin,
+    container: journal.plan.devContainer,
+    candidates: [root],
+  };
+}
+
 function currentInstallation(root) {
   const journal = readJson(path.join(root, JOURNAL));
   const record = path.join(root, "host", "installation.json");
   if (!journal && !existsSync(record)) return null;
+  const paths = journal?.plan?.paths ?? {};
+  if (journal?.plan?.kind === "adopt-host" && !journal.completedAt)
+    return stoppedAdoption(root, journal);
   return {
     kind: "current",
     state: journal && !journal.completedAt ? "installing" : "installed",
     paths: {
       root,
       journal: path.join(root, JOURNAL),
-      host: path.join(root, "host"),
-      ...(journal?.plan?.paths?.container ? { container: journal.plan.paths.container } : {}),
+      // A Host root upgraded in place is its own `host` folder.
+      host: paths.host ?? path.join(root, "host"),
+      ...(paths.container ? { container: paths.container } : {}),
     },
     origin: journal?.outputs?.origin ?? readJson(record)?.origin,
+  };
+}
+
+function legacyHostResult(host, others) {
+  return {
+    kind: "legacy-host",
+    paths: { root: host.root, host: host.root, coordinatorConfig: host.configFile },
+    installationId: host.installationId,
+    origin: host.origin,
+    container: host.container,
+    sourceUpdates: host.sourceUpdates,
+    candidates: [host.root, ...others.map((other) => other.root)],
   };
 }
 
@@ -156,6 +301,13 @@ function labResult(lab) {
 export async function detectExisting(context, { docker = true } = {}) {
   const current = currentInstallation(context.root);
   if (current) return current;
+  // An old Host installation wins over its own Dev deployment, which would otherwise be
+  // found below as a legacy container and wrapped into a second installation.
+  const [host, ...others] = findHostRoots(context);
+  if (host?.kind === "current") {
+    const found = currentInstallation(host.root);
+    if (found) return found;
+  } else if (host) return legacyHostResult(host, others);
   const lab = inspectLab(context.home);
   const deployments = await findLegacyDeployments(context, {
     exclude: lab ? [path.join(lab.path, "container")] : [],

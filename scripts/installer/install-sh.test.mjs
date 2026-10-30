@@ -48,17 +48,22 @@ const docker = process.env.FAKE_DOCKER === "missing"
 const origin = (answers) => answers.remote.mode === "tailscale" ? "https://vorteo.example.ts.net" : "http://localhost:6790";
 if (command === "detect") {
   const kind = process.env.FAKE_EXISTING || "none";
+  const legacyPaths = kind === "legacy-host"
+    ? { root: process.env.FAKE_EXISTING_ROOT, host: process.env.FAKE_EXISTING_ROOT }
+    : { deployment: "/srv/old-vorteo", projectsFolder: path.join(process.env.HOME, "work") };
   emit({
     platform: process.platform,
-    existing: { kind, paths: kind.startsWith("legacy") ? { deployment: "/srv/old-vorteo", projectsFolder: path.join(process.env.HOME, "work") } : {} },
+    existing: { kind, paths: kind.startsWith("legacy") ? legacyPaths : {} },
     prerequisites: { node: { ok: true, version: "v24.18.0" }, git: { ok: true }, docker, tailscale },
   });
+} else if (command === "plan" && rest.includes("--adopt")) {
+  emit({ plan: { adopt: true }, summary: ["Upgrade " + root + " in place", "Dev moves to gate mode"] });
 } else if (command === "plan") {
   const answers = JSON.parse(readFileSync(option("--answers"), "utf8"));
   writeFileSync(process.env.FAKE_ANSWERS, JSON.stringify(answers));
   emit({ plan: { answers }, summary: ["Create " + root, "Install the Host and coordinator"] });
 } else if (command === "apply") {
-  const { answers } = JSON.parse(readFileSync(option("--plan"), "utf8"));
+  const { answers = { name: "Old", remote: { mode: "tailscale" } } } = JSON.parse(readFileSync(option("--plan"), "utf8"));
   const resumed = process.env.FAKE_RESUMED === "1";
   emit({ step: "identity", status: resumed ? "skip" : "start", message: "Creating the installation identity" });
   if (!resumed) emit({ step: "identity", status: "done", message: "Created the installation identity" });
@@ -445,6 +450,27 @@ describe("install.sh", () => {
     assert.equal(done.status, 0, done.stdout);
     assert.equal(box.answers().devContainer, true);
     assert.equal(box.answers().projectsFolder, path.join(box.home, "work"));
+  });
+
+  test("an installation from before the installer is upgraded in place at its own root", () => {
+    const box = sandbox();
+    const old = path.join(box.home, ".local/share/vorteo-lab/host");
+    const env = { FAKE_EXISTING: "legacy-host", FAKE_EXISTING_ROOT: old };
+    const asked = box.run([], env);
+    assert.equal(asked.status, 3, asked.stdout + asked.stderr);
+    assert.match(asked.stdout, /upgrades it in place/);
+    assert.match(asked.stdout, /^VORTEO_PLAN Upgrade .* in place$/m);
+    assert.deepEqual(questionIds(asked.stdout), [["proceed", "yes"]]);
+    const done = box.run(["--yes"], env);
+    assert.equal(done.status, 0, done.stdout + done.stderr);
+    const engine = box.calls().filter((call) => call.tool === "engine");
+    const plan = engine.find((call) => call.argv[0] === "plan" && call.argv.includes("--adopt"));
+    assert.equal(plan.argv[plan.argv.indexOf("--root") + 1], old);
+    assert.ok(plan.argv.includes("--source"));
+    const apply = engine.find((call) => call.argv[0] === "apply");
+    assert.equal(apply.argv[apply.argv.indexOf("--root") + 1], old);
+    assert.match(done.stdout, /^VORTEO_RESULT origin https:\/\/vorteo\.example\.ts\.net$/m);
+    assert.match(readFileSync(path.join(box.home, ".local/bin/vorteo"), "utf8"), new RegExp(old));
   });
 
   test("a current installation is reported without fetching, and --repair repairs it", () => {
