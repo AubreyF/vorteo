@@ -225,7 +225,7 @@ export function planSteps({ devContainer, adopt, remote }) {
   ];
 }
 
-function npmPath(context) {
+export function npmPath(context) {
   const beside = path.join(path.dirname(context.execPath), "npm");
   return existsSync(beside) ? beside : (context.which("npm") ?? "npm");
 }
@@ -310,7 +310,7 @@ function planPaths(context, answers, revision, adopt) {
   };
 }
 
-async function planDev(context, docker, existing, adopt) {
+export async function planDev(context, docker, existing, adopt) {
   const networks = await dockerNetworks(context, docker);
   const dev = {
     subnet: chooseSubnet(dockerSubnets(networks)),
@@ -341,6 +341,11 @@ function untouchedPaths(existing, adopt) {
 }
 
 function assertNoCurrent(existing, root) {
+  if (existing.kind === "legacy-host")
+    throw new InstallerError(
+      `${existing.paths.root} holds a Host installation made before this installer.`,
+      `Upgrade it in place with \`main.mjs plan --adopt --root ${existing.paths.root}\`.`,
+    );
   if (existing.kind !== "current") return;
   throw new InstallerError(
     `A Vorteo installation already exists in ${root}.`,
@@ -432,6 +437,8 @@ function movedPorts(ports) {
 }
 
 export function publicOrigin(plan, hostname = plan.remote.hostname) {
+  // A Host installation upgraded in place keeps the origin it already serves.
+  if (plan.origin) return plan.origin;
   if (plan.remote.mode !== "tailscale") return `http://localhost:${plan.ports.coordinator}`;
   return hostname ? `https://${hostname}:${plan.ports.https}` : null;
 }

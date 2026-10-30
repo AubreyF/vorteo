@@ -66,7 +66,7 @@ export function localGateAuthority(plan) {
  * Desktop forwards host.docker.internal to Host loopback; on Linux it is the Docker bridge
  * gateway, so the coordinator also listens there (plan.dev.bridgeAddress).
  */
-function gateRoute(plan) {
+export function gateRoute(plan) {
   if (plan.remote.mode === "tailscale" || !plan.devContainer) return {};
   return {
     gateRoute: {

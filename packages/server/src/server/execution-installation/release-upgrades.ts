@@ -16,6 +16,8 @@ import { RestartRequestError } from "./restarts.js";
 /**
  * Owner-approved upgrade to one tested GitHub release. Steps run in order:
  * snapshot, fetch, Host build and restart, coordinator replacement, Dev image.
+ * An installation made before the one-command installer first moves to its layout
+ * inside the snapshot step (see `runAdoption`), since snapshots need that layout.
  * Every transition is written to the journal before its effect starts, so a
  * coordinator that restarts mid-upgrade (including the planned restart during
  * coordinator replacement) resumes the running step from its recorded state.
@@ -24,6 +26,7 @@ export const UPGRADE_STEPS = UpgradeStepNameSchema.options;
 
 /** Coordinator-private step state. Projected out of every reply. */
 const UpgradePrivateSchema = z.strictObject({
+  adoptionLaunchedAt: z.string().datetime().optional(),
   hostJobId: z.string().uuid().optional(),
   coordinatorNext: z.string().startsWith("/").optional(),
   coordinatorPrevious: z.string().startsWith("/").optional(),
@@ -66,8 +69,21 @@ export function createUpgradeJournal(directory: string): UpgradeJournal {
   };
 }
 
+/** What the installer engine's in-place adoption wrote when it finished. */
+export interface AdoptionOutcome {
+  status: "succeeded" | "failed";
+  detail: string;
+}
+
 export interface UpgradePorts {
   now(): Date;
+  /** True while this installation predates the installer layout (no `deployment`). */
+  adoptionRequired: boolean;
+  /** Starts the installer engine's in-place adoption, detached; it restarts this coordinator. */
+  launchAdoption(upgrade: InstallationUpgrade): void;
+  adoptionOutcome(upgradeId: string): AdoptionOutcome | null;
+  /** How long adoption (Dev and gate image builds included) may take before it is judged failed. */
+  adoptionDeadlineMs: number;
   hasContainer: boolean;
   /** Null when the coordinator can replace itself; otherwise why it cannot. */
   coordinatorReplacement: string | null;
@@ -292,8 +308,47 @@ export class InstallationUpgrades {
   }
 
   private async runSnapshot(record: UpgradeRecord): Promise<StepResult> {
+    const adoption = this.runAdoption(record);
+    if (adoption) return adoption;
     const snapshotId = await this.ports.snapshot(project(record));
     return { status: "succeeded", detail: `Snapshot ${snapshotId} saved.`, snapshotId };
+  }
+
+  /**
+   * Moves an installation from before the installer to its layout: the engine adds the
+   * deployment block and release links, moves Dev to gate mode and restarts this
+   * coordinator, which resumes here with the new configuration. Null once that is done.
+   */
+  private runAdoption(record: UpgradeRecord): StepResult | null {
+    const launchedAt = record.private.adoptionLaunchedAt;
+    if (!launchedAt) {
+      if (!this.ports.adoptionRequired) return null;
+      // Recorded before the launch: the engine restarts this process.
+      const launched = this.save(record, {
+        private: { ...record.private, adoptionLaunchedAt: this.ports.now().toISOString() },
+      });
+      this.ports.launchAdoption(project(launched));
+      return {
+        status: "waiting",
+        detail:
+          "Moving this installation to the installer layout. Dev switches to gate mode and the coordinator restarts.",
+      };
+    }
+    const outcome = this.ports.adoptionOutcome(record.id);
+    if (outcome?.status === "failed")
+      return {
+        status: "failed",
+        detail: `The installation could not move to the installer layout: ${outcome.detail}`,
+      };
+    if (outcome?.status === "succeeded" && !this.ports.adoptionRequired) return null;
+    const elapsed = this.ports.now().getTime() - Date.parse(launchedAt);
+    if (elapsed < this.ports.adoptionDeadlineMs) return { status: "waiting" };
+    return {
+      status: "failed",
+      detail: outcome
+        ? "The installation moved to the installer layout, but the coordinator did not restart on it."
+        : "The move to the installer layout did not report. Its log is in the upgrade's folder.",
+    };
   }
 
   private async runFetch(record: UpgradeRecord): Promise<StepResult> {

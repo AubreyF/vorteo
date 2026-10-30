@@ -4,11 +4,16 @@
 //
 //   detect --json                    What exists here and which prerequisites are met.
 //   plan --answers <file> --json     {plan, summary} from the answers; changes nothing.
+//   plan --adopt [--source <dir>]    {plan, summary} upgrading the Host installation made
+//                                    before this installer at --root in place.
 //   apply --plan <file>              One JSON object per line: {step, status, message, fix?},
 //                                    then {result: {origin, localOrigin, passwordFile, name}}.
 //   status --json                    The installation's services, readiness and steps.
 //   uninstall [--keep-data]          Stops and unregisters everything this installation added.
 //   repair                           Re-registers services and reruns the idempotent steps.
+//   adopt [--source <dir>] [--outcome <file>]
+//                                    Plans and applies that in-place upgrade, resuming a
+//                                    started one; the coordinator runs it detached.
 //
 // Every command takes --root <folder> in place of ~/vorteo.
 import { readFileSync } from "node:fs";
@@ -16,11 +21,12 @@ import { parseArgs } from "node:util";
 import { applyPlan, hostRelease, installationStatus, repair, uninstall } from "./apply.mjs";
 import { createContext } from "./context.mjs";
 import { detect } from "./detect.mjs";
+import { adoptHost, createHostAdoptionPlan } from "./host-adoption.mjs";
 import { createPlan } from "./plan.mjs";
 import { isMainModule } from "../is-main-module.mjs";
 
 const USAGE =
-  "Usage: main.mjs detect|plan --answers <file>|apply --plan <file>|status|uninstall [--keep-data]|repair|host-release --revision <commit> --outcome <file> [--json] [--root <folder>]";
+  "Usage: main.mjs detect|plan --answers <file>|plan --adopt [--source <dir>]|apply --plan <file>|status|uninstall [--keep-data]|repair|adopt [--source <dir>] [--outcome <file>]|host-release --revision <commit> --outcome <file> [--json] [--root <folder>]";
 
 function readJsonFile(file, label) {
   if (!file) throw Object.assign(new Error(`Pass --${label} <file>.`), { usage: true });
@@ -36,7 +42,9 @@ const COMMANDS = {
     return 0;
   },
   async plan({ context, values, write, pretty }) {
-    const result = await createPlan(readJsonFile(values.answers, "answers"), context);
+    const result = values.adopt
+      ? await createHostAdoptionPlan(context, { source: values.source, revision: values.revision })
+      : await createPlan(readJsonFile(values.answers, "answers"), context);
     if (values.json) pretty(result);
     else write(result.summary.join("\n") + "\n");
     return 0;
@@ -50,6 +58,14 @@ const COMMANDS = {
   uninstall: async ({ context, values, line }) =>
     exit(await uninstall(context, { keepData: values["keep-data"] === true }, line)),
   repair: async ({ context, line }) => exit(await repair(context, line)),
+  adopt: async ({ context, values, line }) =>
+    exit(
+      await adoptHost(
+        context,
+        { source: values.source, revision: values.revision, outcome: values.outcome },
+        line,
+      ),
+    ),
   "host-release": async ({ context, values }) =>
     exit(await hostRelease(context, { revision: values.revision, outcome: values.outcome })),
 };
@@ -74,6 +90,8 @@ export async function main(
       "keep-data": { type: "boolean" },
       revision: { type: "string" },
       outcome: { type: "string" },
+      adopt: { type: "boolean" },
+      source: { type: "string" },
     },
   });
   const context = provided ?? createContext({ root: values.root });
@@ -89,7 +107,7 @@ export async function main(
     return await run({ context, values, write, line, pretty });
   } catch (error) {
     const failure = { error: { message: error.message, ...(error.fix ? { fix: error.fix } : {}) } };
-    if (values.json || ["apply", "uninstall", "repair"].includes(command)) line(failure);
+    if (values.json || ["apply", "uninstall", "repair", "adopt"].includes(command)) line(failure);
     else write(`${error.message}${error.fix ? `\n${error.fix}` : ""}\n`);
     return error.usage ? 2 : 1;
   }

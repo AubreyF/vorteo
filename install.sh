@@ -6,7 +6,9 @@
 # It fetches the latest tested Vorteo release into ~/vorteo/source, asks a few questions,
 # shows the plan, and hands the work to the installer engine in that release
 # (scripts/installer/main.mjs). Rerun the same command at any time: a finished step is
-# skipped, so a rerun resumes, and an existing installation is detected.
+# skipped, so a rerun resumes, and an existing installation is detected. A Host installation
+# made before this installer (scripts/install-execution-host.mjs) is upgraded in place at its
+# own folder after one confirmation, the proceed question.
 #
 # Options (each question also has an environment variable; flags win):
 #   --yes, -y                       Take the default answer for every question (VORTEO_YES=1).
@@ -84,7 +86,8 @@ vorteo_install() {
   # shellcheck disable=SC2088 # A ~ shown to the owner, expanded later by expand_path.
   local auth_key_file="" tailscale_attempts=0 failures=0 projects_default="~/dev"
   # Set by json_vars from the engine's detect report.
-  local existing_paths="" existing_projects="" pre_node_ok="" pre_node_fix="" pre_git_ok=""
+  local existing_paths="" existing_projects="" existing_root="" existing_resume=""
+  local pre_node_ok="" pre_node_fix="" pre_git_ok=""
   local pre_git_fix="" pre_docker_ok="" pre_docker_running="" pre_docker_fix="" pre_ts_ok=""
   local pre_ts_running="" pre_ts_logged_in="" pre_ts_fix=""
 
@@ -494,6 +497,8 @@ vorteo_install() {
       existing_kind='d.existing && d.existing.kind' \
       existing_paths='d.existing && d.existing.paths && Object.values(d.existing.paths)' \
       existing_projects='d.existing && d.existing.paths && d.existing.paths.projectsFolder' \
+      existing_root='d.existing && d.existing.paths && d.existing.paths.root' \
+      existing_resume='d.existing && d.existing.resume' \
       pre_node_ok='d.prerequisites.node.ok' pre_node_fix='d.prerequisites.node.fix' \
       pre_git_ok='d.prerequisites.git.ok' pre_git_fix='d.prerequisites.git.fix' \
       pre_docker_ok='d.prerequisites.docker.ok' pre_docker_running='d.prerequisites.docker.running' \
@@ -762,12 +767,62 @@ vorteo_install() {
     fi
   }
 
+  # A Host installation from before this installer (scripts/install-execution-host.mjs) is
+  # upgraded in place: its folder, identity and data stay, and Dev moves to gate mode.
+  upgrade_existing() {
+    heading "Found a Vorteo installation from before this installer"
+    say "    $existing_root"
+    say "  The installer upgrades it in place. Its identity, owner password, homes, agents and data"
+    say "  stay where they are, and later upgrades happen in the interface."
+    root="$existing_root"
+    if [ "$existing_resume" = true ]; then
+      heading "Resuming the upgrade"
+      if ! apply_with_progress no-result adopt --source "$source_dir"; then
+        resume_hint
+        exit 1
+      fi
+      run_engine status --json >"$work/result.json" 2>"$work/status.log" ||
+        fail "The upgrade finished but its status is unreadable." "Run: vorteo status"
+      finish
+      return 0
+    fi
+    run_engine plan --adopt --source "$source_dir" --json >"$work/plan-output.json" 2>"$work/plan.log" ||
+      fail "The installer engine could not plan the upgrade: $(tail -n 3 "$work/plan.log")" "Fix the problem it names, then rerun."
+    local plan_summary=""
+    json_vars "$work/plan-output.json" plan_summary='d.summary' ||
+      fail "The installer engine returned an unreadable plan." "Rerun the installer."
+    "$node_bin" -e '
+      const fs = require("fs");
+      const output = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      fs.writeFileSync(process.argv[2], JSON.stringify(output.plan, null, 2) + "\n", { mode: 0o600 });
+    ' "$work/plan-output.json" "$work/plan.json" 3<&- || fail "Could not record the plan."
+    heading "Plan"
+    printf '%s\n' "$plan_summary" | sed 's/^/  • /'
+    say ""
+    if [ -z "$interactive" ] && [ -z "$assume_yes" ] && [ -z "$(get_answer proceed)" ]; then
+      pending_plan=$(printf '%s\n' "$plan_summary" | sed 's/^/VORTEO_PLAN /')$'\n'
+    fi
+    ask proceed yes "Upgrade this installation?"
+    flush_questions
+    if [ "$(get_answer proceed)" != yes ]; then
+      say "Stopped before upgrading. Nothing in $root changed."
+      exit 4
+    fi
+    heading "Upgrading"
+    if ! apply_with_progress result apply --plan "$work/plan.json"; then
+      resume_hint
+      exit 1
+    fi
+    finish
+  }
+
   # Run ---------------------------------------------------------------------------------
 
   heading "Preparing"
   # An earlier run's engine can recognize a finished installation without the network.
   if [ -f "$source_dir/scripts/installer/main.mjs" ] && detect soft; then
     if [ "$existing_kind" = current ]; then
+      if [ -n "$existing_root" ]; then root="$existing_root"; fi
       handle_current
       return 0
     fi
@@ -780,7 +835,12 @@ vorteo_install() {
 
   case "$existing_kind" in
     current)
+      if [ -n "$existing_root" ]; then root="$existing_root"; fi
       handle_current
+      return 0
+      ;;
+    legacy-host)
+      upgrade_existing
       return 0
       ;;
     legacy-container | legacy-lab)

@@ -61,6 +61,8 @@ curl -fsSL https://terranlabs.com/vorteo/install | bash
 2. Move Dev to gate mode with rollback.
 3. Move the deployment under `~/vorteo/container`, or leave it in place and record its path when moving would interrupt running work.
 
+A Host installation made by `scripts/install-execution-host.mjs` is upgraded in place instead, through an interface upgrade, a Host source update or `install.sh`; see [installations from before the installer](../../execution-installation.md#installations-from-before-the-installer).
+
 Agents inside an old Dev container reach this path through the repository's `AGENTS.md`, which tells them to stop and show the owner the install command, because a container cannot install its own Host.
 
 ## Workstreams

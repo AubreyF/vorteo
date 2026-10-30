@@ -6,6 +6,7 @@ import type { HandoffOutcome } from "./coordinator-handoff.js";
 import {
   createUpgradeJournal,
   InstallationUpgrades,
+  type AdoptionOutcome,
   type UpgradeJournal,
   type UpgradePorts,
 } from "./release-upgrades.js";
@@ -30,8 +31,15 @@ function fakePorts(changes: Partial<UpgradePorts> = {}) {
   let hostJob: "running" | "succeeded" | "failed" = "running";
   let outcome: HandoffOutcome | null = null;
   let devImage = "sha256:old";
+  let adoption: AdoptionOutcome | null = null;
   const ports: UpgradePorts = {
     now: () => new Date(clock),
+    adoptionRequired: false,
+    launchAdoption: () => {
+      calls.push("adopt");
+    },
+    adoptionOutcome: () => adoption,
+    adoptionDeadlineMs: 60_000,
     hasContainer: true,
     coordinatorReplacement: null,
     currentCommit: () => INSTALLED_COMMIT,
@@ -89,6 +97,9 @@ function fakePorts(changes: Partial<UpgradePorts> = {}) {
     },
     setDevImage: (image: string) => {
       devImage = image;
+    },
+    reportAdoption: (status: AdoptionOutcome["status"]) => {
+      adoption = { status, detail: `Adoption ${status}` };
     },
   };
 }
@@ -288,4 +299,51 @@ test("approval names the reviewed revision and only one upgrade is active", asyn
     new InstallationUpgrades(journal, current.ports).request("release-940"),
   ).rejects.toThrow("already runs");
   expect(JSON.stringify(upgrades.list())).not.toContain("private");
+});
+
+test("an installation from before the installer adopts its layout before the snapshot", async () => {
+  const legacy = fakePorts({ adoptionRequired: true });
+  const upgrades = new InstallationUpgrades(journal, legacy.ports);
+  await approved(upgrades);
+  await upgrades.drain();
+  await upgrades.drain();
+  // Launched once, then waiting: the engine restarts this coordinator when it is done.
+  expect(legacy.calls).toEqual(["adopt"]);
+  expect(statuses(upgrades).steps[0]).toBe("running");
+  expect(upgrades.list()[0].steps[0].detail).toContain("installer layout");
+
+  // The restarted coordinator has the deployment block and finds the engine's outcome.
+  const adopted = fakePorts();
+  const resumed = new InstallationUpgrades(journal, adopted.ports);
+  await resumed.drain();
+  expect(adopted.calls).toEqual([]);
+  adopted.reportAdoption("succeeded");
+  await resumed.drain();
+  expect(adopted.calls).toEqual(["snapshot", "fetch", "host-request"]);
+});
+
+test("a failed adoption fails the upgrade before any snapshot or Host change", async () => {
+  const legacy = fakePorts({ adoptionRequired: true });
+  const upgrades = new InstallationUpgrades(journal, legacy.ports);
+  await approved(upgrades);
+  await upgrades.drain();
+  legacy.reportAdoption("failed");
+  await upgrades.drain();
+  expect(statuses(upgrades)).toEqual({
+    status: "failed",
+    steps: ["failed", "skipped", "skipped", "skipped", "skipped"],
+  });
+  expect(upgrades.list()[0].detail).toContain("Adoption failed");
+  expect(legacy.calls).toEqual(["adopt"]);
+});
+
+test("an adoption that never reports fails after its deadline", async () => {
+  const legacy = fakePorts({ adoptionRequired: true });
+  const upgrades = new InstallationUpgrades(journal, legacy.ports);
+  await approved(upgrades);
+  await upgrades.drain();
+  legacy.advanceClock(60_001);
+  await upgrades.drain();
+  expect(statuses(upgrades).status).toBe("failed");
+  expect(upgrades.list()[0].detail).toContain("did not report");
 });

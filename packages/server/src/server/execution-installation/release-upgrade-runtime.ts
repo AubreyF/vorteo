@@ -34,6 +34,7 @@ import {
 import {
   createUpgradeJournal,
   InstallationUpgrades,
+  type AdoptionOutcome,
   type UpgradePorts,
 } from "./release-upgrades.js";
 import { VORTEO_RELEASE_GIT_URL, VORTEO_RELEASE_REPOSITORY } from "./release-source.js";
@@ -51,9 +52,19 @@ import type { InstallationSourceUpdates } from "./source-updates.js";
 
 const COORDINATOR_READY_TIMEOUT_MS = 120_000;
 const UPGRADE_REASON_PREFIX = "Release upgrade";
+// Adoption may build the Dev and gate images and a release before it restarts anything.
+const ADOPTION_DEADLINE_MS = 4 * 60 * 60_000;
+const INSTALLER_ENGINE = "scripts/installer/main.mjs";
+const SUPERVISOR_ENTRYPOINT = "packages/server/dist/scripts/supervisor-entrypoint.js";
+const COMMIT = /^[a-f0-9]{40}$/;
 
 export interface ReleaseUpgradeRuntime {
   upgrades: InstallationUpgrades | null;
+  /**
+   * After a Host source update this process saw succeed, moves an installation from before
+   * the installer to its layout, once. Upgrades from the interface do the same first.
+   */
+  adoptAfterSourceUpdate(): void;
   snapshots: InstallationSnapshots | null;
   snapshotList(): SnapshotList;
   takeSnapshot(): ReturnType<InstallationSnapshots["take"]>;
@@ -77,8 +88,19 @@ function readEnvImage(directory: string): string {
   return line.slice("PASEO_IMAGE=".length).trim();
 }
 
+/**
+ * True for a Host installation made before the one-command installer: its configuration
+ * has no `deployment` and sits beside the old installer's installation.json. Upgrades
+ * move it to the installer layout first, through the engine's `adopt` command.
+ */
+export function adoptionRequired(config: InstallationConfig, configFile: string): boolean {
+  return !config.deployment && existsSync(path.join(path.dirname(configFile), "installation.json"));
+}
+
 /** Why upgrades cannot run on this installation, or null. */
-export function upgradeBlocker(config: InstallationConfig): string | null {
+export function upgradeBlocker(config: InstallationConfig, adoptable = false): string | null {
+  // Adoption writes the deployment block, the release links and the service descriptors.
+  if (!config.deployment && adoptable) return null;
   if (!config.deployment) return "Upgrades need an installation made by the one-command installer.";
   // An installer-made installation upgrades its Host through the engine and its link.
   if (!directHostUpgrades(config) && (!config.sourceUpdates || !config.host.startupValidation))
@@ -99,9 +121,53 @@ const DIRECT_JOB_PREFIX = "installer-";
 function installerRevision(release: string): string | null {
   try {
     const marker = JSON.parse(readFileSync(path.join(release, ".installer-release.json"), "utf8"));
-    return typeof marker.revision === "string" && /^[a-f0-9]{40}$/.test(marker.revision)
+    return typeof marker.revision === "string" && COMMIT.test(marker.revision)
       ? marker.revision
       : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The Host commit of an installation from before the installer: its release folder,
+ * which scripts/install-execution-host.mjs names by commit, or a source receipt in it.
+ */
+export function legacyHostCommit(config: InstallationConfig): string | null {
+  const entrypoint = config.host.startupValidation?.entrypoint;
+  if (!entrypoint) return null;
+  try {
+    const file = realpathSync(entrypoint);
+    if (!file.endsWith(`/${SUPERVISOR_ENTRYPOINT}`)) return null;
+    const release = file.slice(0, -SUPERVISOR_ENTRYPOINT.length - 1);
+    const marked = installerRevision(release);
+    if (marked) return marked;
+    const receiptFile = path.join(release, ".installation-source.json");
+    if (existsSync(receiptFile)) {
+      const receipt = JSON.parse(readFileSync(receiptFile, "utf8"));
+      if (COMMIT.test(receipt.sourceCommit ?? "")) return receipt.sourceCommit;
+    }
+    return COMMIT.test(path.basename(release)) ? path.basename(release) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Starts `node args` in its own session with output in `log`, so it outlives this process. */
+function spawnDetached(node: string, args: string[], log: string): void {
+  const descriptor = openSync(log, "a", 0o600);
+  try {
+    spawn(node, args, { detached: true, stdio: ["ignore", descriptor, descriptor] }).unref();
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+function readAdoptionOutcome(file: string): AdoptionOutcome | null {
+  try {
+    const result = JSON.parse(readFileSync(file, "utf8"));
+    if (result.status !== "succeeded" && result.status !== "failed") return null;
+    return { status: result.status, detail: String(result.detail ?? "") };
   } catch {
     return null;
   }
@@ -130,12 +196,14 @@ export function createReleaseUpgradeRuntime(input: {
   const upgradeDirectory = path.join(config.stateDir, "upgrades");
   const restoreDirectory = root ? path.join(root, ".restores") : null;
   const services = managedServices(config);
-  const blocker = upgradeBlocker(config);
+  const adoptable = adoptionRequired(config, configFile);
+  const blocker = upgradeBlocker(config, adoptable);
   const health = {
     url: `http://127.0.0.1:${config.listenPort}/api/installation/health`,
     installationId: config.public.installationId,
     previousPid: process.pid,
   };
+  const hostNode = config.host.startupValidation?.node ?? process.execPath;
   const helper = () =>
     path.join(path.dirname(realpathSync(entrypoint)), "coordinator-handoff-main.js");
 
@@ -149,10 +217,12 @@ export function createReleaseUpgradeRuntime(input: {
       }
     }
     try {
-      return hostUpdates?.source().baseCommit ?? null;
+      const base = hostUpdates?.source().baseCommit;
+      if (base) return base;
     } catch {
-      return null;
+      /* Host source updates are unconfigured or unreadable */
     }
+    return config.deployment ? null : legacyHostCommit(config);
   }
 
   const directOutcome = (upgradeId: string) =>
@@ -165,13 +235,11 @@ export function createReleaseUpgradeRuntime(input: {
     const directory = path.join(upgradeDirectory, upgrade.id);
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     const outcome = directOutcome(upgrade.id);
-    if (!existsSync(outcome)) {
-      const engine = path.join(deployment.sourceDirectory, "scripts/installer/main.mjs");
-      const log = openSync(path.join(directory, "host-release.log"), "a", 0o600);
-      const child = spawn(
-        config.host.startupValidation?.node ?? process.execPath,
+    if (!existsSync(outcome))
+      spawnDetached(
+        hostNode,
         [
-          engine,
+          path.join(deployment.sourceDirectory, INSTALLER_ENGINE),
           "host-release",
           "--root",
           deployment.installRoot,
@@ -180,12 +248,86 @@ export function createReleaseUpgradeRuntime(input: {
           "--outcome",
           outcome,
         ],
-        { detached: true, stdio: ["ignore", log, log] },
+        path.join(directory, "host-release.log"),
       );
-      child.unref();
-      closeSync(log);
-    }
     return `${DIRECT_JOB_PREFIX}${upgrade.id}`;
+  }
+
+  /** The installer engine in the coordinator's own release, else in the Host's. */
+  function adoptionEngine(): string {
+    const releases: string[] = [];
+    try {
+      releases.push(releaseOfEntrypoint(entrypoint));
+    } catch {
+      /* not started from a release */
+    }
+    if (config.sourceUpdates) {
+      try {
+        releases.push(realpathSync(config.sourceUpdates.currentReleaseLink));
+      } catch {
+        /* no Host release selected */
+      }
+    }
+    const engine = releases
+      .map((release) => path.join(release, INSTALLER_ENGINE))
+      .find((file) => existsSync(file));
+    if (!engine) throw new Error("No release of this installation has the installer engine");
+    return engine;
+  }
+
+  /** Runs the engine's `adopt` on this installation's root, detached; it restarts this process. */
+  function launchAdoptionEngine(directory: string): void {
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    spawnDetached(
+      hostNode,
+      [
+        adoptionEngine(),
+        "adopt",
+        "--root",
+        path.dirname(configFile),
+        "--outcome",
+        path.join(directory, "adoption.json"),
+      ],
+      path.join(directory, "adoption.log"),
+    );
+    logger.info({ directory }, "Installation adoption started");
+  }
+
+  const succeededHostUpdate = (job: RestartJob) =>
+    job.target === "host" &&
+    job.update !== undefined &&
+    job.status === "succeeded" &&
+    !job.reason.startsWith(UPGRADE_REASON_PREFIX);
+  // Source updates that finished before this process started never trigger adoption.
+  const earlierUpdates = new Set<string>();
+  if (adoptable) {
+    try {
+      for (const job of restarts.list()) if (succeededHostUpdate(job)) earlierUpdates.add(job.id);
+    } catch {
+      /* the restart journal is unreadable; no update can trigger adoption */
+    }
+  }
+
+  function adoptAfterSourceUpdate(): void {
+    if (!adoptable) return;
+    const directory = path.join(config.stateDir, "adoption");
+    const launch = path.join(directory, "launch.json");
+    // One automatic attempt; an upgrade from the interface retries after a failure.
+    if (existsSync(launch)) return;
+    const job = restarts
+      .list()
+      .find((item) => succeededHostUpdate(item) && !earlierUpdates.has(item.id));
+    if (!job) return;
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    writePrivateFileAtomicSync(
+      launch,
+      JSON.stringify({ jobId: job.id, launchedAt: new Date().toISOString() }, null, 2),
+    );
+    try {
+      launchAdoptionEngine(directory);
+    } catch (error) {
+      logger.error({ err: error }, "Installation adoption could not start");
+    }
   }
 
   async function git(args: string[], timeoutMs = 300_000) {
@@ -259,6 +401,11 @@ export function createReleaseUpgradeRuntime(input: {
 
   const ports: UpgradePorts = {
     now: () => new Date(),
+    adoptionRequired: adoptable,
+    launchAdoption: (upgrade) => launchAdoptionEngine(path.join(upgradeDirectory, upgrade.id)),
+    adoptionOutcome: (upgradeId) =>
+      readAdoptionOutcome(path.join(upgradeDirectory, upgradeId, "adoption.json")),
+    adoptionDeadlineMs: ADOPTION_DEADLINE_MS,
     hasContainer: config.container !== undefined,
     coordinatorReplacement: config.deployment?.coordinator
       ? null
@@ -467,6 +614,16 @@ export function createReleaseUpgradeRuntime(input: {
     ? null
     : new InstallationUpgrades(createUpgradeJournal(upgradeDirectory), ports);
 
+  function upgradeDetail(): string {
+    if (blocker) return blocker;
+    const steps = config.container
+      ? "takes a snapshot, then restarts the Host daemon, replaces the coordinator and recreates the Dev container."
+      : "takes a snapshot, then restarts the Host daemon and replaces the coordinator.";
+    return adoptable
+      ? `This installation predates the one-command installer. An upgrade first moves it to the installer layout in place${config.container ? ", with Dev in gate mode" : ""}, then ${steps}`
+      : `An upgrade ${steps}`;
+  }
+
   function readRestoreStatus(): SnapshotRestoreStatus | null {
     if (!restoreDirectory) return null;
     const file = path.join(restoreDirectory, "latest.json");
@@ -480,6 +637,7 @@ export function createReleaseUpgradeRuntime(input: {
 
   return {
     upgrades,
+    adoptAfterSourceUpdate,
     snapshots,
     snapshotList() {
       return {
@@ -555,11 +713,7 @@ export function createReleaseUpgradeRuntime(input: {
       const commit = currentCommit();
       return {
         available: upgrades !== null,
-        detail:
-          blocker ??
-          (config.container
-            ? "An upgrade takes a snapshot, then restarts the Host daemon, replaces the coordinator and recreates the Dev container."
-            : "An upgrade takes a snapshot, then restarts the Host daemon and replaces the coordinator."),
+        detail: upgradeDetail(),
         repository: VORTEO_RELEASE_REPOSITORY,
         current: commit
           ? {
