@@ -314,6 +314,7 @@ class GateSwitchTests(InstallTests):
         down = next(call for call in compose if 'down' in call)
         self.assertIn(str(self.deployment / 'compose.yaml'), down)
         self.assertNotIn('-v', down)
+        self.assertIn('--remove-orphans', down)
         self.assertIn(str(self.deployment / 'compose.gate.yaml'), [call for call in compose if 'up' in call][-1])
         # Networks a hand-built gate left behind are removed, so Compose cannot reuse their old subnet.
         calls = self.calls()

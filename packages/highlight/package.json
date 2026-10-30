@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/highlight",
-  "version": "0.11.0-beta.3.vorteo.952",
+  "version": "0.11.0-beta.3.vorteo.953",
   "files": [
     "dist",
     "!dist/**/*.map",

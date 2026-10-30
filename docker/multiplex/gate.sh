@@ -90,7 +90,9 @@ paseo_gate_config "$instance" "$gate_subnet" "$gate_routes" > "$deployment/gate/
 docker compose --project-directory "$deployment" --env-file "$next" -f "$deployment/compose.gate.yaml" config --quiet
 
 echo 'Moving Dev to gate mode. Active tasks will be interrupted; persistent state is retained.'
-paseo_compose down
+# --remove-orphans also stops containers from an earlier setup of this project, such as a
+# hand-built gate still holding the relay port and the gate network.
+paseo_compose down --remove-orphans
 # A Compose file other than this deployment's (for example a hand-built gate) can leave the
 # project's networks behind, and Compose would reuse them with their old subnet.
 for network in environment egress; do
