@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-30): legacy wrap trial passed with Dev identity preserved; fix duplicate skill preference when identical copies exist in several folders. README unchanged.
+
 Maintenance review (2026-10-30): explicit legacy deployment for non-default installer roots. README unchanged.
 
 Maintenance review (2026-10-30): first full real install (Dev in gate mode plus Tailscale) passed acceptance; prefer the shared library copy of duplicate skills within one environment. README unchanged.

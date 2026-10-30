@@ -199,8 +199,10 @@ test("one environment's different copies of a skill keep the shared library's co
   try {
     const store = new InstallationSkillPackages(path.join(directory, "packages"));
     const home = path.join(directory, "host");
+    // As on a real Mac: Claude Code holds the same copy as the shared library.
     for (const [folder, body] of [
       [".agents/skills", "shared library copy"],
+      [".claude/skills", "shared library copy"],
       [".codex/skills", "Codex copy with extras"],
     ]) {
       const target = path.join(home, folder, "writing");
@@ -215,7 +217,12 @@ test("one environment's different copies of a skill keep the shared library's co
       { readSkillLibrary: (request) => library.read(request) },
       store,
     );
-    expect(collected.filter((entry) => entry.name === "writing")).toHaveLength(1);
+    const kept = collected.filter((entry) => entry.name === "writing");
+    expect(kept).toHaveLength(1);
+    const instructions = store.read(kept[0]).files.find((file) => file.path === "SKILL.md");
+    expect(Buffer.from(instructions?.content ?? "", "base64").toString()).toContain(
+      "shared library copy",
+    );
     expect(mergeInstallationSkills({ host: collected }).conflicts).toEqual([]);
   } finally {
     rmSync(directory, { recursive: true, force: true });

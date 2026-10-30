@@ -23,7 +23,8 @@ export async function collectInstallationSkills(
   if (result.inventory.roots.some((root) => root.status === "error"))
     throw new Error("Skill discovery is incomplete; preserve the existing catalog");
   const definitions: InstallationSkill[] = [];
-  const paths = new Map<string, string>();
+  // Versions with a copy in the shared library's folder, `~/.agents/skills`.
+  const inSharedLibrary = new Set<string>();
   for (const skill of result.inventory.skills) {
     if (skill.owner !== "personal") continue;
     if (skill.issues.length || !skill.sha256)
@@ -43,9 +44,9 @@ export async function collectInstallationSkills(
       )
     )
       definitions.push(definition);
-    paths.set(definition.identity, skill.path);
+    if (/[\\/]\.agents[\\/]skills[\\/]/.test(skill.path)) inSharedLibrary.add(definition.identity);
   }
-  return preferSharedLibraryCopies(definitions, paths).toSorted((left, right) =>
+  return preferSharedLibraryCopies(definitions, inSharedLibrary).toSorted((left, right) =>
     left.identity.localeCompare(right.identity),
   );
 }
@@ -57,14 +58,12 @@ export async function collectInstallationSkills(
  */
 function preferSharedLibraryCopies(
   definitions: InstallationSkill[],
-  paths: ReadonlyMap<string, string>,
+  inSharedLibrary: ReadonlySet<string>,
 ): InstallationSkill[] {
-  const shared = (definition: InstallationSkill) =>
-    /[\\/]\.agents[\\/]skills[\\/]/.test(paths.get(definition.identity) ?? "");
   return definitions.filter((definition) => {
     const sameName = definitions.filter((other) => other.name === definition.name);
     if (sameName.length < 2) return true;
-    const canonical = sameName.filter(shared);
+    const canonical = sameName.filter((other) => inSharedLibrary.has(other.identity));
     return canonical.length === 1 ? canonical[0] === definition : true;
   });
 }
