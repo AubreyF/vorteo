@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-30): clarify standing delivery authority and finite outcome acceptance. Routine phases retain existing authorization; explicit restrictions and tracked lifecycle approvals remain binding. Runtime, README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-30): the journal unreadability regression uses the POSIX-only test category because Windows file modes cannot express the same condition. Preservation assertions remain intact, other journal cases remain portable, and production behavior is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-30): reconcile the combined sidebar and history candidate with main after diagnostic integration. Reviewed feature source is unchanged. README overview and onboarding are unchanged.
