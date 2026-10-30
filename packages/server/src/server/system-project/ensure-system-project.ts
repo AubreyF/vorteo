@@ -63,22 +63,30 @@ export async function seedSystemProjectAtStartup(
      * once the binding arrives.
      */
     installationManaged?: boolean;
+    /** Called once the project and its workspaces exist, with the environment they serve. */
+    onSeeded?: (environment: SystemEnvironment) => void;
   },
 ): Promise<"seeded" | "awaiting-binding" | "disabled"> {
   if (input.enabled === false) return "disabled";
-  const { enabled: _enabled, sharedProviderPreferences, installationManaged, ...rest } = input;
+  const {
+    enabled: _enabled,
+    sharedProviderPreferences,
+    installationManaged,
+    onSeeded,
+    ...rest
+  } = input;
   if (installationManaged && !sharedProviderPreferences?.installation) {
     input.logger.info("Vorteo System project waits for this daemon's installation binding");
     return "awaiting-binding";
   }
+  const environment = sharedProviderPreferences?.installation?.environment ?? "single";
   try {
-    await ensureSystemProject({
-      ...rest,
-      environment: sharedProviderPreferences?.installation?.environment ?? "single",
-    });
+    await ensureSystemProject({ ...rest, environment });
   } catch (error) {
     input.logger.error({ err: error }, "Vorteo System project setup failed");
+    return "seeded";
   }
+  onSeeded?.(environment);
   return "seeded";
 }
 
