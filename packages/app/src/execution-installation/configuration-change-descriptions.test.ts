@@ -38,4 +38,18 @@ describe("describeConfigurationChanges", () => {
       } as CoordinatorBootstrapPlan),
     ).toEqual(["This plan cannot be approved: Unknown configuration setting: unknown."]);
   });
+  it("describes telemetry enablement and removal without claiming retained logs are deleted", () => {
+    expect(
+      describeConfigurationChanges({
+        configurationChanges: [{ setting: "operationalTelemetryEnabled", value: true }],
+      } as CoordinatorBootstrapPlan),
+    ).toEqual([
+      "Turn on private minute-by-minute coordinator performance logging, up to 12 MiB. Records process CPU and memory, cached queue and connection health, and fixed operation status labels; no prompts or account content.",
+    ]);
+    expect(
+      describeConfigurationChanges({
+        configurationChanges: [{ setting: "operationalTelemetryEnabled", value: null }],
+      } as CoordinatorBootstrapPlan),
+    ).toEqual(["Turn off future coordinator performance samples. Keep retained private logs."]);
+  });
 });

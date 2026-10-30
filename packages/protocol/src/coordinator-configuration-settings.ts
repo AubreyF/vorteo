@@ -34,6 +34,11 @@ type ReviewedConfigurationRegistry = Record<string, ReviewedConfigurationSetting
  * pre-registry verifier so expected configurations stay identical.
  */
 export const REVIEWED_CONFIGURATION_SETTINGS = {
+  operationalTelemetryEnabled: {
+    path: ["operationalTelemetryEnabled"],
+    value: z.literal(true),
+    renewal: true,
+  },
   containerSourceUpdateNode: {
     path: ["containerSourceUpdates", "node"],
     value: z.string().startsWith("/"),

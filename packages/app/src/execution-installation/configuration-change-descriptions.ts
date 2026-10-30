@@ -15,6 +15,10 @@ type Descriptions = {
  * new setting cannot reach approval without a description here.
  */
 const DESCRIPTIONS: Descriptions = {
+  operationalTelemetryEnabled: (config) =>
+    config === null
+      ? "Turn off future coordinator performance samples. Keep retained private logs."
+      : "Turn on private minute-by-minute coordinator performance logging, up to 12 MiB. Records process CPU and memory, cached queue and connection health, and fixed operation status labels; no prompts or account content.",
   containerSourceUpdateNode: (node) =>
     node === null
       ? "This plan cannot remove the Node executable required by Dev source updates."

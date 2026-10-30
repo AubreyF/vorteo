@@ -7,6 +7,10 @@ import { createNativeMaintenanceServiceRouter } from "./coordinator-bootstrap-ma
 import { initializePackagedClaudeCli } from "../agent/providers/claude/packaged-cli.js";
 import { createPreviewMonitorExecutor } from "./preview-monitor-executor.js";
 import { realpathSync } from "node:fs";
+import { join } from "node:path";
+import { resolveDaemonVersion } from "../daemon-version.js";
+import { createOperationalTelemetry } from "./operational-telemetry.js";
+import { createOperationalStore } from "./operational-telemetry-store.js";
 import { createNativeHelperExecutor } from "./native-helper-executor.js";
 import { createSessionHostExecutor } from "./session-host-job.js";
 import { createNativeSessionHostPorts } from "./session-host-job-native.js";
@@ -138,6 +142,9 @@ function activateSynchronization() {
   if (synchronizing || (startupFence && !startupFence.released())) return;
   stopProfileSynchronization = startProfileSynchronization(profiles, logger);
   stopSettingsReconciliation = startSettingsReconciliation(settings, logger);
+  void telemetry.start().catch(() => {
+    logger.warn("Optional operational telemetry could not start");
+  });
   synchronizing = true;
 }
 const claudeSetup = createClaudeSetupRuntime(config, settings, assertRegistrationReadiness);
@@ -184,6 +191,36 @@ const app = createInstallationServer(
   claudeOAuth,
   providerSecrets,
 );
+const telemetry = createOperationalTelemetry({
+  enabled: config.operationalTelemetryEnabled === true,
+  version: resolveDaemonVersion(),
+  clock: { now: Date.now, monotonic: () => performance.now() },
+  writer: createOperationalStore(join(config.stateDir, "operational-telemetry-v1")),
+  observe() {
+    const cpu = process.cpuUsage();
+    const memory = process.memoryUsage();
+    const connections = daemonConnections.operationalSnapshot();
+    return {
+      coordinator: {
+        cpuUserMicros: cpu.user,
+        cpuSystemMicros: cpu.system,
+        rssBytes: memory.rss,
+        heapUsedBytes: memory.heapUsed,
+        uptimeSeconds: process.uptime(),
+      },
+      diskAvailableBytes: null,
+      queues: app.operationalQueueSummary(),
+      hostConnection: connections.host,
+      devConnection: connections.container,
+    };
+  },
+  schedule(callback, intervalMs) {
+    const timer = setInterval(callback, intervalMs);
+    timer.unref();
+    return () => clearInterval(timer);
+  },
+});
+if (config.operationalTelemetryEnabled === true) app.setOperationalActivitySink(telemetry);
 activateSynchronization();
 const restartTimer = setInterval(() => {
   try {
@@ -203,6 +240,7 @@ server.on("error", (error) => {
 });
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => {
+    telemetry.stop();
     clearInterval(restartTimer);
     clearInterval(claudeSetupTimer);
     clearInterval(providerSecretsTimer);
