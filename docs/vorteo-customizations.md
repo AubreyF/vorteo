@@ -2085,3 +2085,5 @@ Daemon-served HTML negotiates Brotli or gzip after injecting its public connecti
 Maintenance review: delayed workspace navigation checks assert the selected profile and resulting agent mode while preserving daemon-owned permission resolution. The recovery browser fixture tolerates teardown before server creation without hiding setup or server-close failures; Metro compilation and timeouts remain unchanged.
 
 Maintenance review: timeline browser helpers serialize geometry reads around the shared worktree-callout handler. The queue orbit regression waits for startup handoff and verifies its draft before submitting, preserving all queue-transition assertions and timeouts. Production code is unchanged.
+
+Maintenance review: installer service files take their PATH from `scripts/installer/service-path.mjs`, and adoption also rewrites the PATH of already linked service files. Sign-in start failures use provider-specific copy and log their cause; the sign-in flow is otherwise unchanged.

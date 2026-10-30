@@ -3,6 +3,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { detectExisting, detectPrerequisites, tailscaleStatus } from "./detect.mjs";
+import { servicePath } from "./service-path.mjs";
 import { DEFAULT_PORTS, choosePorts, servePortsInUse } from "./ports.mjs";
 import { InstallerError, assertProjectsFolderSeparate } from "./primitives.mjs";
 import { isInsideFolder } from "../lib/projects-folder.mjs";
@@ -417,6 +418,12 @@ export async function createPlan(rawAnswers, context) {
       coordinator: `${label}.installation`,
     },
     executables,
+    servicePath: servicePath({
+      platform: context.platform,
+      home: context.home,
+      nodeDirectory: path.dirname(executables.node),
+      envPath: context.env?.PATH,
+    }),
     ...(answers.devContainer
       ? { dev: await planDev(context, executables.docker, existing, adopt) }
       : {}),

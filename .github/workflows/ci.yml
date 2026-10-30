@@ -86,9 +86,9 @@ jobs:
       - name: Install dependencies
         run: node scripts/npm-retry.mjs ci
       - name: install.sh, prerequisites, QR and progress
-        run: node --test scripts/installer/install-sh.test.mjs scripts/installer/prerequisites.test.mjs scripts/installer/qr.test.mjs scripts/installer/progress.test.mjs
+        run: node --test scripts/installer/install-sh.test.mjs scripts/installer/prerequisites.test.mjs scripts/installer/qr.test.mjs scripts/installer/progress.test.mjs scripts/installer/service-path.test.mjs
       - name: Installer engine
-        run: npx vitest run scripts/installer/plan.test.mjs scripts/installer/detect.test.mjs scripts/installer/apply.test.mjs scripts/installer/services.test.mjs scripts/installer/gate.test.mjs
+        run: npx vitest run scripts/installer/plan.test.mjs scripts/installer/detect.test.mjs scripts/installer/apply.test.mjs scripts/installer/services.test.mjs scripts/installer/gate.test.mjs scripts/installer/host-adoption.test.mjs
 
   format:
     name: format

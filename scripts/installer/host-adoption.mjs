@@ -23,6 +23,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { applyPlan } from "./apply.mjs";
 import { gateRoute } from "./coordinator-config.mjs";
+import { servicePath, withServicePath } from "./service-path.mjs";
 import {
   JOURNAL,
   LAB_DIRECTORY,
@@ -758,15 +759,26 @@ async function adoptServices(s) {
   const changed = [];
   for (const { file, from, to } of s.plan.adoption.serviceEdits) {
     const text = readFileSync(file, "utf8");
-    if (!text.includes(from)) {
-      if (text.includes(to)) continue;
+    // A service already started through its link may still carry the bare PATH, so it is
+    // rewritten too; only a file that starts neither entrypoint means the plan is stale.
+    if (!text.includes(from) && !text.includes(to)) {
       throw new InstallerError(
         `${file} changed since the plan and no longer starts ${from}.`,
         "Plan the upgrade again.",
       );
     }
-    const next = text.split(from).join(to);
-    if (sha256(next) !== sha256(text)) privateWrite(file, next);
+    // The old services ran with a bare PATH, which hides provider CLIs from the Host.
+    const next = withServicePath(
+      text.split(from).join(to),
+      servicePath({
+        platform: s.plan.platform,
+        home: s.context.home,
+        nodeDirectory: path.dirname(s.plan.executables.node),
+        envPath: s.context.env?.PATH,
+      }),
+    );
+    if (sha256(next) === sha256(text)) continue;
+    privateWrite(file, next);
     changed.push(path.basename(file));
   }
   return changed.length

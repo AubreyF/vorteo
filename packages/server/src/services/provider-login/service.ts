@@ -6,6 +6,14 @@ import type { ProviderLoginSession } from "./session.js";
 // React Native overloads global timers when browser fixtures import this Node-only module.
 const nodeTimeout = setTimeout as (callback: () => void, delay: number) => NodeJS.Timeout;
 
+const START_FAILURE =
+  "Could not start account sign-in. Check the host connection and update this account’s CLI, then try again.";
+/** Codex device sign-in also needs device codes allowed on the ChatGPT account. */
+export const CODEX_START_FAILURE =
+  "Could not start Codex sign-in. Check the host connection and update the Codex CLI. For ChatGPT accounts, enable device-code sign-in in ChatGPT security settings. Then try again.";
+export const CLAUDE_START_FAILURE =
+  "Could not start Claude sign-in. Check the host connection and that the Claude CLI is installed and up to date on the Host, then try again.";
+
 interface LoginClient {
   openAccountLoginSession?(): Promise<ProviderLoginSession>;
 }
@@ -14,6 +22,9 @@ interface LoginServiceOptions {
   onConnected(providerId: string): void;
   now?: () => number;
   schedule?: (callback: () => void, delay: number) => () => void;
+  /** Shown when the provider CLI cannot open a sign-in; says what to check for this provider. */
+  startFailureMessage?: (providerId: string) => string | undefined;
+  logger?: { warn(details: object, message: string): void };
 }
 interface Attempt {
   providerId: string;
@@ -113,13 +124,16 @@ export class ProviderLoginService {
           expiresAt: attempt.expiresAt,
         };
       }
-    } catch {
+    } catch (error) {
+      this.options.logger?.warn(
+        { err: error, providerId: attempt.providerId },
+        "Account sign-in could not start",
+      );
       if (isActive(attempt.state)) {
         attempt.state = {
           status: "failed",
           attemptId,
-          message:
-            "Could not start account sign-in. Check the host connection and update this account’s CLI. For ChatGPT accounts, enable device-code sign-in in ChatGPT security settings. Then try again.",
+          message: this.options.startFailureMessage?.(attempt.providerId) ?? START_FAILURE,
         };
       }
       await this.release(attempt);

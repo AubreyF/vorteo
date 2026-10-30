@@ -1,7 +1,11 @@
+import pino from "pino";
 import { requireEnvironmentDaemon } from "../config.js";
 import { isDeepStrictEqual } from "node:util";
 import { join } from "node:path";
-import { ProviderLoginService } from "../../../services/provider-login/service.js";
+import {
+  CODEX_START_FAILURE,
+  ProviderLoginService,
+} from "../../../services/provider-login/service.js";
 import type { InstallationConfig } from "../config.js";
 import { connectInstallationDaemon, createInstallationRegistrationAdmission } from "../daemon.js";
 import type { InstallationSettingsService } from "../settings/service.js";
@@ -17,6 +21,9 @@ import {
 import { createCodexHostCli, readCodexHostGrant, type CodexHostCli } from "./codex-signin-host.js";
 import { CodexSignInRefresher } from "./codex-signin-refresher.js";
 import type { HostRefreshPolicy } from "./host-owned-refresher.js";
+
+// Sign-in start failures surface a short message in the interface; the cause goes to the log.
+const logger = pino({ name: "vorteo-installation" });
 
 interface DaemonFeatures {
   installationSettingsAuthority?: boolean;
@@ -179,6 +186,8 @@ export function createCodexSignInRuntime(
   });
 
   const login = new ProviderLoginService({
+    startFailureMessage: () => CODEX_START_FAILURE,
+    logger,
     getClient: (definitionId) => ({
       openAccountLoginSession: async () => {
         if (definition(definitionId).selected.removed) throw new CodexSignInDeliveryError();

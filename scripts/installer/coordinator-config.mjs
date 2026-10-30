@@ -10,11 +10,7 @@ import path from "node:path";
 import { publicOrigin } from "./plan.mjs";
 import { COORDINATOR_ENTRYPOINT, SUPERVISOR_ENTRYPOINT, WEB_DIST } from "./host-installation.mjs";
 import { HOST_EXIT_TIMEOUT_SECONDS } from "./launchd.mjs";
-
-const PLATFORM_PATH = {
-  darwin: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-  linux: "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin",
-};
+import { servicePath } from "./service-path.mjs";
 
 /** Origins of the coordinator on Host loopback, which local access serves. */
 export function localOrigins(plan) {
@@ -164,7 +160,9 @@ export function describeServices(plan) {
   const nodeDirectory = path.dirname(plan.executables.node);
   const env = {
     HOME: plan.paths.home,
-    PATH: `${nodeDirectory}:${PLATFORM_PATH[plan.platform] ?? PLATFORM_PATH.linux}`,
+    PATH:
+      plan.servicePath ??
+      servicePath({ platform: plan.platform, home: plan.paths.home, nodeDirectory }),
     PASEO_HOME: plan.paths.hostHome,
     VORTEO_INSTALLATION_CLIENT_CONFIG: hostClientFile(plan),
   };

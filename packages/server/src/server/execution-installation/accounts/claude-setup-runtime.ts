@@ -1,7 +1,11 @@
+import pino from "pino";
 import { z } from "zod";
 import { isDeepStrictEqual } from "node:util";
 import { join } from "node:path";
-import { ProviderLoginService } from "../../../services/provider-login/service.js";
+import {
+  CLAUDE_START_FAILURE,
+  ProviderLoginService,
+} from "../../../services/provider-login/service.js";
 import { ClaudeSetupTokenLoginSession } from "../../agent/providers/claude/setup-token-login.js";
 import {
   checkProviderLaunchAvailable,
@@ -16,6 +20,9 @@ import {
   ClaudeSetupDeliveryReceiptSchema,
 } from "./claude-setup-delivery.js";
 import { readClaudeSetupFile, writeClaudeSetupFile } from "./claude-setup-file.js";
+
+// Sign-in start failures surface a short message in the interface; the cause goes to the log.
+const logger = pino({ name: "vorteo-installation" });
 
 /** Owner-only coordinator service. It never exposes the canonical credential through an API. */
 export function createClaudeSetupRuntime(
@@ -121,6 +128,8 @@ export function createClaudeSetupRuntime(
     },
   });
   const login = new ProviderLoginService({
+    startFailureMessage: () => CLAUDE_START_FAILURE,
+    logger,
     getClient: (definitionId) => ({
       openAccountLoginSession: async () => {
         const { selected } = definition(definitionId);

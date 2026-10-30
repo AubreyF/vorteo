@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.958 - 2026-10-30
+
+### Fixed
+
+- The Host daemon and coordinator services now run with the owner's PATH, including `~/.local/bin`, so the Host finds provider CLIs such as Claude Code and account sign-in can start. Upgrading an older installation rewrites the PATH of services that already start through the release links.
+- A sign-in that cannot start names its own provider: Claude no longer shows ChatGPT device-code advice, and the cause is written to the log.
+
 ## 0.11.0-beta.3.vorteo.957 - 2026-10-30
 
 ### Changed

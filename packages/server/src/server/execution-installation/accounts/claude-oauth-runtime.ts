@@ -1,7 +1,11 @@
+import pino from "pino";
 import { isDeepStrictEqual } from "node:util";
 import { join } from "node:path";
 import { z } from "zod";
-import { ProviderLoginService } from "../../../services/provider-login/service.js";
+import {
+  CLAUDE_START_FAILURE,
+  ProviderLoginService,
+} from "../../../services/provider-login/service.js";
 import { requireEnvironmentDaemon, type InstallationConfig } from "../config.js";
 import { connectInstallationDaemon, createInstallationRegistrationAdmission } from "../daemon.js";
 import type { InstallationSettingsService } from "../settings/service.js";
@@ -18,6 +22,9 @@ import {
   type ClaudeHostCli,
 } from "./claude-oauth-host.js";
 import { ClaudeOAuthRefresher, type ClaudeOAuthPolicy } from "./claude-oauth-refresher.js";
+
+// Sign-in start failures surface a short message in the interface; the cause goes to the log.
+const logger = pino({ name: "vorteo-installation" });
 
 interface DaemonFeatures {
   installationSettingsAuthority?: boolean;
@@ -174,6 +181,8 @@ export function createClaudeOAuthRuntime(
   });
 
   const login = new ProviderLoginService({
+    startFailureMessage: () => CLAUDE_START_FAILURE,
+    logger,
     getClient: (definitionId) => ({
       openAccountLoginSession: async () => {
         const { selected } = fullDefinition(definitionId);
