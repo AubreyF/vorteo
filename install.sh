@@ -1396,8 +1396,11 @@ vorteo_install() {
       printf '# Installed by the Vorteo installer. Forwards to the command in the release source.\n'
       printf 'VORTEO_ROOT=${VORTEO_ROOT:-%s}\n' "$(printf '%q' "$root")"
       printf 'VORTEO_NODE=${VORTEO_NODE:-%s}\n' "$(printf '%q' "$node_bin")"
-      printf 'export VORTEO_ROOT VORTEO_NODE\n'
-      printf 'script="$VORTEO_ROOT/source/scripts/installer/vorteo.sh"\n'
+      # The source is the release checkout under the root, or the checkout installed with
+      # VORTEO_INSTALL_SOURCE; in-app upgrades keep using the same folder.
+      printf 'VORTEO_SOURCE=${VORTEO_SOURCE:-%s}\n' "$(printf '%q' "$source_dir")"
+      printf 'export VORTEO_ROOT VORTEO_NODE VORTEO_SOURCE\n'
+      printf 'script="$VORTEO_SOURCE/scripts/installer/vorteo.sh"\n'
       printf 'if [ ! -f "$script" ]; then\n'
       printf '  echo "Vorteo is not installed in $VORTEO_ROOT. Install it with: curl -fsSL %s | bash" >&2\n' "$install_address"
       printf '  exit 1\n'

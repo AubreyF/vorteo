@@ -18,7 +18,7 @@
 vorteo_command() {
   local root="${VORTEO_ROOT:-$HOME/vorteo}"
   local node_bin="${VORTEO_NODE:-node}"
-  local installer="$root/source/scripts/installer"
+  local installer="${VORTEO_SOURCE:-$root/source}/scripts/installer"
   local install_address="https://terranlabs.com/vorteo/install"
 
   engine() {

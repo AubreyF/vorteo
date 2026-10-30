@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-30): first real Host-only local install and uninstall on macOS passed; fix the `vorteo` command's source lookup and uninstall progress titles. README unchanged.
+
 Maintenance review (2026-10-30): a non-default installer `--root` never adopts another installation; engine `--help`. README unchanged.
 
 Maintenance review (2026-10-30): slim the Vorteo-written test suite, add the agent testing budget and make pull request CI ignore version-only manifest bumps so path routing selects suites again. Coverage of security boundaries, the installation coordinator, migrations, wire compatibility and installers is retained. No runtime behavior, README overview or onboarding changed.

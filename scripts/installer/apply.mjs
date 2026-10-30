@@ -257,11 +257,23 @@ async function stopDev(state, { keepData }) {
  * by this installation are deleted. The source folder, the Projects folder and an
  * adopted deployment are never deleted.
  */
+// Progress titles while removing, so uninstall never reads as installing.
+const REMOVAL_TITLES = {
+  remote: "Removing Tailscale HTTPS routes",
+  services: "Stopping the Host and coordinator services",
+  dev: "Stopping the Dev container",
+  data: "Deleting installation data",
+};
+
 export async function uninstall(context, { keepData }, emit) {
   const state = loadInstallation(context);
   const { plan, manager, journal } = state;
   const step = async (name, action) => {
-    emit({ step: name, status: "start", message: STEP_TITLES[name] ?? name });
+    emit({
+      step: name,
+      status: "start",
+      message: REMOVAL_TITLES[name] ?? STEP_TITLES[name] ?? name,
+    });
     try {
       emit({ step: name, status: "done", message: await action() });
       return true;
