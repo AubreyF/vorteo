@@ -1,5 +1,19 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-30): integrate the installed initialization diagnostic with current source. Preserve current runtime features and delivery rules alongside the diagnostic phase and error classification. Source integration does not authorize installing unrelated runtime changes. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-29): restore the accepted account-picker viewport waits and bounded motion sampling on the diagnostic base. All nine browser cases pass locally. Sampling can miss an intermittent absent stagger; no animation fix is claimed. Runtime, README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-29): restore accepted Settings tab repositioning and readiness polling, plus shared-queue viewport paint waits, on the diagnostic base. Assertions and application behavior are preserved. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-29): restore accepted typography, new-agent latency and saved-draft browser fixtures on the diagnostic base. Preserve assertions and the 3000ms application latency threshold; test budgets accommodate previously measured font and navigation delays without claiming those product defects are fixed. Runtime, interface source, README overview and onboarding remain unchanged.
+
+Maintenance review (2026-10-29): restore the accepted recovery fixture bundle-option reuse in the diagnostic branch. Production and interface source, test assertions and setup timeout are unchanged. This removes a known redundant transform path; the current CI SIGTERM cause remains unproven. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-29): relocate detailed agent delivery rules into mandatory linked documentation without changing authority or the existing instruction-size budget. Apply the previously reviewed formatting-only broker client correction to the diagnostic candidate. Runtime and interface behavior, README overview and onboarding remain unchanged; delivery gates still apply.
+
+Maintenance review (2026-10-29): refresh the coordinator diagnostic source candidate onto the served interface baseline, retaining app source, assets and UI generators. Server runtime uses the installed baseline plus the three accepted initialization diagnostic files; explicit reversions exclude unrelated server, broker, packaging and tooling changes. Source only; build, CI, retention, publication and lifecycle acceptance remain gated. Existing documentation history, README overview and onboarding are preserved.
+
 Maintenance review (2026-10-29): merge main's server-test fixture repair into the pull request delivery branch, and correct the publisher's dry-run report for existing pull requests. No runtime behavior changed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-29): approvals from the account agents run as no longer count for pull request delivery, and the release-tag trigger test checks chained workflows and guard structure. Not on GitHub or installed yet. README overview and onboarding are unchanged.
@@ -1447,6 +1461,12 @@ Reviewed on October 7, 2026 against integrated Paseo commit `c062280429c2aa894d9
 No complete replacement of these custom workflows was established in this review. Future upstream merges must reassess behavior and tests, narrow the inventory to remaining differences, and update the roadmap under the [maintenance rules](writing.md#maintain-the-vorteo-customizations-inventory).
 
 ## Maintenance review
+
+October 29, 2026: The diagnostic branch reuses four reviewed layout-settle test files from main. All responsive and disclosure assertions remain; measured test budgets accommodate the known layout-switch freeze without claiming it fixed. Runtime behavior, README overview and onboarding are unchanged.
+
+October 29, 2026: The diagnostic branch reuses the reviewed zoom-slider browser fixture correction, keeping the control visible before real pointer drags. Assertions, timeouts and runtime behavior are unchanged. README overview and onboarding are unchanged.
+
+October 29, 2026: The isolated diagnostic candidate reuses three reviewed installation test fixtures for protected executables and platform ownership. Production guards and interface behavior remain unchanged. README overview and onboarding are unchanged.
 
 October 29, 2026: Preview-monitor and session-host HTTP fixtures use the existing native HTTP request convention so the configured Host reaches the origin guard. All authentication assertions and production behavior remain unchanged. README overview and onboarding are unchanged.
 
