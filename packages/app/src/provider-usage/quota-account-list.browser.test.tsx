@@ -124,7 +124,7 @@ async function render(width: number) {
   });
 }
 
-for (const width of [1280, 390]) {
+for (const width of [390]) {
   test(`quota accounts show every window with absolute resets at ${width}px`, async () => {
     await render(width);
     // Accounts needing attention open with one bar per window, the pace warning included.

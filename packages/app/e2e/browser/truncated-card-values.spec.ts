@@ -7,7 +7,7 @@ import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
 
 test("truncated card values reveal non-interactive details without changing row actions", async ({
   page,
-}, info) => {
+}) => {
   await page.setViewportSize({ width: 1900, height: 1100 });
   const agent = await seedMockAgentWorkspace({
     repoPrefix: "truncated-values-",
@@ -65,7 +65,6 @@ test("truncated card values reveal non-interactive details without changing row 
     await expect(tooltip).toContainText(title);
     await expect(tooltip).toContainText("Relevant task context");
     expect(await tooltip.evaluate((node) => getComputedStyle(node).pointerEvents)).toBe("none");
-    await page.screenshot({ path: info.outputPath("task-tooltip.png") });
     await page.mouse.move(700, 20);
     await expect(tooltip).toBeHidden();
     await page.getByTestId("checklist-row-short").getByText("Short task", { exact: true }).hover();

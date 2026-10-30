@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.946 - 2026-10-30
+
+### Changed
+
+- Pull request CI routes on substantive changes again. Every commit's version bump touched every manifest, which matched the `workspace` routing group and ran the full suite (about 4.5 runner-hours of CI) on every pull request. Manifests whose only change is the version are now ignored before path filtering.
+- The agent guide adds a testing budget: tests only for behavior that broke before or carries real risk, extend existing tests before adding files, no screenshot, copy or styling assertions, end-to-end smoke at release time, and delete obsolete tests in the same change. Upstream Paseo tests are left alone.
+
+### Maintenance
+
+- Removed about 5,400 lines of Vorteo-written tests that asserted styling, pixel geometry, animation or wording, repeated themes and viewport widths, duplicated other coverage, or never ran in CI. Security, coordinator, migration, wire-compatibility and installer coverage is kept; coordinator tables lost only duplicate rows. The largest trims are in the demo workspace, scrolling agent cards, theme picker and workspace standing browser specs, saving an estimated 15 to 20 Playwright minutes per full run.
+- Deleted ten orphaned dependency-boundary script tests and a system project end-to-end test that the registry tests already cover.
+
 ## 0.11.0-beta.3.vorteo.945 - 2026-10-30
 
 ### Added

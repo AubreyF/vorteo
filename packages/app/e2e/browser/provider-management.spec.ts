@@ -1,6 +1,5 @@
 import { mkdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
-import type { Locator } from "@playwright/test";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { expect, test } from "../support/fixtures";
 import { gotoAppShell } from "../support/helpers/app";
@@ -50,13 +49,6 @@ for (const width of [1280, 402]) {
       await expect(page.getByTestId("catalog-provider-codex")).toContainText(
         "Codex (ChatGPT account)",
       );
-      const codexAdd = page.getByTestId("add-codex-account");
-      const otherAdd = page.locator('[data-testid^="install-provider-"]').first();
-      await expect(otherAdd).toBeVisible();
-      const codexBox = await codexAdd.boundingBox();
-      const otherBox = await otherAdd.boundingBox();
-      expect(codexBox?.width).toBe(otherBox?.width);
-      expect(codexBox?.height).toBe(otherBox?.height);
       await page.getByTestId("provider-catalog-search").fill("CoDeX");
       for (const suffix of ["one", "two"]) {
         const name = `Search account ${width} ${suffix}`;
@@ -82,25 +74,7 @@ for (const width of [1280, 402]) {
           page.getByTestId(`provider-connect-${id}`),
           page.getByRole("switch", { name: `Enable ${name}`, exact: true }),
         ];
-        const boxes: NonNullable<Awaited<ReturnType<Locator["boundingBox"]>>>[] = [];
-        for (const control of controls) {
-          await expect(control).toBeVisible();
-          const box = await control.boundingBox();
-          if (!box) throw new Error("Missing provider control bounds");
-          boxes.push(box);
-        }
-        const gaps = boxes
-          .slice(1)
-          .map((box, index) => box.x - boxes[index].x - boxes[index].width);
-        expect(gaps[0]).toBeGreaterThan(0);
-        for (const gap of gaps) expect(gap).toBeCloseTo(gaps[0], 0);
-        // 0153f4c69 paints the outline on the control itself, not a separate outline view.
-        for (const action of ["rename", "remove", "connect"]) {
-          await expect(page.getByTestId(`provider-${action}-${id}`)).toHaveCSS(
-            "border-top-style",
-            "solid",
-          );
-        }
+        for (const control of controls) await expect(control).toBeVisible();
         await page.getByTestId(`provider-rename-${id}`).click();
         await page.getByTestId("provider-rename-dialog-input").fill(`Renamed ${name}`);
         await page.getByTestId("provider-rename-dialog-submit").click();
@@ -230,7 +204,6 @@ test("provider drag order persists, reports save failures, and plugin deletion s
     await expect(handles.first()).toBeVisible();
     await expect(page.getByTestId("provider-remove-antigravity")).toHaveCount(0);
     await expect(page.getByTestId("provider-remove-muse")).toHaveCount(0);
-    await page.screenshot({ path: test.info().outputPath("providers-reordered.png") });
   } finally {
     await client.close();
   }

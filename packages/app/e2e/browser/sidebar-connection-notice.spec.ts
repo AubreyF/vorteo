@@ -8,7 +8,7 @@ import { waitForSidebarHydration } from "../support/helpers/workspace-ui";
 for (const width of [1400, 390]) {
   test(`connection notice stays in the sidebar and clears on recovery at ${width}px`, async ({
     page,
-  }, info) => {
+  }) => {
     const project = await seedWorkspace({ repoPrefix: "sidebar-connection-" });
     let offline = false;
     let clientSocket: WebSocketRoute | undefined;
@@ -41,7 +41,6 @@ for (const width of [1400, 390]) {
       ).toHaveCount(0);
       await notice.click();
       await expect(notice).toBeVisible();
-      await page.screenshot({ path: info.outputPath("connection-sidebar.png") });
       if (width >= 720) {
         await page.getByTestId("sidebar-collapse").click();
         await expect(notice).toBeVisible();

@@ -282,92 +282,75 @@ test.describe("Settings — compact master-detail", () => {
   });
 });
 
-for (const width of [1280, 390]) {
-  test(`environment tabs stay visible while details scroll at ${width}px`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 500 });
-    const primary = getServerId();
-    const secondary = "srv_e2e_environment_tabs";
-    const endpoint = `127.0.0.1:${getE2EDaemonPort()}`;
-    await seedSavedSettingsHosts(page, [
-      { serverId: primary, label: "Host", endpoint },
-      { serverId: secondary, label: "Dev container", endpoint },
-    ]);
-    await page.goto(buildSettingsSectionRoute("environments"));
-    // Environment cards also appear in other sections' panes; scope to this one.
-    const pane = page.getByTestId("settings-environment-scroll");
-    const tabs = page.getByTestId("settings-environment-tabs");
-    // The deep link pins Environments for 3s (PIN_MS in settings-scroll-page.tsx), but panes
-    // above it can finish loading later and push it about 2,800px down: CI showed Terminal. Bring
-    // the tabs back into view when that happens and wait until they rest before measuring. A cold
-    // local run kept moving for more than the default 10s, hence 30s.
-    let previousTabTop: number | undefined;
-    await expect
-      .poll(
-        async () => {
-          const top = (await tabs.boundingBox())?.y;
-          if (top === undefined || top < 0 || top >= 500) {
-            await tabs.evaluate((node) => node.scrollIntoView({ block: "start" }));
-            previousTabTop = undefined;
-            return false;
-          }
-          const settled = top === previousTabTop;
-          previousTabTop = top;
-          return settled;
-        },
-        { timeout: 30_000 },
-      )
-      .toBe(true);
-    const hostTab = page.getByRole("tab", { name: "Host", exact: true });
-    const devTab = page.getByRole("tab", {
-      name: "Dev container",
-      exact: true,
-    });
-    await expect(hostTab).toHaveAttribute("aria-selected", "true");
-    await expect(pane.getByTestId(`settings-environment-${primary}`)).toBeVisible();
-    await expect(pane.getByTestId(`settings-environment-${secondary}`)).toHaveCount(0);
-    const tabBar = page.getByTestId("settings-environment-tabs-bar");
-    await expect(tabBar).toHaveCSS("border-bottom-width", "1px");
-    await expect(tabBar).toHaveCSS("border-bottom-style", "solid");
-    for (const tab of [hostTab, devTab]) {
-      await expect(tab).toHaveCSS("border-bottom-left-radius", "0px");
-      await expect(tab).toHaveCSS("border-bottom-right-radius", "0px");
-      await expect(tab).not.toHaveCSS("border-top-left-radius", "0px");
-      await expect(tab).not.toHaveCSS("border-top-right-radius", "0px");
-    }
-    const barBounds = await tabBar.boundingBox();
-    const contentBounds = await pane.getByTestId(`settings-environment-${primary}`).boundingBox();
-    expect(barBounds).not.toBeNull();
-    expect(contentBounds).not.toBeNull();
-    expect(barBounds!.x).toBeCloseTo(contentBounds!.x, 0);
-    expect(barBounds!.width).toBeCloseTo(contentBounds!.width, 0);
-    // The settings page scrolls; the tabs stick while this environment's details pass under them.
-    const scroll = page.getByTestId("settings-scroll-page");
-    await scroll.hover();
-    // Scroll past the section heading so the tabs have reached their sticky
-    // position at every width before measuring it.
-    await page.mouse.wheel(0, 400);
-    // Wheel scrolling can animate; measure once the position has settled.
-    let previousTop = -1;
-    await expect
-      .poll(async () => {
-        const top = await scroll.evaluate((element) => element.scrollTop);
-        const settled = top > 0 && top === previousTop;
-        previousTop = top;
+test("environment tabs stay visible while details scroll", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 500 });
+  const primary = getServerId();
+  const secondary = "srv_e2e_environment_tabs";
+  const endpoint = `127.0.0.1:${getE2EDaemonPort()}`;
+  await seedSavedSettingsHosts(page, [
+    { serverId: primary, label: "Host", endpoint },
+    { serverId: secondary, label: "Dev container", endpoint },
+  ]);
+  await page.goto(buildSettingsSectionRoute("environments"));
+  // Environment cards also appear in other sections' panes; scope to this one.
+  const pane = page.getByTestId("settings-environment-scroll");
+  const tabs = page.getByTestId("settings-environment-tabs");
+  // The deep link pins Environments for 3s (PIN_MS in settings-scroll-page.tsx), but panes
+  // above it can finish loading later and push it about 2,800px down: CI showed Terminal. Bring
+  // the tabs back into view when that happens and wait until they rest before measuring. A cold
+  // local run kept moving for more than the default 10s, hence 30s.
+  let previousTabTop: number | undefined;
+  await expect
+    .poll(
+      async () => {
+        const top = (await tabs.boundingBox())?.y;
+        if (top === undefined || top < 0 || top >= 500) {
+          await tabs.evaluate((node) => node.scrollIntoView({ block: "start" }));
+          previousTabTop = undefined;
+          return false;
+        }
+        const settled = top === previousTabTop;
+        previousTabTop = top;
         return settled;
-      })
-      .toBe(true);
-    const stuck = await tabs.boundingBox();
-    await page.mouse.wheel(0, 120);
-    await expect(tabs).toBeVisible();
-    await expect.poll(async () => (await tabs.boundingBox())!.y).toBe(stuck!.y);
-    await devTab.click();
-    await expect(devTab).toHaveAttribute("aria-selected", "true");
-    await expect(pane.getByTestId(`settings-environment-${secondary}`)).toBeAttached();
-    await expect(pane.getByTestId(`settings-environment-${primary}`)).toHaveCount(0);
-    await hostTab.click();
-    await expect(hostTab).toHaveAttribute("aria-selected", "true");
-    await page.screenshot({
-      path: test.info().outputPath(`environment-tabs-${width}.png`),
-    });
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+  const hostTab = page.getByRole("tab", { name: "Host", exact: true });
+  const devTab = page.getByRole("tab", {
+    name: "Dev container",
+    exact: true,
   });
-}
+  await expect(hostTab).toHaveAttribute("aria-selected", "true");
+  await expect(pane.getByTestId(`settings-environment-${primary}`)).toBeVisible();
+  await expect(pane.getByTestId(`settings-environment-${secondary}`)).toHaveCount(0);
+  // The settings page scrolls; the tabs stick while this environment's details pass under them.
+  const scroll = page.getByTestId("settings-scroll-page");
+  await scroll.hover();
+  // Scroll past the section heading so the tabs have reached their sticky
+  // position at every width before measuring it.
+  await page.mouse.wheel(0, 400);
+  // Wheel scrolling can animate; measure once the position has settled.
+  let previousTop = -1;
+  await expect
+    .poll(async () => {
+      const top = await scroll.evaluate((element) => element.scrollTop);
+      const settled = top > 0 && top === previousTop;
+      previousTop = top;
+      return settled;
+    })
+    .toBe(true);
+  const stuck = await tabs.boundingBox();
+  await page.mouse.wheel(0, 120);
+  await expect(tabs).toBeVisible();
+  await expect.poll(async () => (await tabs.boundingBox())!.y).toBe(stuck!.y);
+  await devTab.click();
+  await expect(devTab).toHaveAttribute("aria-selected", "true");
+  await expect(pane.getByTestId(`settings-environment-${secondary}`)).toBeAttached();
+  await expect(pane.getByTestId(`settings-environment-${primary}`)).toHaveCount(0);
+  await hostTab.click();
+  await expect(hostTab).toHaveAttribute("aria-selected", "true");
+  await page.screenshot({
+    path: test.info().outputPath("environment-tabs.png"),
+  });
+});

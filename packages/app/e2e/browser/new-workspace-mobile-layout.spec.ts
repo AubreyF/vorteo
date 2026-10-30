@@ -2,11 +2,7 @@ import { expect, test } from "../support/fixtures";
 import { seedWorkspace } from "../support/helpers/seed-client";
 import { getServerId } from "../support/helpers/server-id";
 
-for (const [width, height] of [
-  [390, 844],
-  [375, 667],
-  [430, 932],
-]) {
+for (const [width, height] of [[390, 844]]) {
   test(`mobile workspace header and bottom alignment at ${width}x${height}`, async ({
     page,
   }, info) => {

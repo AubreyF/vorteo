@@ -35,7 +35,7 @@ test.use({
 
 test("browses shared host folders by host path, opens a project, and explains unshared paths", async ({
   page,
-}, info) => {
+}) => {
   const root = await mkdtemp(path.join(tmpdir(), "paseo-browser-"));
   const projectPath = path.join(root, "Project");
   await mkdir(projectPath);
@@ -59,7 +59,6 @@ test("browses shared host folders by host path, opens a project, and explains un
     await expect(addProjectFlowLocation(page)).toContainText(`${path.basename(root)}/Project`);
     await expect(page.getByTestId("add-project-flow-location")).toContainText("Shared folder");
     await expect(addProjectFlowLocation(page)).toContainText(path.join(hostHome, "Documents"));
-    await page.screenshot({ path: info.outputPath("folders-desktop.png") });
     await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
 
@@ -70,7 +69,6 @@ test("browses shared host folders by host path, opens a project, and explains un
     await chooseAddProjectMethod(page, "open-folder");
     await browseAddProjectFolderPath(page, `${hostRoot}/Project`, "Project");
     await expect(page.getByTestId("add-project-flow-use-folder")).toBeVisible();
-    await page.screenshot({ path: info.outputPath("folders-compact.png") });
     await page.getByTestId("add-project-flow-use-folder").click();
     await expect(page).toHaveURL(/\/new\?.*projectId=/);
     const url = new URL(page.url());

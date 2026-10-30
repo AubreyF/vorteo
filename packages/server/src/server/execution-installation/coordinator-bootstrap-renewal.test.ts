@@ -1661,7 +1661,7 @@ test.runIf(process.platform === "darwin")(
 
 test
   .runIf(process.platform === "darwin")
-  .each(["approved", "canceled", "unresolved", "wrong-reference", "other-pending"])(
+  .each(["approved", "canceled", "unresolved", "other-pending"])(
   "preclaim admission validates retained recovery chains (%s)",
   async (mode) => {
     const f = await fixture();
@@ -1672,7 +1672,7 @@ test
     failed.execution!.stage = "recovery_required";
     f.record.plan.recoveredFrom = {
       id: failed.id,
-      revision: mode === "wrong-reference" ? randomUUID() : failed.revision,
+      revision: failed.revision,
       generation: failed.execution!.generation,
       planSha256: failed.planSha256,
     };

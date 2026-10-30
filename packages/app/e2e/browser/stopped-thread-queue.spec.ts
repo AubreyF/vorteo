@@ -8,7 +8,7 @@ import { expectComposerVisible, fillComposerDraft } from "../support/helpers/com
 test.use({ dismissWorktreeSetupCallout: false });
 
 for (const width of [1280, 390]) {
-  test(`queues without restarting a stopped thread at ${width}px`, async ({ page }, testInfo) => {
+  test(`queues without restarting a stopped thread at ${width}px`, async ({ page }) => {
     test.setTimeout(180_000);
     const agent = await seedRunningMockAgentWorkspace({
       repoPrefix: "stopped-queue-",
@@ -68,7 +68,6 @@ for (const width of [1280, 390]) {
       await expect(page.getByTestId("shared-message-queue")).toContainText("Wait for my return");
       expect((await client.fetchAgent(agent.agentId))?.agent.status).toBe("idle");
       expect((await client.readMessageQueue(agent.agentId)).snapshot?.paused).toBe(true);
-      await page.screenshot({ path: testInfo.outputPath("stopped-queue.png") });
       await fillComposerDraft(page, "Resume by explicit Send");
       await page.getByRole("button", { name: "Send message", exact: true }).click();
       await expect

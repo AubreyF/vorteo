@@ -24,29 +24,6 @@ afterEach(() => {
 });
 
 describe("Home Screen chrome layout", () => {
-  it("suppresses the native edge with an empty fixed element without reserving toolbar space", () => {
-    stop = applyVortonWeb(true);
-    // Supply the standalone presentation to exercise its CSS in Chromium.
-    // Native scroll-pocket acceptance is verified separately on iOS.
-    document.documentElement.dataset.vortonIosStandalone = "true";
-    const strip = document.getElementById("vorton-ios-status-strip");
-    const root = document.getElementById("root");
-    if (!strip || !root) throw new Error("Missing chrome fixture");
-    const before = root.getBoundingClientRect().toJSON();
-    const style = getComputedStyle(strip);
-    expect(style.position).toBe("fixed");
-    expect(style.height).toBe("11px");
-    expect(style.backgroundClip).toBe("text");
-    expect(style.pointerEvents).toBe("none");
-    expect(style.opacity).toBe("1");
-    expect(strip.getBoundingClientRect().width).toBe(window.innerWidth);
-    expect(strip.getAttribute("aria-hidden")).toBe("true");
-    expect(strip.textContent).toBe("");
-    document.documentElement.dataset.vortonIosStandalone = "false";
-    expect(getComputedStyle(strip).display).toBe("none");
-    expect(root.getBoundingClientRect().toJSON()).toEqual(before);
-  });
-
   it("does not accumulate styles across repeated mounts", () => {
     const initial = document.head.querySelectorAll("style[data-vorton-styles]").length;
     for (let i = 0; i < 3; i++) {

@@ -52,13 +52,6 @@ function playwrightFiles(files: string[]): string[] {
 }
 
 describe("Host startup module contract traces", () => {
-  test("the browser host entry reaches Playwright", { timeout: 180_000 }, async () => {
-    const files = await traceSources([
-      path.join(serverSource, "server/browser-tools/engine/headless-host-process.ts"),
-    ]);
-    expect(playwrightFiles(files).length).toBeGreaterThan(0);
-  });
-
   test(
     "the daemon worker and CLI entries never reach Playwright",
     { timeout: 300_000 },

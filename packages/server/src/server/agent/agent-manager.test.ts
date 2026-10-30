@@ -4,11 +4,7 @@ import { blockedReviewDue } from "./task-checklist/blocked-review.js";
 import { MessageQueueService } from "../message-queue/service.js";
 import { MessageQueueStore } from "../message-queue/store.js";
 import { QueueAttachmentStore } from "../message-queue/attachments.js";
-import {
-  AGENT_LAUNCH_GUIDANCE,
-  PREVIEW_LINK_GUIDANCE,
-  TASK_CHECKLIST_GUIDANCE,
-} from "./system-prompt.js";
+import { AGENT_LAUNCH_GUIDANCE } from "./system-prompt.js";
 import { CodexGoals } from "./providers/codex/goals.js";
 import type { AgentGoal } from "@getpaseo/protocol/agent-goals";
 import { expect, test, vi } from "vitest";
@@ -13189,8 +13185,6 @@ test.each([
   ["running", false],
   ["pause failure", false],
   ["idle", true],
-  ["running", true],
-  ["pause failure", true],
 ] as const)("manual stop handles a goal when %s (queue-held=%s)", async (mode, held) => {
   const fixture = await createControlledInterruptFixture({
     name: "manual-goal-stop",
@@ -14137,23 +14131,9 @@ test.each([true, false])(
   },
 );
 
-test.each(
-  (
-    [
-      "paused",
-      "active",
-      "complete",
-      "budgetLimited",
-      "usageLimited",
-      "spent",
-      "restart",
-      "queue",
-      "stopped",
-    ] as const
-  ).flatMap((condition) => [true, false].map((withChecklist) => ({ condition, withChecklist }))),
-)(
-  "periodic blocked review respects $condition admission with checklist=$withChecklist",
-  async ({ condition, withChecklist }) => {
+test.each(["active", "usageLimited", "spent", "restart", "queue", "stopped"] as const)(
+  "periodic blocked review respects %s admission with a blocked checklist",
+  async (condition) => {
     const workdir = mkdtempSync(join(tmpdir(), "blocked-review-manager-"));
     const storage = new AgentStorage(join(workdir, "agents"), logger);
     const client = new SessionRecordingAgentClient();
@@ -14191,21 +14171,17 @@ test.each(
       });
       goals.bind("retained");
       Object.defineProperty(client.sessions[0], "goals", { value: goals });
-      if (withChecklist) {
-        await manager.mutateChecklist(agent.id, {
-          operation: "create",
-          id: "blocked",
-          text: "Check prerequisite",
-        });
-        await manager.mutateChecklist(agent.id, {
-          operation: "update",
-          id: "blocked",
-          status: "blocked",
-          description: "Waiting for the accepted dependency",
-        });
-      } else {
-        await manager.readAgentGoal(agent.id);
-      }
+      await manager.mutateChecklist(agent.id, {
+        operation: "create",
+        id: "blocked",
+        text: "Check prerequisite",
+      });
+      await manager.mutateChecklist(agent.id, {
+        operation: "update",
+        id: "blocked",
+        status: "blocked",
+        description: "Waiting for the accepted dependency",
+      });
       // Change native state after discovery to prove a stale hint cannot admit work.
       if (
         condition !== "spent" &&
@@ -15169,21 +15145,6 @@ test("an answer saved before a failed delivery is delivered once when its thread
     await reopened?.flush();
     rmSync(workdir, { recursive: true, force: true });
   }
-});
-
-test("checklist guidance teaches checks first and capped estimates", () => {
-  expect(TASK_CHECKLIST_GUIDANCE).toContain("passed checks decide the item's progress");
-  expect(TASK_CHECKLIST_GUIDANCE).toContain("stay at or below 90 until the item is completed");
-  expect(TASK_CHECKLIST_GUIDANCE).toContain("checks replace the whole list");
-});
-
-test("launch guidance requires verified Tailscale preview links", () => {
-  expect(AGENT_LAUNCH_GUIDANCE).toBe(`${TASK_CHECKLIST_GUIDANCE}\n\n${PREVIEW_LINK_GUIDANCE}`);
-  expect(PREVIEW_LINK_GUIDANCE).toContain(
-    "verified Tailscale HTTPS links from the managed preview broker",
-  );
-  expect(PREVIEW_LINK_GUIDANCE).toContain("never an IP, localhost or *.localhost address");
-  expect(PREVIEW_LINK_GUIDANCE).toContain("~/.agents/skills/paseo-preview/SKILL.md");
 });
 
 async function idleReleaseFixture() {

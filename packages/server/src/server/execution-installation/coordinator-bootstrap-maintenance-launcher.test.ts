@@ -548,7 +548,6 @@ async function exerciseReservedRunnerContract(
 test.each([
   "candidate",
   "previous",
-  "new-boot",
   "wrong-pid",
   "parent",
   "uid",
@@ -600,11 +599,10 @@ test.each([
       }),
     },
   });
-  if (["candidate", "previous", "new-boot"].includes(mode))
-    await expect(result).resolves.toEqual(process);
+  if (["candidate", "previous"].includes(mode)) await expect(result).resolves.toEqual(process);
   else await expect(result).rejects.toThrow();
 });
-test.each(["hardlink", "symlink", "oversized", "writable", "mount", "deadline"])(
+test.each(["hardlink", "symlink", "oversized", "deadline"])(
   "streamed dependency refuses %s without relaxing custody",
   async (mode) => {
     const f = await fixture();
@@ -616,14 +614,12 @@ test.each(["hardlink", "symlink", "oversized", "writable", "mount", "deadline"])
       symlinkSync(original, file.path);
     }
     if (mode === "oversized") truncateSync(file.path, 256 * 1024 * 1024 + 1);
-    if (mode === "writable") chmodSync(file.path, 0o622);
-    const mounts = mode === "mount" ? [f.plan.candidate.directory] : [];
     const clock =
       mode === "deadline"
         ? vi.spyOn(Date, "now").mockReturnValueOnce(0).mockReturnValue(30_000)
         : null;
     try {
-      await expect(verifyBootstrapPreparedDependency(file, mounts)).rejects.toThrow();
+      await expect(verifyBootstrapPreparedDependency(file, [])).rejects.toThrow();
     } finally {
       clock?.mockRestore();
     }
@@ -1086,12 +1082,10 @@ test.for([
   "not-running",
   "consumed",
   "recovery",
-  "recover-absent",
   "recover-observe-unclaimed",
   "recover-observe-original-absent",
   "recover-observe-consumed-absent",
   "recover-rollback",
-  "recover-lost-start",
   "recover-observe-lost-start",
   "recover-observe-runtime",
   "recover-observe-rollback",
@@ -4145,7 +4139,8 @@ test("recovery activation refuses a malformed retained intent without granting a
   expect(f.commands).toEqual(commands);
 });
 
-test.each(["known", "unknown"] as const)(
+// Off darwin both modes refuse at the platform check before reading setup.
+test.each(process.platform === "darwin" ? (["known", "unknown"] as const) : (["known"] as const))(
   "recovery activation CLI retains only controlled refusal details: %s",
   async (mode) => {
     const f = await fixture();

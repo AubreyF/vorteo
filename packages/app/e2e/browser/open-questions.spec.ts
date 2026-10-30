@@ -46,7 +46,6 @@ async function rejectNextAnswer(page: Page): Promise<void> {
 
 for (const [label, width] of [
   ["phone", 390],
-  ["tablet", 820],
   ["desktop", 1400],
 ] as const) {
   test(`owner answers open questions inline at ${label} width`, async ({ page }, info) => {

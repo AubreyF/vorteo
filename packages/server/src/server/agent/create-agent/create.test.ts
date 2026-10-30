@@ -1269,21 +1269,17 @@ test("Codex home follows multiple inherited providers and bounds cycles", () => 
   ).toBeUndefined();
 });
 
-test.each(["child", "ancestor", "missing"])(
-  "Codex home stops at a %s invalid chain entry",
-  (entry) => {
-    const providers = {
-      codex: { env: { CODEX_HOME: "/base" } },
-      middle: { extends: "codex" },
-      account: { extends: "middle" },
-    };
-    // Exercise malformed runtime input without loosening the helper's configuration type.
-    if (entry === "child") Reflect.set(providers.account, "env", { CODEX_HOME: 42 });
-    if (entry === "ancestor") Reflect.set(providers.middle, "env", { CODEX_HOME: 42 });
-    if (entry === "missing") Reflect.set(providers.middle, "extends", "missing-provider");
-    expect(launchCodexHome("codex", { providers }, "account", { CODEX_HOME: "/daemon" })).toBe(
-      "/daemon",
-    );
-    expect(launchCodexHome("codex", { providers }, "account", {})).toBeUndefined();
-  },
-);
+test.each(["ancestor", "missing"])("Codex home stops at a %s invalid chain entry", (entry) => {
+  const providers = {
+    codex: { env: { CODEX_HOME: "/base" } },
+    middle: { extends: "codex" },
+    account: { extends: "middle" },
+  };
+  // Exercise malformed runtime input without loosening the helper's configuration type.
+  if (entry === "ancestor") Reflect.set(providers.middle, "env", { CODEX_HOME: 42 });
+  if (entry === "missing") Reflect.set(providers.middle, "extends", "missing-provider");
+  expect(launchCodexHome("codex", { providers }, "account", { CODEX_HOME: "/daemon" })).toBe(
+    "/daemon",
+  );
+  expect(launchCodexHome("codex", { providers }, "account", {})).toBeUndefined();
+});

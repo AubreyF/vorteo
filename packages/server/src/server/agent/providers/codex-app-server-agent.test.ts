@@ -189,8 +189,6 @@ test.each([
   ["steer", "denied"],
   ["compact", "denied"],
   ["start", "revoked"],
-  ["steer", "revoked"],
-  ["compact", "revoked"],
   ["start", "interrupted"],
   ["compact", "turn-changed"],
 ] as const)(

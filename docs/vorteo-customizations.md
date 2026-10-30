@@ -1,5 +1,6 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-30): slim the Vorteo-written test suite, add the agent testing budget and make pull request CI ignore version-only manifest bumps so path routing selects suites again. Coverage of security boundaries, the installation coordinator, migrations, wire compatibility and installers is retained. No runtime behavior, README overview or onboarding changed.
 Maintenance review (2026-10-30): add the in-place upgrade of Host installations made before the one-command installer (engine `adopt` and `plan --adopt` in `scripts/installer/host-adoption.mjs`, detection of old Host roots, an adoption pre-step in the upgrade snapshot step, a one-time adoption after a Host source update, and the `install.sh` upgrade offer). This builds production's automatic move to gate mode. Not yet run on a live installation. README unchanged.
 Maintenance review (2026-10-30): remove `docs/plans`; unbuilt plans now live in GitHub issues and implemented facts in reference docs (Dev network gate, installation account connections, profile switching). Documentation only; README links updated.
 

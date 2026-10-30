@@ -31,7 +31,7 @@ Every user action that can fail must expose the complete operation state in the 
 
 Logs, console output, and a reset button are not user feedback. Neither is a platform API unless it is verified on every supported platform: React Native Web's `Alert.alert()` is a no-op, so browser and Electron failures must use rendered app UI such as the shared alert component.
 
-Every fallible action needs behavioral coverage for success and failure. RPC-backed UI should use an app Playwright test with a real browser, network, and daemon whenever feasible. The failure test must assert what the user can see and do after the failure, not an internal response, state field, or log line. Add distinct timeout or disconnect cases when they produce distinct recovery behavior.
+Within the [testing budget](../AGENTS.md#testing-budget), a fallible action that carries real risk needs behavioral coverage for success and failure. RPC-backed UI should use an app Playwright test with a real browser, network, and daemon whenever feasible. The failure test must assert what the user can see and do after the failure, not an internal response, state field, or log line. Add distinct timeout or disconnect cases when they produce distinct recovery behavior.
 
 ## Determinism first
 
@@ -208,7 +208,7 @@ Test suites in this repo are heavy. Running them in bulk freezes the machine, es
 
 ## Pull-request test routing
 
-PR checks are routed by the behavior each suite proves, using `.github/ci-paths.yml`. A package does not inherit every test suite of its runtime consumers: app changes do not run CLI or Electron-wrapper tests, and protocol changes do not run every package that imports the protocol. Cross-package static compatibility belongs to `typecheck`; full integration coverage runs after merge on main and in manual CI runs.
+PR checks are routed by the behavior each suite proves, using `.github/ci-paths.yml`. Every Vorteo commit bumps the version in every manifest, so before filtering, `scripts/ci-neutralize-version-bumps.mjs` restores manifests whose only change is that version in a local commit the runner never pushes. Without it, the bump matches the `workspace` group and every pull request runs the full suite. A package does not inherit every test suite of its runtime consumers: app changes do not run CLI or Electron-wrapper tests, and protocol changes do not run every package that imports the protocol. Cross-package static compatibility belongs to `typecheck`; full integration coverage runs after merge on main and in manual CI runs.
 
 Required matrix legs are declared as statically named jobs. Their shared steps use YAML anchors, while job-level `if` conditions let GitHub report an unaffected leg as genuinely skipped without allocating a runner or losing the exact required-check name.
 

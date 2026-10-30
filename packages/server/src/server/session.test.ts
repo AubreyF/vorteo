@@ -1392,36 +1392,6 @@ describe("project command-center RPCs", () => {
       }
     });
 
-    test("keeps registered projects outside it working and adds folders inside it", async () => {
-      const temp = realpathSync(mkdtempSync(join(tmpdir(), "paseo-projects-root-")));
-      const root = join(temp, "dev");
-      const legacy = join(temp, "legacy");
-      mkdirSync(join(root, "app"), { recursive: true });
-      mkdirSync(legacy);
-      const messages: SessionOutboundMessage[] = [];
-      const session = projectsSession({ root, messages, registered: [legacy] });
-      try {
-        await session.handleMessage({ type: "project.add.request", cwd: legacy, requestId: "a" });
-        await session.handleMessage({
-          type: "project.add.request",
-          cwd: join(root, "app"),
-          requestId: "b",
-        });
-        expect(messages).toMatchObject([
-          { payload: { requestId: "a", error: null, project: { projectRootPath: legacy } } },
-          {
-            payload: {
-              requestId: "b",
-              error: null,
-              project: { projectRootPath: join(root, "app") },
-            },
-          },
-        ]);
-      } finally {
-        rmSync(temp, { recursive: true, force: true });
-      }
-    });
-
     test("creates a plain folder inside it without registering a project", async () => {
       const root = realpathSync(mkdtempSync(join(tmpdir(), "paseo-projects-root-")));
       const messages: SessionOutboundMessage[] = [];

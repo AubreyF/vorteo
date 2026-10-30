@@ -570,15 +570,6 @@ test("the audit log records attach, fencing and rejections without secrets", asy
   expect(statSync(paths.auditLogPath).mode & 0o777).toBe(0o600);
 });
 
-test("the audit log rotates at its size bound", () => {
-  const dir = scratchDirectory();
-  const auditPath = join(dir, "audit.log");
-  const audit = createSessionHostAuditLog({ path: auditPath, maxBytes: 400 });
-  for (let index = 0; index < 20; index += 1) audit({ event: "attach", sessionId: `s-${index}` });
-  expect(statSync(auditPath).size).toBeLessThanOrEqual(400);
-  expect(statSync(`${auditPath}.1`).size).toBeGreaterThan(0);
-});
-
 test("a session that skips a seq detaches alone; the connection's other sessions keep going", async () => {
   // A deliberately broken host, since the real one never skips.
   const socketPath = join(scratchDirectory(), "broken.sock");

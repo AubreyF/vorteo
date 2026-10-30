@@ -56,7 +56,7 @@ async function click(name: string) {
   await page.getByRole("button", { name, exact: true }).click();
 }
 
-test.each([1280, 375])(
+test.each([1280])(
   "expands the original summary without losing whitespace at %ipx",
   async (width) => {
     await page.viewport(width, 800);
@@ -73,10 +73,6 @@ test.each([1280, 375])(
       expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
     }
     expect(container.getBoundingClientRect().right).toBeLessThanOrEqual(width);
-    // The browser server only writes inside the workspace; output/playwright is ignored by Git.
-    await page.screenshot({
-      path: `../../../../output/playwright/compaction-inspector-${width}.png`,
-    });
     await click("Context automatically compacted");
     expect(container.querySelector('[data-testid="compaction-summary"]')).toBeNull();
   },

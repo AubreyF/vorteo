@@ -151,6 +151,17 @@ Only [Builds](#builds-coordinator) submits and follows restart, source-update an
 
 Provider accounts connect to the installation and synchronize to Host and Dev by default. Do not add per-environment sign-in flows or another environment selector. Only an explicit post-connection environment exclusion may disable an account in one environment. Report synchronization pending until every non-excluded environment verifies the same account. Follow [installation account connections](docs/providers.md#installation-account-connections) for authentication, refresh and migration requirements; this is the required contract, not a claim that every installation already implements it.
 
+## Testing budget
+
+Every test costs CI time on every push and maintenance on every change. This budget overrides any broader coverage advice in [testing](docs/testing.md).
+
+- Add a test only for behavior that broke before or carries real risk: security boundaries (network gate, owner authorization, credential handling), data migrations, wire compatibility, and installer, upgrade and recovery paths. Shipping a feature does not by itself earn a test.
+- Extend an existing test or case table before creating a new file. Cover each risk with one representative case, not every permutation.
+- Never assert screenshots, copy, colors, CSS or pixel geometry. Assert what the user or caller can do.
+- End-to-end coverage is one smoke per platform at release time, not on every push. Add a Playwright spec only when a unit test with a fake adapter cannot catch the failure.
+- Delete tests that your change makes obsolete in the same commit. Do not skip them or keep tests for removed behavior.
+- Do not delete or rewrite upstream Paseo tests to slim the suite; every upstream merge would conflict. Change CI routing instead.
+
 ## Check your work
 
 - Run `npm run typecheck` and `npm run lint` after changes. Use npm scripts for linting and formatting; run `npm run format` before committing. For selected files, use `npm run format:files -- <paths>`.

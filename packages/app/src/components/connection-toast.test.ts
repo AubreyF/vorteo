@@ -18,12 +18,6 @@ describe("connection toast presentation", () => {
         testID: "agent-reconnecting-toast",
       }),
     ).toBe(true);
-    expect(
-      isConnectionToast({
-        content: "Reconnexion",
-        testID: "agent-reconnecting-toast",
-      }),
-    ).toBe(true);
   });
 
   it.each([
