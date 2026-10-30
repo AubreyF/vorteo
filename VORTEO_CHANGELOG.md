@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.960 - 2026-10-30
+
+### Changed
+
+- On an installation, a provider the owner has not turned on or off is on only while the Host reports it ready: its CLI is on the Host service PATH and it is configured and signed in. Every other provider is off and raises no Needs attention item. An owner choice always wins and detection never overwrites it. Accounts & profiles shows a provider installed nowhere as "Not installed" with its install hint instead of a switch. Plugin providers no longer enroll as explicitly enabled.
+
+### Fixed
+
+- A plugin provider whose CLI is missing, such as Antigravity without `agy` or Muse Code without `muse`, reports Not installed instead of an error, so it no longer appears under Needs attention.
+
 ## 0.11.0-beta.3.vorteo.959 - 2026-10-30
 
 ### Changed

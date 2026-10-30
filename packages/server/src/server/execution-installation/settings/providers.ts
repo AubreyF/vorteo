@@ -253,7 +253,8 @@ export function enrollInstallationPluginProviders(
           id,
           providerType: registration.id,
           bindings: { [input.serverId]: registration.id },
-          policy: { label: registration.label || registration.id, enabled: true },
+          // No `enabled`: the provider follows Host detection until the owner chooses.
+          policy: { label: registration.label || registration.id },
         });
       }
     }

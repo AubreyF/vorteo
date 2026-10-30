@@ -70,9 +70,11 @@ import {
 } from "./provider-connection-status";
 import {
   groupInstallationProviders,
+  providerInstallHint,
   type ProviderAccount,
   type ProviderFamily,
 } from "./shared-providers-model";
+import { useProviderDetection } from "./use-provider-detection";
 
 const ThemedMore = withUnistyles(MoreHorizontal);
 const mutedColor = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
@@ -185,9 +187,13 @@ function ProviderDetail({ providerType }: { providerType: string }) {
       null,
     [data, change.isPending, change.variables],
   );
+  const detection = useProviderDetection(environments);
   const family = useMemo(
-    () => groupInstallationProviders(definitions ?? []).find((entry) => entry.id === providerType),
-    [definitions, providerType],
+    () =>
+      groupInstallationProviders(definitions ?? [], "active", detection).find(
+        (entry) => entry.id === providerType,
+      ),
+    [definitions, providerType, detection],
   );
   const canRemove = useProviderRemovalCapability(environments);
   if (!data?.settings || !definitions)
@@ -270,14 +276,20 @@ function ProviderEnabledCard({
       <View style={settingsStyles.row}>
         <View style={settingsStyles.rowContent}>
           <Text style={settingsStyles.rowTitle}>Use {family.name}</Text>
-          <Text style={settingsStyles.rowHint}>Available for new chats in every environment</Text>
+          <Text style={settingsStyles.rowHint}>
+            {family.installed === false
+              ? `Not installed · ${providerInstallHint(family.id)}`
+              : "Available for new chats in every environment"}
+          </Text>
         </View>
-        <Switch
-          value={family.enabled}
-          onValueChange={toggle}
-          disabled={busy}
-          accessibilityLabel={`Enable ${family.name} everywhere`}
-        />
+        {family.installed ? (
+          <Switch
+            value={family.enabled}
+            onValueChange={toggle}
+            disabled={busy}
+            accessibilityLabel={`Enable ${family.name} everywhere`}
+          />
+        ) : null}
       </View>
     </View>
   );

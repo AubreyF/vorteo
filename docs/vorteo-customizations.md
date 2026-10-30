@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-30): installation providers default to Host readiness unless the owner chose; missing plugin CLIs report Not installed instead of an error. README unchanged.
+
 Maintenance review (2026-10-30): the install command points straight at the GitHub release asset; the Cloudflare redirect is dropped. README updated.
 
 Maintenance review (2026-10-30): service managers use the context clock. Tests only; README unchanged.

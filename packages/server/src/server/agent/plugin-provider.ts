@@ -119,6 +119,14 @@ function isProviderRequestReply(
   );
 }
 
+/** The provider's CLI is not on PATH. Snapshots report this as unavailable, never as an error. */
+class ProviderExecutableNotFound extends Error {
+  constructor(command: string) {
+    super(`${command} not found on PATH`);
+    this.name = "ProviderExecutableNotFound";
+  }
+}
+
 class ProviderRuntime {
   private connection: ProviderConnection | null = null;
   private connecting: Promise<ProviderConnection> | null = null;
@@ -158,7 +166,7 @@ class ProviderRuntime {
     const env = createProviderEnv({ runtimeSettings: this.runtimeSettings });
     launch.env = env;
     const availability = await checkProviderLaunchAvailable(launch);
-    if (!availability.resolvedPath) throw new Error(`${launch.command} not found on PATH`);
+    if (!availability.resolvedPath) throw new ProviderExecutableNotFound(launch.command);
     return { command: resolvePath(availability.resolvedPath), args: launch.args, env };
   }
 
@@ -180,7 +188,16 @@ class ProviderRuntime {
   async catalogCacheKey(options: FetchCatalogOptions): Promise<string | undefined> {
     const callback = this.registration.getCatalogCacheKey;
     if (!callback) return undefined;
-    return callback({ ...options, launch: await this.resolveLaunch() });
+    let launch: ProviderLaunch | undefined;
+    try {
+      launch = await this.resolveLaunch();
+    } catch (error) {
+      // A missing CLI is "not installed", not a catalogue failure. Without a key the
+      // snapshot falls through to the availability check, which reports it unavailable.
+      if (error instanceof ProviderExecutableNotFound) return undefined;
+      throw error;
+    }
+    return callback({ ...options, launch });
   }
 
   get negotiatedCapabilities(): readonly string[] {

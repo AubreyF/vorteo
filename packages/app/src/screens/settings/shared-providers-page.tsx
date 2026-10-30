@@ -2,7 +2,12 @@ import { DraggableList, type DraggableRenderItemInfo } from "@/components/dragga
 import type { DraggableListDragHandleProps } from "@/components/draggable-list.types";
 import { ChevronRight, GripVertical } from "lucide-react-native";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
-import { groupInstallationProviders, type ProviderFamily } from "./shared-providers-model";
+import {
+  groupInstallationProviders,
+  providerInstallHint,
+  type ProviderFamily,
+} from "./shared-providers-model";
+import { useProviderDetection } from "./use-provider-detection";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -33,6 +38,8 @@ const gripColor = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 /** "2 connections", or what is wrong when nothing is enabled. */
 function familySummary(family: ProviderFamily): string {
+  if (family.installed === false) return `Not installed · ${providerInstallHint(family.id)}`;
+  if (family.installed === null) return "Checking";
   const count = family.accounts.length;
   const connections = count === 1 ? "1 connection" : `${count} connections`;
   return family.enabled ? connections : `Off · ${connections}`;
@@ -102,12 +109,15 @@ function ProviderFamilyCard({
           </View>
           <ThemedChevron size={16} uniProps={gripColor} />
         </Pressable>
-        <Switch
-          value={family.enabled}
-          onValueChange={toggle}
-          disabled={busy}
-          accessibilityLabel={`Enable ${family.name} everywhere`}
-        />
+        {/* A switch for a CLI that is installed nowhere would change nothing. */}
+        {family.installed ? (
+          <Switch
+            value={family.enabled}
+            onValueChange={toggle}
+            disabled={busy}
+            accessibilityLabel={`Enable ${family.name} everywhere`}
+          />
+        ) : null}
       </View>
     </View>
   );
@@ -192,6 +202,7 @@ function ProviderCatalog({
   const target = (useDev ? dev : host) ?? host ?? dev;
   const other = target === host ? dev : host;
   const switchTarget = useCallback(() => setUseDev((value) => !value), []);
+  const detection = useProviderDetection(environments);
   const removedFamilies = useMemo(
     () => groupInstallationProviders(definitions, "removed"),
     [definitions],
@@ -211,7 +222,10 @@ function ProviderCatalog({
     },
     [data, change],
   );
-  const families = useMemo(() => groupInstallationProviders(definitions), [definitions]);
+  const families = useMemo(
+    () => groupInstallationProviders(definitions, "active", detection),
+    [definitions, detection],
+  );
   const openAdd = useCallback(() => setAdding(true), []);
   const closeAdd = useCallback(() => setAdding(false), []);
   const addHeader = useMemo(() => ({ title: "Add provider" }), []);

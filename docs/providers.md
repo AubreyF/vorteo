@@ -70,6 +70,10 @@ A Dev `auth.json` that already holds a refresh token came from a sign-in made in
 
 Unverified until the owner's live sign-in check: the lifetime and `exp` claim of ChatGPT access tokens (a token without a readable `exp` is not projected), whether `account/read` with `refreshToken: true` always rotates the grant, and how Dev Codex behaves when its access token is rejected before a newer projection arrives. An account whose Codex config selects keyring storage has no `auth.json` on the Host and reports that it needs sign-in.
 
+## Default enablement on installations
+
+A shared provider definition stores `policy.enabled` only when the owner sets it. Without it, Accounts & profiles and Needs attention treat the provider as on only while the Host's provider snapshot reports it `ready`: the Host daemon found its CLI on the Host service PATH and the CLI is configured and signed in. Detection follows each daemon's pushed snapshot updates and is never written back as a choice. A provider whose CLI is found nowhere shows "Not installed" with an install hint and no switch. Daemons still probe these providers so a later install is detected; a provider that is not installed or not signed in cannot start agents either way. Oh My Pi stays off until the owner turns it on, because its manifest default keeps the daemon from probing it. Standalone daemons keep their previous defaults.
+
 ## Installation account connections
 
 This is the required contract for provider accounts on an installation.
