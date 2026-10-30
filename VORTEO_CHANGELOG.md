@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.956 - 2026-10-30
+
+### Maintenance
+
+- Bring the one-command installation branch up to date with main, including reviewed Dev updater executable changes and bounded coordinator performance logging.
+
 ## 0.11.0-beta.3.vorteo.955 - 2026-10-30
 
 ### Maintenance
@@ -186,6 +192,17 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Bring the environment network gate and one-command installation branch up to date with main 0.11.0-beta.3.vorteo.936.
 - Plan the one-command installation: one install command for macOS and Linux, Host-only and local-only installations, tested releases, interface upgrades with snapshots, and wrapping legacy installations.
+- Add opt-in private coordinator performance logging with minute samples, bounded hourly retention and fixed lifecycle labels. Records exclude prompts, accounts and endpoints; enabling logging requires a reviewed configuration change.
+
+### Fixed
+
+- Preserve unrecognized telemetry records, including duplicate JSON keys, instead of erasing them during slot rotation. Sampling stays bounded and stops scheduling when disabled.
+
+## 0.11.0-beta.3.vorteo.937 - 2026-10-30
+
+### Maintenance
+
+- Allow reviewed coordinator updates to replace the Dev source updater's Node path while preserving its other bindings. The change requires an existing updater and does not replace the running supervisor or restart Dev.
 
 ## 0.11.0-beta.3.vorteo.936 - 2026-10-30
 

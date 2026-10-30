@@ -510,6 +510,8 @@ function expectedBootstrapConfiguration(
     host: { ...current.host },
     ...(current.container ? { container: { ...current.container } } : {}),
   };
+  if (current.containerSourceUpdates)
+    expected.containerSourceUpdates = { ...current.containerSourceUpdates };
   if (plan.sourceUpdateTooling === true) {
     if (!current.sourceUpdates)
       throw new BootstrapRequestConflict("Source update tooling requires existing source updates");
@@ -518,8 +520,13 @@ function expectedBootstrapConfiguration(
       toolingDirectory: path.join(plan.candidate.directory, "scripts"),
     };
   }
-  for (const change of reviewedConfigurationChanges(plan))
+  for (const change of reviewedConfigurationChanges(plan)) {
+    if (change.setting === "containerSourceUpdateNode" && !current.containerSourceUpdates)
+      throw new BootstrapRequestConflict(
+        "Node replacement requires existing container source updates",
+      );
     applyConfigurationChange(expected, change);
+  }
   if (plan.nativeHelperConfiguration === null) delete expected.nativeHelper;
   else if (plan.nativeHelperConfiguration !== undefined)
     expected.nativeHelper = plan.nativeHelperConfiguration;

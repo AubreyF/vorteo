@@ -777,6 +777,88 @@ test("listed configuration changes verify exactly like the legacy per-setting fi
   ).not.toThrow();
 });
 
+test("a reviewed Dev updater Node change preserves every other binding", () => {
+  const f = fixture();
+  const previousFile = path.join(f.root, "previous.json");
+  const candidateFile = path.join(f.root, "candidate.json");
+  const operation = InstallationConfigSchema.parse({
+    ...f.config,
+    containerSourceUpdates: {
+      sourceRepository: path.join(f.root, "source"),
+      toolingDirectory: path.join(f.root, "tooling"),
+      integrationRef: "refs/heads/main",
+      receiptFile: path.join(f.root, "source-update-receipt.json"),
+      docker: "/usr/local/bin/docker",
+      containerId: "a".repeat(64),
+      user: "dev",
+      node: "/tmp/original-node/bin/node",
+      home: "/home/dev/.vorteo",
+      releaseRoot: "/home/dev/.vorteo/releases",
+      currentReleaseLink: "/home/dev/.vorteo/current",
+    },
+  });
+  const save = (file: string, value: unknown) =>
+    writeFileSync(file, JSON.stringify(value), { mode: 0o600 });
+  save(f.file, operation);
+  save(previousFile, operation);
+  save(candidateFile, operation);
+  const file = { path: f.file, sha256: "a".repeat(64) };
+  const release = {
+    directory: f.root,
+    sourceCommit: "a".repeat(40),
+    artifactSha256: "a".repeat(64),
+    node: file,
+    entrypoint: file,
+    launcher: file,
+    configuration: file,
+  };
+  const plan = CoordinatorBootstrapPlanSchema.parse({
+    version: 1,
+    operation: "coordinator-bootstrap",
+    installationId: operation.public.installationId,
+    service: operation.host.launchdService.replace(/\.host$/, ".installation"),
+    expectedProcess: {
+      pid: 1,
+      bootId: "fixture",
+      startIdentity: "fixture",
+      argumentsSha256: "a".repeat(64),
+    },
+    previous: { ...release, configuration: { ...file, path: previousFile } },
+    candidate: { ...release, configuration: { ...file, path: candidateFile } },
+    state: {
+      directory: operation.stateDir,
+      restartJournal: path.join(operation.stateDir, "restart-jobs.json"),
+      ownerSessions: path.join(operation.stateDir, "owner-sessions.json"),
+    },
+    hostRequestsAfter: null,
+  });
+  const verify = () =>
+    verifyBootstrapConfiguration({ plan, configurationFile: f.file, daemonId: "host-id" });
+  expect(verify).not.toThrow();
+  const node = "/home/dev/.local/share/startup/bin/node";
+  const candidate = {
+    ...operation,
+    containerSourceUpdates: { ...operation.containerSourceUpdates, node },
+  };
+  save(candidateFile, candidate);
+  expect(verify).toThrow("outside its approved policy");
+  plan.configurationChanges = [{ setting: "containerSourceUpdateNode", value: node }];
+  expect(verify).not.toThrow();
+  expect(JSON.parse(readFileSync(f.file, "utf8"))).toEqual(operation);
+  save(candidateFile, {
+    ...candidate,
+    containerSourceUpdates: { ...candidate.containerSourceUpdates, containerId: "b".repeat(64) },
+  });
+  expect(verify).toThrow("outside its approved policy");
+  save(candidateFile, candidate);
+  plan.configurationChanges = [{ setting: "containerSourceUpdateNode", value: null }];
+  expect(verify).toThrow();
+  save(f.file, f.config);
+  save(previousFile, f.config);
+  plan.configurationChanges = [{ setting: "containerSourceUpdateNode", value: node }];
+  expect(verify).toThrow("requires existing container source updates");
+});
+
 test("Dev registration configuration requires an explicit coordinator adoption transition", () => {
   const f = fixture();
   const previousFile = path.join(f.root, "previous.json");

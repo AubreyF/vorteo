@@ -123,3 +123,46 @@ test("shutdown closes every shared connection", async () => {
   await Promise.resolve();
   expect(opened.map((client) => client.closed)).toEqual([1, 1]);
 });
+
+test("operational snapshots read cached status without opening a connection", async () => {
+  let now = 100;
+  const opened: FakeClient[] = [];
+  const connections = createInstallationDaemonConnections(
+    async () => {
+      const client = new FakeClient(opened.length + 1);
+      opened.push(client);
+      return client;
+    },
+    { now: () => now },
+  );
+  expect(connections.operationalSnapshot()).toEqual({ host: null, container: null });
+  expect(opened).toHaveLength(0);
+  const lease = await connections.connect("host");
+  now = 200;
+  expect(connections.operationalSnapshot()).toEqual({
+    host: { status: "connected", observedAtMs: 200, authenticatedAtMs: 100 },
+    container: null,
+  });
+  opened[0].state = "disconnected";
+  now = 300;
+  expect(connections.operationalSnapshot().host).toEqual({
+    status: "disconnected",
+    observedAtMs: 300,
+    authenticatedAtMs: 100,
+  });
+  expect(opened).toHaveLength(1);
+  expect(opened[0].closed).toBe(0);
+  await lease.close();
+  connections.close();
+});
+
+test("operational snapshots cannot mutate retained connection observations", async () => {
+  const { connections, opened } = fixture();
+  await (await connections.connect("host")).close();
+  const snapshot = connections.operationalSnapshot();
+  if (!snapshot.host) throw new Error("missing host observation");
+  snapshot.host.status = "private mutation sentinel";
+  expect(connections.operationalSnapshot().host?.status).toBe("connected");
+  expect(opened).toHaveLength(1);
+  connections.close();
+});

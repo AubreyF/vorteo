@@ -2311,6 +2311,8 @@ export function createInstallationServer(
   });
   return Object.assign(app, {
     drainRestarts,
+    operationalQueueSummary: () => restarts.operationalSummary(),
+    setOperationalActivitySink: restarts.setOperationalActivitySink.bind(restarts),
     assertRegistrationReadiness: standingRuntime.assertRegistrationReadiness,
     registrationReadiness: standingRuntime.registrationReadiness,
   });
