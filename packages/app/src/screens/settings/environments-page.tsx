@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Text, View, type ViewStyle } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { isWeb } from "@/constants/platform";
@@ -9,16 +9,23 @@ import { InstallationSettingsStatus } from "@/execution-installation/settings-st
 import { EnvironmentResourceExclusions } from "@/execution-installation/resource-exclusions";
 import { settingsStyles } from "@/styles/settings";
 import { HostSettingsPage } from "./host-page";
+import { useSettingsFocus } from "./settings-focus";
 
 /**
  * One environment at a time, chosen with tabs that sit inside the pane, under
  * the Environments heading, so the page title stays first. On web the tabs
  * stick to the top of the settings scroll while the environment's details
- * scroll beneath them, and release when the pane ends.
+ * scroll beneath them, and release when the pane ends. A host overview
+ * address (`/settings/hosts/<id>/host`) selects that environment's tab.
  */
 export function EnvironmentsPane({ onHostRemoved }: { onHostRemoved: () => void }) {
   const hosts = useHosts();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const focus = useSettingsFocus();
+  const focusedId = focus?.kind === "environment" ? focus.serverId : null;
+  const [selectedId, setSelectedId] = useState<string | null>(focusedId);
+  useEffect(() => {
+    if (focusedId) setSelectedId(focusedId);
+  }, [focusedId]);
   const selected = hosts.find((host) => host.serverId === selectedId) ?? hosts[0];
   const options = useMemo(
     () =>

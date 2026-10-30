@@ -62,7 +62,7 @@ function installationWidePane(section: InstallationSettingsSection) {
           <SharedPluginsPage />
         </InstallationSettingsStatus>
       );
-    // Profiles and usage live on each provider's page.
+    // Profiles and usage live in each provider's details.
     case "profiles":
     case "usage":
       return null;

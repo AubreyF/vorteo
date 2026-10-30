@@ -200,7 +200,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     label: "Profiles",
     legacySlugs: ["profiles"],
     requiresHost: true,
-    // Each provider's page shows its profiles when an installation exists.
+    // Each provider's details show its profiles when an installation exists.
     withoutInstallation: true,
   },
   {
@@ -209,7 +209,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     label: "Usage",
     legacySlugs: ["usage"],
     requiresHost: true,
-    // Usage sits on each connection of a provider's page when an installation exists.
+    // Usage sits on each connection in a provider's details when an installation exists.
     withoutInstallation: true,
   },
 

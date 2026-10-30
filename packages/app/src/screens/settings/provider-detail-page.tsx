@@ -1,11 +1,13 @@
 /**
- * One provider's page under Accounts & profiles.
+ * One provider's details, expanded in place under its row in Accounts &
+ * profiles.
  *
  * A connection belongs to the installation, not to an environment: rows show
  * one combined status ("Ready everywhere") and environments only appear when
  * something differs or the owner opens Environment access. Profiles and model
  * defaults for the provider sit below its connections, and removing the
- * provider is a quiet row at the bottom of the page.
+ * provider is a quiet row at the bottom. The row above keeps the provider's
+ * name and its on and off switch.
  */
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
@@ -34,12 +36,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { selectProfileCatalogSources } from "@/execution-installation/profile-catalog";
-import { readExecutionInstallation } from "@/execution-installation/policy";
 import {
   requestInstallationSettings,
   useInstallationSettings,
 } from "@/execution-installation/settings";
-import { InstallationSettingsStatus } from "@/execution-installation/settings-status";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { ProviderLoginPanel } from "@/provider-usage/login-panel";
@@ -60,7 +60,6 @@ import type { Theme } from "@/styles/theme";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
 import { useReportActionError } from "@/hooks/use-action-error";
-import { returnFromSettings } from "@/navigation/settings-navigation";
 import { ProvidersSection } from "./providers-section";
 import {
   classifyEnvironment,
@@ -157,22 +156,11 @@ function useEnvironmentState(
 }
 
 // ---------------------------------------------------------------------------
-// Page
+// Details
 // ---------------------------------------------------------------------------
 
-export function ProviderDetailPage({ providerType }: { providerType: string }) {
-  if (!readExecutionInstallation())
-    return <Alert description="Provider pages need a configured installation." />;
-  return (
-    <View style={styles.page}>
-      <InstallationSettingsStatus>
-        <ProviderDetail providerType={providerType} />
-      </InstallationSettingsStatus>
-    </View>
-  );
-}
-
-function ProviderDetail({ providerType }: { providerType: string }) {
+/** Rendered inside the provider list, which already waits for installation settings. */
+export function ProviderDetail({ providerType }: { providerType: string }) {
   const { data, installation, save } = useInstallationSettings();
   const environments = useMemo(() => installation?.environments ?? [], [installation]);
   const reportConnectionLost = useConnectionLostReporter();
@@ -208,16 +196,10 @@ function ProviderDetail({ providerType }: { providerType: string }) {
   }
   const snapshot = data as InstallationSettingsSnapshot & { settings: InstallationSettings };
   return (
-    <>
+    <View style={styles.page}>
       {changeRejection ? (
         <Alert variant="error" description={toErrorMessage(changeRejection)} />
       ) : null}
-      <ProviderEnabledCard
-        family={family}
-        snapshot={snapshot}
-        busy={change.isPending}
-        save={change.mutate}
-      />
       <ConnectionsSection
         family={family}
         snapshot={snapshot}
@@ -236,49 +218,6 @@ function ProviderDetail({ providerType }: { providerType: string }) {
           saveAsync={change.mutateAsync}
         />
       ) : null}
-    </>
-  );
-}
-
-function ProviderEnabledCard({
-  family,
-  snapshot,
-  busy,
-  save,
-}: {
-  family: ProviderFamily;
-  snapshot: InstallationSettingsSnapshot & { settings: InstallationSettings };
-  busy: boolean;
-  save(update: InstallationSettingsUpdate): void;
-}) {
-  const toggle = useCallback(
-    (enabled: boolean) =>
-      save({
-        expectedRevision: snapshot.revision,
-        settings: {
-          providerDefinitions: snapshot.settings.providerDefinitions?.map((entry) =>
-            entry.providerType === family.id && !entry.removed
-              ? { ...entry, policy: { ...entry.policy, enabled } }
-              : entry,
-          ),
-        },
-      }),
-    [save, snapshot, family.id],
-  );
-  return (
-    <View style={[settingsStyles.card, styles.firstCard]} testID="provider-detail-enabled">
-      <View style={settingsStyles.row}>
-        <View style={settingsStyles.rowContent}>
-          <Text style={settingsStyles.rowTitle}>Use {family.name}</Text>
-          <Text style={settingsStyles.rowHint}>Available for new chats in every environment</Text>
-        </View>
-        <Switch
-          value={family.enabled}
-          onValueChange={toggle}
-          disabled={busy}
-          accessibilityLabel={`Enable ${family.name} everywhere`}
-        />
-      </View>
     </View>
   );
 }
@@ -1168,7 +1107,6 @@ function RemoveProviderRow({
         ),
       },
     });
-    returnFromSettings({ kind: "provider", providerType: family.id });
   }, [family, snapshot, saveAsync]);
   const onPress = useCallback(() => {
     // The page's save mutation already reports a failed removal.
@@ -1196,7 +1134,6 @@ function RemoveProviderRow({
 
 const styles = StyleSheet.create((theme) => ({
   page: { gap: theme.spacing[2] },
-  firstCard: { marginBottom: theme.spacing[4] },
   connection: { flexDirection: "column", alignItems: "stretch", gap: theme.spacing[2] },
   connectionHeading: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
   controls: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },

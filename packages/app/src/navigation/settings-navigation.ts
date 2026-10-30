@@ -7,17 +7,22 @@ import {
   buildSettingsHostSectionRoute,
   buildSettingsRoute,
   buildSettingsSectionRoute,
-  type HostSectionSlug,
   type SettingsSectionSlug,
 } from "@/utils/host-routes";
+
+/**
+ * An item that a deep link opens in place inside its section: a provider
+ * expanded in Accounts & profiles, or an environment's tab in Environments.
+ */
+export type SettingsFocus =
+  | { kind: "provider"; providerType: string }
+  | { kind: "environment"; serverId: string };
 
 export type SettingsView =
   | { kind: "plugin"; serverId: string; pluginId: string; screenId: string }
   | { kind: "root" }
-  | { kind: "section"; section: SettingsSectionSlug }
-  | { kind: "host"; serverId: string; section: HostSectionSlug }
-  | { kind: "project"; serverId: string; projectId: string }
-  | { kind: "provider"; providerType: string };
+  | { kind: "section"; section: SettingsSectionSlug; focus?: SettingsFocus }
+  | { kind: "project"; serverId: string; projectId: string };
 
 export function openHostOverview(serverId: string): void {
   router.push(buildSettingsHostSectionRoute(serverId, "host"));
@@ -27,6 +32,7 @@ export function openProjectSettings(serverId: string, projectId: string): void {
   router.push(buildProjectSettingsRoute(serverId, projectId));
 }
 
+/** Opens Accounts & profiles with the provider expanded in place. */
 export function openProviderSettings(providerType: string): void {
   router.push(buildProviderSettingsRoute(providerType));
 }
@@ -42,6 +48,5 @@ export function returnFromSettings(view: SettingsView): void {
   let parent: Href = buildSettingsRoute();
   if (view.kind === "plugin") parent = buildSettingsSectionRoute("plugins");
   if (view.kind === "project") parent = buildSettingsSectionRoute("projects");
-  if (view.kind === "provider") parent = buildSettingsSectionRoute("accounts");
   router.dismissTo(parent as Href);
 }

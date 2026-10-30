@@ -62,6 +62,8 @@ export interface SettingsScrollRequest {
   pane: string | null;
   entry: ResolvedSettingsEntry | null;
   animated: boolean;
+  /** A row's DOM id inside the pane, for items a deep link opens in place. Web only. */
+  anchorId?: string | null;
   nonce: number;
 }
 
@@ -127,6 +129,12 @@ function resultsSummary(count: number, anyVisible: boolean, query: string): stri
 
 function sectionDomId(section: SettingsSectionId): string {
   return `settings-page-section-${section}`;
+}
+
+/** The row a request lands on inside its pane, on web, once it has rendered. */
+function requestRow(target: SettingsScrollRequest): HTMLElement | null {
+  if (target.anchorId) return document.getElementById(target.anchorId);
+  return target.entry ? findSettingRow(target.entry.pane, target.entry.label) : null;
 }
 
 interface Box {
@@ -243,7 +251,7 @@ export function SettingsScrollPage({
           target.pane ? settingsPaneDomId(target.pane) : sectionDomId(target.section),
         );
         if (!node || !element || element.offsetHeight === 0) return null;
-        const row = target.entry ? findSettingRow(target.entry.pane, target.entry.label) : null;
+        const row = requestRow(target);
         const inset = row ? JUMP_INSET * 4 : JUMP_INSET;
         return { y: rowOffsetWithin(row ?? element, node) - inset, row };
       }
