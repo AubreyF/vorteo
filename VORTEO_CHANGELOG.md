@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.919 - 2026-10-29
+
+### Maintenance
+
+- Reuse three reviewed browser fixtures in the diagnostic branch: preserve font-readiness and Settings typography assertions, measure new-agent composer latency in-page against the unchanged 3000ms limit, and retain the measured saved-draft flow budget. Known font-change freezes and slow reloads remain unresolved; no product behavior changes.
+
 ## 0.11.0-beta.3.vorteo.918 - 2026-10-29
 
 ### Maintenance
