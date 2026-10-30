@@ -8,7 +8,33 @@ const FDROID_ABI_VERSION_CODE_SUFFIXES = {
   x86_64: 4,
 };
 
+// Vorteo calendar versions, YY.M.DDNN (scripts/vorteo-version.mjs). The year floor keeps
+// upstream versions such as 0.1.105 on the semver path.
+const calendarPattern = /^([1-9]\d+)\.([1-9]|1[0-2])\.([1-9]\d{2,3})$/;
+const firstCalendarYear = 26;
+// Above every legacy Vorteo build (0.11.0 reached 1_100_099_999), so native upgrades from a
+// counter version to a calendar version keep increasing.
+const calendarBuildBase = 1_200_000_000;
+
+function getCalendarReleaseVersion(version) {
+  const match = calendarPattern.exec(version);
+  if (!match || Number(match[1]) < firstCalendarYear) return null;
+  const [year, month, patch] = match.slice(1).map(Number);
+  const day = Math.floor(patch / 100);
+  if (day < 1 || day > 31) {
+    throw new Error(`Vorteo calendar version encodes an invalid day: ${version}`);
+  }
+  const build =
+    calendarBuildBase + (year - firstCalendarYear) * 10_000_000 + month * 100_000 + patch;
+  if (build > 2_100_000_000) {
+    throw new Error(`Vorteo native build number is out of range: ${version}`);
+  }
+  return { appVersion: version, androidVersionCode: build, iosBuildNumber: String(build) };
+}
+
 function getNativeReleaseVersion(version) {
+  const calendar = getCalendarReleaseVersion(version);
+  if (calendar) return calendar;
   const match = versionPattern.exec(version);
   if (!match) {
     throw new Error(`Cannot derive native release version from unsupported version: ${version}`);

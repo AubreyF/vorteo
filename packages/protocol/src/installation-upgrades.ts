@@ -4,12 +4,16 @@ import { z } from "zod";
 // /api/installation/owner/. Older coordinators return 404 for these routes.
 
 /**
- * Releases are the tags `scripts/vorteo-release.mjs` creates: `release-<counter>` for stable
- * and `release-<counter>-beta` for beta. See docs/release.md#vorteo-releases.
+ * Releases are the tags `scripts/vorteo-release.mjs` creates: `release-<version>` for stable
+ * and `release-<version>-beta` for beta, where the version is a calendar version YY.M.DDNN
+ * without leading zeros. See docs/release.md#vorteo-releases.
  */
 export const ReleaseTagSchema = z
   .string()
-  .regex(/^release-[1-9]\d*(?:-beta)?$/, "Release tags look like release-940 or release-940-beta");
+  .regex(
+    /^release-[1-9]\d+\.(?:[1-9]|1[0-2])\.[1-9]\d{2,3}(?:-beta)?$/,
+    "Release tags look like release-26.10.3001 or release-26.10.3001-beta",
+  );
 export type ReleaseTag = z.infer<typeof ReleaseTagSchema>;
 
 const CommitSchema = z.string().regex(/^[a-f0-9]{40}$/);

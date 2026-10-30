@@ -3,28 +3,33 @@
 All workspaces share one version.
 
 <a id="vorton-commit-versions"></a>
+<a id="vorteo-versions"></a>
 
-## Vorteo commit versions
+## Vorteo versions
 
-This fork uses `<upstream-base>-vorteo.<counter>` for stable upstream bases and `<upstream-base>.vorteo.<counter>` for beta bases, for example `0.9.0-beta.2.vorteo.1`. Every new local commit, including documentation and tooling changes, advances the counter. Change the upstream base only when adopting that upstream release; the counter continues across stable bases, newer betas and promotions to stable. The next counter is one greater than the highest counter in either commit parent, regardless of upstream base. Returning to an earlier beta or from stable to a beta of the same release is rejected. Record source provenance with the Git commit, not build metadata in the version.
+Vorteo uses calendar versions after [Freed](https://github.com/AubreyF/freed)'s scheme: `YY.M.DDNN`, where `YY` is the two-digit year, `M` the month, and `DDNN` the day of the month times 100 plus a build number from 0 through 99. No component has a leading zero. `26.10.3000` is the first release prepared on October 30, 2026 and `26.10.3001` the second. Builds are numbered per day across both channels, so a beta and a stable release prepared the same day never share a number. [`scripts/vorteo-version.mjs`](../scripts/vorteo-version.mjs) parses, formats, compares and computes versions; its tests are `scripts/vorteo-version.test.mjs`.
 
-The continuous numbering baseline is 99: the integrated history reached counter 36 on `0.7.2`, 46 on `0.9.0-beta.2`, and 17 on `0.11.0-beta.3`. The first published continuous version is `0.11.0-beta.3.vorteo.100`. The version script retains this floor so older parent versions cannot restart the sequence. Historical release labels remain unchanged.
+A version names a release, not a commit. Only [release preparation](#vorteo-releases) changes it; every other commit keeps the version of the last preparation. Record source provenance with the Git commit, which the app's About section and the installation's activation record already show. Manifests always carry the plain version. The beta channel appears only in the tag, the way Freed keeps its bundle versions numeric and puts `-dev` on dev tags.
 
-The installed Lefthook pre-commit hook runs `scripts/vorton-version.mjs` before validation. It synchronizes the root, workspace manifests, internal dependency pins and lockfile, then stages those files. It refuses unstaged manifest edits so it cannot include unrelated work. Stage intended manifest changes before committing. Other unstaged files stay untouched.
+Versions before calendar versions were `<upstream-base>.vorteo.<counter>`, ending at `0.11.0-beta.3.vorteo.957`, with a counter that every commit advanced. Every comparison treats them as older than any calendar version, so installations from before the change are offered the first release. The counter stopped working once a day could hold more commits than the build number allows: October 22, 2026 had 134. Historical labels in the changelog remain unchanged.
 
-Use `npm run version:vorton` to prepare the same bump before a build or review, then stage the changed manifests and lockfile. Repeated preparation or a failed commit retry retains the same next version relative to HEAD. An amend advances from the version currently in HEAD. After a rebase or cherry-pick, prepare a fresh version before creating another commit. Do not bypass hooks to avoid versioning. Run `npm run prepare` after installing dependencies to install hooks in a new checkout. `npm run version:vorton:check` checks the staged version and synchronization.
+Upstream Paseo's version no longer appears in Vorteo's. The root `package.json` records the adopted upstream release in `paseoVersion` (now `0.11.0-beta.3`) for upstream merges; update it when adopting a new upstream release. No code reads it. Version checks between the app and daemon compare against old upstream floors such as `0.1.105`, which every calendar version exceeds, and equality checks between app and daemon versions are unaffected. Protocol compatibility uses its own protocol version and feature flags, not the package version.
 
-Use ordinary Git commits for Vorteo work. Do not use `npm version` or the upstream `release:*` commands for these bumps: they perform upstream release preparation and publication. Commit versioning does not publish, tag, deploy or restart anything. The private desktop feed and distribution identity remain pending in [desktop builds](desktop-auto-builds.md).
+The installed Lefthook pre-commit hook runs `scripts/vorton-version.mjs --hook` before validation. It refuses a version that is not a calendar version or that is lower than a parent's, synchronizes the workspace manifests, internal dependency pins and lockfile to the root version, then stages those files. It refuses unstaged manifest edits so it cannot include unrelated work. `npm run version:vorton` synchronizes the manifests without committing and `npm run version:vorton:check` checks the staged state. Do not bypass hooks. Run `npm run prepare` after installing dependencies to install hooks in a new checkout.
 
-Vorteo native metadata reserves 100,000 build numbers per upstream major/minor/patch base. Starting at `0.9.0`, beta slots 1 through 98 and stable slot 99 each allow Vorteo counters 1 through 999. The native build number is `upstreamNumericBase * 100000 + slot * 1000 + counter`, so later betas and stable promotion increase monotonically. Versions before `0.9.0` retain their original numbering. Exhausted slots, counters and platform integer limits fail explicitly. This supports Expo configuration; it does not configure a separate mobile store distribution.
+Use ordinary Git commits for Vorteo work. Do not use `npm version` or the upstream `release:*` commands: they perform upstream release preparation and publication. Commits do not publish, tag, deploy or restart anything. The private desktop feed and distribution identity remain pending in [desktop builds](desktop-auto-builds.md).
+
+Native metadata maps a calendar version to Android `versionCode` and iOS `buildNumber` as `1200000000 + (YY - 26) * 10000000 + M * 100000 + DDNN`, for example `1201003001` for `26.10.3001`. Every calendar build number is above every legacy Vorteo build number, and later releases always get larger numbers. Upstream versions keep their semver numbering. This supports Expo configuration; it does not configure a separate mobile store distribution.
 
 ## Vorteo release notes
 
 [Vorteo customizations](vorteo-customizations.md) owns the cumulative feature inventory. Update it in every commit using the [inventory maintenance rules](writing.md#maintain-the-vorteo-customizations-inventory), including a review result when functionality is unchanged. Every upstream merge must also compare incoming Paseo behavior with the inventory, record overlap and remaining differences, and revise the roadmap before delivery.
 
-[VORTEO_CHANGELOG.md](../VORTEO_CHANGELOG.md) owns custom release history. Before every commit, including documentation, tests, tooling and upstream merges, run `npm run version:vorton` and add an entry for the prepared version using `## <version> - YYYY-MM-DD`, with Added, Changed, Fixed or Maintenance sections. Keep newest entries first. Describe every substantive change in short bullets, including maintenance and known limitations. Stage the entry with the implementation. The version hook and `version:vorton:check` reject a commit unless the staged changelog differs from HEAD and its first entry has the prepared version, a date and a nonempty bullet. Validation runs before manifest writes and never stages changelog edits for you. Do not rewrite historical versions when the suffix changes.
+[VORTEO_CHANGELOG.md](../VORTEO_CHANGELOG.md) owns custom release history. Every commit, including documentation, tests, tooling and upstream merges, adds a new entry at the top headed `## Unreleased - YYYY-MM-DD`, with Added, Changed, Fixed or Maintenance sections. A release preparation instead heads its entry with the new version, `## 26.10.3001 - YYYY-MM-DD`. Describe every substantive change in short bullets, including maintenance and known limitations. Stage the entry with the implementation. Never edit an existing entry: the coordinator refuses edited notes when it combines contributions, and release preparation does not rename Unreleased entries.
 
-The initial baseline covers custom behavior through `0.9.0-beta.2.vorton.40`; it is a cumulative summary, not a claim that every feature first shipped in that commit. New versions use `vorteo` while version parsing accepts legacy `vorton` parents and preserves their counter and native build numbering.
+An Unreleased entry belongs to the nearest versioned entry above it. Entries above every versioned entry are not in any release yet. What's new shows each Unreleased entry under the release that picked it up, and a GitHub Release's notes are the entries of every release since the previous tag in its channel. The hook and `version:vorton:check` reject a commit unless the staged changelog differs from HEAD and its first entry has the right label, a date and a nonempty bullet. The label is the version for the commit that introduces it and `Unreleased` otherwise; a merge that takes a newer version from its other parent is not a preparation.
+
+The initial baseline covers custom behavior through `0.9.0-beta.2.vorton.40`; it is a cumulative summary, not a claim that every feature first shipped in that commit.
 
 Expo bundles the custom changelog with each build. What's new interleaves it with the independently fetched Paseo changelog by date, newest first. Entries identify their source and share one Show more control. Equal dates retain authored order within each source, with Vorteo entries first; undated entries appear last. Upstream loading or failure does not hide bundled custom notes. The Full changelog link opens [Vorteo's repository changelog](https://github.com/terran-labs/vorteo/blob/main/VORTEO_CHANGELOG.md); newer upstream notes do not imply those changes are installed locally.
 
@@ -32,30 +37,38 @@ Expo bundles the custom changelog with each build. What's new interleaves it wit
 
 ## Vorteo releases
 
-Vorteo releases are Git tags on commits already on `main`. Installations build from source, so a tag names exactly what to install and nothing is rebuilt for promotion.
+Vorteo releases are Git tags on prepared commits. Installations build from source, so a tag names exactly what to install and nothing is rebuilt for promotion.
 
-| Channel | Tag                      | Follows                   | Who tags                                                                    |
-| ------- | ------------------------ | ------------------------- | --------------------------------------------------------------------------- |
-| Beta    | `release-<counter>-beta` | Newest beta or stable tag | An owner installation's Builds, after its own install passes acceptance     |
-| Stable  | `release-<counter>`      | Newest stable tag         | Builds, only when the owner asks, on a commit that already has its beta tag |
+| Channel | Tag                      | Example                   | Follows                   | Who tags                                                                    |
+| ------- | ------------------------ | ------------------------- | ------------------------- | --------------------------------------------------------------------------- |
+| Beta    | `release-<version>-beta` | `release-26.10.3001-beta` | Newest beta or stable tag | An owner installation's Builds, after its own install passes acceptance     |
+| Stable  | `release-<version>`      | `release-26.10.3001`      | Newest stable tag         | Builds, only when the owner asks, on a commit that already has its beta tag |
 
-`<counter>` is the [Vorteo version counter](#vorton-commit-versions) in the tagged commit's `package.json`. A lab that develops Vorteo tracks `main` itself and needs no tag. Production follows stable.
+`<version>` is the [calendar version](#vorteo-versions) in the tagged commit's `package.json`. A lab that develops Vorteo tracks `main` itself and needs no tag. Production follows stable.
 
-- The `release-` prefix matches no upstream release trigger. Upstream's desktop, Android, app deployment and release-note workflows run on glob patterns such as `v*`, which matches any tag starting with "v", including `vorteo-*`; the Android and desktop workflows would build and publish GitHub Releases in this repository. Upstream's EAS app also starts store builds on `v*` tags. A CI test checks every workflow tag trigger against both tag forms.
-- Tags are permanent. Never move, delete or reuse one; fix forward with a newer commit and a new tag. The tag ruleset blocks updates and deletion.
-- Stable goes on the same commit as an existing beta tag, so stable installs code that already ran as beta. A newer tag in a channel must have a higher counter than every earlier tag in it.
-- An installation verifies its installed commit and counter, not "the latest tag".
+- Tags keep the `release-` prefix instead of Freed's `v`. Upstream's desktop, Android, app deployment and release-note workflows run on glob patterns such as `v*`, which matches any tag starting with "v", including `vorteo-*`; the Android and desktop workflows would build and publish GitHub Releases in this repository. Upstream's EAS app also starts store builds on `v*` tags. A CI test checks every workflow tag trigger against both tag forms.
+- Beta uses the suffix `-beta`, the channel name the installation settings already use, where Freed uses `-dev`. Semver orders `26.10.3001-beta` before `26.10.3001`, which matches promotion: stable on the same commit is the same code, so a beta installation at that version is not offered it again.
+- Tags are permanent. Never move, delete or reuse one; fix forward with a newer preparation and a new tag. The tag ruleset blocks updates and deletion.
+- Stable goes on the same commit as an existing beta tag, so stable installs code that already ran as beta and keeps its version. A newer tag in a channel must have a higher version than every earlier tag in it.
+- An installation verifies its installed commit and version, not "the latest tag".
+
+### Release branches
+
+Separate `beta` and `production` release branches are planned, with production following stable. They do not exist yet, so both channels release from `main`. `RELEASE_BRANCHES` in [`scripts/vorteo-release.mjs`](../scripts/vorteo-release.mjs) maps each channel to its branch; change only that map once the branches exist. Every command takes the channel explicitly, and `--branch` overrides the map for one run.
 
 ```sh
+node scripts/vorteo-release.mjs prepare --channel beta [--date YYYY-MM-DD]
 node scripts/vorteo-release.mjs tag --channel beta --commit <installed commit> [--release] [--dry-run]
 node scripts/vorteo-release.mjs tag --channel stable --commit <beta-tagged commit> [--release]
-node scripts/vorteo-release.mjs latest --channel beta|stable --installed <version or counter>
+node scripts/vorteo-release.mjs latest --channel beta|stable --installed <version>
 node scripts/vorteo-release.mjs list [--channel beta|stable]
 ```
 
-`tag` runs only in Builds. It fetches `main`, refuses a commit that is not on it, an existing tag, an older counter and a stable tag without its beta, then pushes an annotated tag and reads it back from the remote. `--commit` is required: name the commit the installation actually installed. A GitHub merge commit carries the same counter as its head, so tagging `main` would mark a commit nobody installed. Under [pull request delivery](task-delivery.md#deliver-to-main-through-a-pull-request) the installed commit is an ancestor of `main`. A failed push removes the local tag so a retry can run. `--release` also publishes a GitHub Release whose notes are the changelog entries since the previous tag in that channel. Beta releases are prereleases and never marked latest.
+`prepare` sets the next version in every manifest and the lockfile: build 0 on today's local date, or one past the highest build that day among the current version and the remote's tags of either channel. It refuses when a version is from a later day, which means the clock is wrong, and when a day reaches 100 releases. It does not commit. Add the entry `## <version> - YYYY-MM-DD`, commit both, deliver the commit to the channel's release branch, install it, then tag it.
 
-`latest` is the discovery primitive. It reads `git ls-remote --tags` from the configured remote, which needs no token and works for forks, and prints the newest tag above the installed counter as JSON, or `null`. Offering that tag as an approvable update in installation controls is not built yet; it will use the tracked source-update approval.
+`tag` runs only in Builds. It fetches the channel's release branch, refuses a commit that is not on it, a commit whose version is not a calendar version, a commit with Unreleased entries above its version's entry, an existing tag, an older version and a stable tag without its beta, then pushes an annotated tag and reads it back from the remote. Commits after a preparation keep its version, so the changelog check is what keeps a tag on the prepared state. `--commit` is required: name the commit the installation actually installed. A GitHub merge commit carries the same version as its head, so tagging `main` would mark a commit nobody installed. Under [pull request delivery](task-delivery.md#deliver-to-main-through-a-pull-request) the installed commit is an ancestor of `main`. A failed push removes the local tag so a retry can run. `--release` also publishes a GitHub Release whose notes are the changelog entries since the previous tag in that channel. Beta releases are prereleases and never marked latest.
+
+`latest` is the discovery primitive. It reads `git ls-remote --tags` from the configured remote, which needs no token and works for forks, and prints the newest tag above the installed version as JSON, or `null`. A legacy `0.11.0-beta.3.vorteo.<counter>` installed version is below every tag. Offering that tag as an approvable update in installation controls is not built yet; it will use the tracked source-update approval. The in-app update check in Settings compares the build's commit with the latest stable release's commit, so it needs no version comparison.
 
 <a id="github-rulesets"></a>
 
@@ -81,7 +94,7 @@ Run the [Install tests](../.github/workflows/install-tests.yml) workflow on the 
 
 The drivers live in [`scripts/release/e2e/`](../scripts/release/e2e/); the `CONTRACT` block in `install-e2e.mjs` holds every assumption about the installer. When user systemd does not run on the runner, the Linux job falls back to `VORTEO_SERVICE_MANAGER=process` and says so in the job summary.
 
-[`scripts/release/latest.mjs`](../scripts/release/latest.mjs) resolves the release an installer or in-app upgrade installs: the newest `release-<counter>` tag for stable, or the newest tag of either kind for beta, honoring `VORTEO_VERSION` (a tag name or counter). It exits 2 when no release exists.
+[`scripts/release/latest.mjs`](../scripts/release/latest.mjs) resolves the release an installer or in-app upgrade installs: the newest `release-<version>` tag for stable, or the newest tag of either kind for beta, in calendar order, honoring `VORTEO_VERSION` (a tag name such as `release-26.10.3001` or a version such as `26.10.3001`). It exits 2 when no release exists.
 
 <a id="install-address"></a>
 

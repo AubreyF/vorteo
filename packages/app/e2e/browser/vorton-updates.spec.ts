@@ -10,7 +10,7 @@ test("Vorteo checks the latest release and requires a connected installation hos
     requests += 1;
     const url = route.request().url();
     let body: object = { status: "ahead", ahead_by: 3 };
-    if (url.endsWith("/releases/latest")) body = { tag_name: "release-942" };
+    if (url.endsWith("/releases/latest")) body = { tag_name: "release-26.10.3002" };
     else if (url.includes("/commits/")) body = { sha: latestCommit };
     await route.fulfill({ json: body });
   });
@@ -45,7 +45,7 @@ test("Vorteo checks the latest release and requires a connected installation hos
   await page.getByTestId("settings-sidebar-version").click();
   await expect(page).toHaveURL(/\/settings\/maintenance$/);
   await expect(page.getByTestId("vorton-update-status")).toHaveText(
-    "release-942 is available with 3 new commits.",
+    "release-26.10.3002 is available with 3 new commits.",
   );
   expect(requests).toBeGreaterThan(0);
   await page.getByTestId("vorton-help-update").click();

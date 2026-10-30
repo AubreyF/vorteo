@@ -32,12 +32,15 @@ import {
   parseChangelog,
   formatChangelogDate,
   mergeChangelogReleases,
+  assignUnreleasedEntries,
   type ChangelogTimelineRelease,
   type ChangelogSection,
 } from "./parse-changelog";
 
 const customMarkdown: unknown = Constants.expoConfig?.extra?.vorteoChangelog;
-const customReleases = parseChangelog(typeof customMarkdown === "string" ? customMarkdown : "");
+const customReleases = assignUnreleasedEntries(
+  parseChangelog(typeof customMarkdown === "string" ? customMarkdown : ""),
+);
 
 const WEBSITE_CHANGELOG_URL = "https://github.com/terran-labs/vorteo/blob/main/VORTEO_CHANGELOG.md";
 

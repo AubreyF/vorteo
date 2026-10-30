@@ -34,7 +34,7 @@ Confirm the actual workstation architectures before implementation. Add Windows 
 
 ## Versioning
 
-The selected scheme is `<upstream-base>-vorton.<counter>`, incremented for every commit. [Vorteo commit versions](release.md#vorton-commit-versions) owns the workflow and synchronization rules. This replaces the earlier open question about Freed-style numbering.
+The selected scheme is Freed-style calendar versioning, `YY.M.DDNN`, set when a release is prepared. It replaced the earlier per-commit `<upstream-base>.vorteo.<counter>` scheme. [Vorteo versions](release.md#vorteo-versions) owns the workflow and synchronization rules.
 
 Desktop distribution still needs its separate app identity and private feed, explicit prerelease channel handling, and a packaged update test. Recover by packaging known-good code under a higher version; do not rely on automatic downgrades.
 

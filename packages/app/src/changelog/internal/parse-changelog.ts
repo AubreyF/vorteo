@@ -155,6 +155,25 @@ export interface ChangelogTimelineRelease extends ChangelogRelease {
 }
 
 /** Equal dates retain authored order, with bundled notes before upstream notes. */
+const UNRELEASED = "Unreleased";
+
+/**
+ * Vorteo commits add `Unreleased` entries and release preparation adds one headed by the
+ * new version (docs/release.md, "Vorteo release notes"). In newest-first order, each
+ * Unreleased entry belongs to the nearest versioned entry above it; entries above every
+ * release keep their label.
+ */
+export function assignUnreleasedEntries(releases: readonly ChangelogRelease[]): ChangelogRelease[] {
+  let version: string | null = null;
+  return releases.map((release) => {
+    if (release.version !== UNRELEASED) {
+      version = release.version;
+      return release;
+    }
+    return version ? { ...release, version } : release;
+  });
+}
+
 export function mergeChangelogReleases(
   custom: readonly ChangelogRelease[],
   upstream: readonly ChangelogRelease[],

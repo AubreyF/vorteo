@@ -1,8 +1,22 @@
 # Vorteo changelog
 
-Vorteo change history, covering features, fixes, documentation, tests, tooling and upstream integration. Update this file in every commit using the prepared version and a dated entry. See the [commit workflow](docs/release.md#vorteo-release-notes).
+Vorteo change history, covering features, fixes, documentation, tests, tooling and upstream integration. Every commit adds a dated entry headed Unreleased; a release preparation heads its entry with the new calendar version, and the Unreleased entries below it belong to that release. See the [commit workflow](docs/release.md#vorteo-release-notes).
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
+
+## 26.10.3000 - 2026-10-30
+
+### Changed
+
+- Vorteo versions are calendar versions after Freed's scheme, `YY.M.DDNN`: two-digit year, month, and day times 100 plus a build number from 0 through 99, such as `26.10.3001`. This is the first one. A version names a release, not a commit: only `node scripts/vorteo-release.mjs prepare --channel beta|stable` changes it, and the Git commit identifies a build.
+- Release tags are `release-<version>` for stable and `release-<version>-beta` for beta. They keep the `release-` prefix because upstream workflows publish on `v*` tags. Builds are numbered per day across both channels, and stable still goes on its beta's commit with the same version.
+- Commits add changelog entries headed `Unreleased`; a release preparation heads its entry with the new version. What's new and GitHub Release notes count each Unreleased entry toward the release prepared above it.
+- Installed versions from before the change, `0.11.0-beta.3.vorteo.<counter>`, sort below every calendar version, so the release lookup and `vorteo-release.mjs latest` offer them the first release. The coordinator keeps the newest calendar version when it combines contributions, and still advances counters for sources from before the change.
+- The root manifest records the adopted upstream Paseo release in `paseoVersion`. Native build numbers for calendar versions start above every earlier Vorteo build.
+
+### Maintenance
+
+- Release preparation needs owner-run steps: update the installation coordinator from this commit before it combines contributions on calendar-versioned source, since older coordinators refuse the new versions. Host restart checks that compare the daemon's version with the selected release's can no longer tell two commits between releases apart.
 
 ## 0.11.0-beta.3.vorteo.957 - 2026-10-30
 

@@ -27,7 +27,7 @@ It keeps this Dev environment, its agents and files, and adds the Host that inst
 | Implementation or tests        | [Coding standards](docs/coding-standards.md), [testing](docs/testing.md)                                                                   |
 | README or other documentation  | [Writing rules](docs/writing.md)                                                                                                           |
 | Installation or deployment     | [Install](README.md#install), [installation reference](docs/execution-installation.md), [instance continuity](docs/instance-continuity.md) |
-| Commit, publication or release | [Versioning](docs/release.md#vorton-commit-versions), [publication hygiene](docs/publication-hygiene.md)                                   |
+| Commit, publication or release | [Versioning](docs/release.md#vorteo-versions), [publication hygiene](docs/publication-hygiene.md)                                          |
 | Worktrees, delivery or archive | [Task delivery](docs/task-delivery.md)                                                                                                     |
 
 ## Authorization levels
@@ -170,7 +170,7 @@ Every test costs CI time on every push and maintenance on every change. This bud
 - Add tests to existing suites and reuse their npm scripts and CI jobs instead of creating feature-specific runners.
 - Reuse passing test evidence from another agent for unchanged code. Do not add provider-auth checks or auth-dependent skips to tests.
 - Before diagnosing cross-package type errors, rebuild declarations with `npm run build:client` or `npm run build:server` as appropriate. Do not patch types to hide stale declarations. See [development](docs/development.md).
-- Update and stage `VORTEO_CHANGELOG.md` in every commit, including documentation, tests, tooling and upstream merges. Describe the complete commit at the prepared version, following [release notes](docs/release.md#vorteo-release-notes).
+- Update and stage `VORTEO_CHANGELOG.md` in every commit, including documentation, tests, tooling and upstream merges. Head the entry `## Unreleased - YYYY-MM-DD`, or with the new version for a release preparation, following [release notes](docs/release.md#vorteo-release-notes).
 - Every commit increments the Vorteo version through the installed hook. Stage intended manifest changes first; never bypass hooks or use upstream release commands for routine commits.
 - Update [Vorteo customizations](docs/vorteo-customizations.md) in every commit, including documentation, tooling and upstream merges. Maintain the affected feature or limitation; when functionality is unchanged, update the maintenance review with the commit's scope and result. Follow [inventory maintenance](docs/writing.md#maintain-the-vorteo-customizations-inventory).
 - For every Paseo upstream merge, compare incoming implementation and tests with the customizations inventory. Record full or partial overlap and the remaining Vorteo difference, credit upstream, and revise the roadmap in the same change. Do not claim parity from a release-note title alone or remove custom behavior without verifying compatibility.
