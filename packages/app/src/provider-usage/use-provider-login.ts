@@ -1,5 +1,5 @@
 import { readExecutionInstallation } from "@/execution-installation/policy";
-import { claudeSetupRequest } from "./claude-setup-login";
+import { claudeFullSignInAvailable, claudeSetupRequest } from "./claude-setup-login";
 import {
   codexInstallationRequest,
   codexInstallationSignInAvailable,
@@ -33,6 +33,40 @@ export function useSharedInstallationSignIn(
     retry: false,
   });
   return inInstallation && (provider === "claude" || codex.data === true);
+}
+
+/**
+ * Whether connect-once is on for each provider: the coordinator runs Host-owned Claude refresh
+ * (`claudeHostRefresh`) or Host-owned Codex sign-in (`codexHostRefresh`). Undefined while the
+ * coordinator has not answered. Shares its cache with the sign-in flows that probe the same
+ * routes.
+ */
+export function useInstallationConnectOnce(enabled: boolean): {
+  claude: boolean | undefined;
+  codex: boolean | undefined;
+} {
+  const installation = readExecutionInstallation();
+  const active = enabled && installation !== null;
+  const claude = useFetchQuery({
+    queryKey: ["claude-full-sign-in", installation?.installationId],
+    queryFn: claudeFullSignInAvailable,
+    enabled: active,
+    staleTimeMs: 60_000,
+    dataShape: "value",
+    retry: false,
+  });
+  const codex = useFetchQuery({
+    queryKey: ["codex-installation-sign-in", installation?.installationId],
+    queryFn: codexInstallationSignInAvailable,
+    enabled: active,
+    staleTimeMs: 60_000,
+    dataShape: "value",
+    retry: false,
+  });
+  return {
+    claude: claude.isError ? false : claude.data,
+    codex: codex.isError ? false : codex.data,
+  };
 }
 
 function installationRequest(

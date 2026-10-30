@@ -1,5 +1,8 @@
 import { createSharedAccountDefinition } from "@/execution-installation/account-creation";
-import { requestInstallationSettings } from "@/execution-installation/settings";
+import {
+  requestInstallationSettings,
+  useInstallationSettings,
+} from "@/execution-installation/settings";
 import { installationHasDev, readExecutionInstallation } from "@/execution-installation/policy";
 import {
   useCallback,
@@ -22,7 +25,10 @@ import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-
 import { useHostFeature, useHostFeatureMap } from "@/runtime/host-features";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useSessionStore } from "@/stores/session-store";
-import { refreshAndApplyProvidersSnapshot } from "@/hooks/use-providers-snapshot";
+import {
+  refreshAndApplyProvidersSnapshot,
+  useProvidersSnapshot,
+} from "@/hooks/use-providers-snapshot";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { daemonConfigQueryKey } from "@/data/daemon-config";
 
@@ -30,6 +36,13 @@ import { ProviderLoginPanel } from "./login-panel";
 import { claudeFullSignInAvailable } from "./claude-setup-login";
 import { openAccountForm, suggestedAccountName, type CreatedCodexAccount } from "./account-form";
 import { useSharedInstallationSignIn } from "./use-provider-login";
+import { useProviderUsage } from "./use-provider-usage";
+import {
+  ACCOUNT_PROVIDER_LABELS,
+  describeExistingConnection,
+  existingConnections,
+  type ExistingConnection,
+} from "./existing-connection";
 
 interface AddAccountProps {
   serverId: string;
@@ -78,9 +91,13 @@ function AddAccountButton({
 
 function AccountSheet({ onClose, ...props }: AddAccountProps & { onClose: () => void }) {
   const { config } = useDaemonConfig(props.serverId);
+  const existing = useExistingConnections(props.serverId, props.provider);
+  const another = existing.connections.length > 0;
   const header = useMemo(
-    () => ({ title: `Add ${props.provider === "claude" ? "Claude" : "Codex"} account` }),
-    [props.provider],
+    () => ({
+      title: `Add ${another ? "another " : ""}${ACCOUNT_PROVIDER_LABELS[props.provider]} account`,
+    }),
+    [another, props.provider],
   );
   const supported = useHostFeature(
     props.serverId,
@@ -113,6 +130,7 @@ function AccountSheet({ onClose, ...props }: AddAccountProps & { onClose: () => 
     return (
       <AccountForm
         {...props}
+        existing={existing}
         initialName={suggestedAccountName(config.providers, props.provider)}
         onClose={onClose}
         renderSheet={renderSheet}
@@ -183,11 +201,13 @@ function useAccountForm({
 function AccountForm({
   onClose,
   renderSheet,
+  existing,
   ...props
 }: AddAccountProps & {
   onClose: () => void;
   initialName: string;
   renderSheet: (body: ReactNode, footer: ReactNode) => ReactNode;
+  existing: ExistingConnections;
 }) {
   const fullAvailable = useClaudeFullSignInAvailable(props.serverId, props.provider);
   const [signInChoice, setSignInChoice] = useState<"full" | "setup-token">("full");
@@ -219,9 +239,11 @@ function AccountForm({
       </Button>,
     );
   const creating = state.phase === "creating";
+  const another = existing.connections.length > 0;
   return renderSheet(
     <>
-      <Field label="Account name">
+      {another ? <ExistingConnectionNotice provider={props.provider} existing={existing} /> : null}
+      <Field label={another ? "Additional account name" : "Account name"}>
         <FormTextInput
           initialValue={state.name}
           onChangeText={model.setName}
@@ -264,8 +286,69 @@ function AccountForm({
       loading={creating}
       testID={`${props.provider}-account-create`}
     >
-      Create account
+      {another ? "Create additional account" : "Create account"}
     </Button>,
+  );
+}
+
+interface ExistingConnections {
+  connections: ExistingConnection[];
+  where: "Host" | "host";
+}
+
+/**
+ * Connections the owner already has for this provider, read where sign-ins run: the Host in an
+ * installation, otherwise this host. Shown before the form so a second account is a choice.
+ */
+function useExistingConnections(
+  serverId: string,
+  provider: "codex" | "claude",
+): ExistingConnections {
+  const installation = readExecutionInstallation();
+  const inInstallation = Boolean(
+    installation?.environments.some((environment) => environment.serverId === serverId),
+  );
+  const host = inInstallation
+    ? (installation?.environments.find((environment) => environment.kind === "host")?.serverId ??
+      serverId)
+    : serverId;
+  const settings = useInstallationSettings(inInstallation);
+  const { view } = useProviderUsage(host);
+  const { entries } = useProvidersSnapshot(host);
+  const definitions = settings.data?.settings?.providerDefinitions;
+  const usage = view.kind === "ready" ? view.payload.providers : undefined;
+  const connections = useMemo(
+    () =>
+      existingConnections({
+        provider,
+        definitions: inInstallation ? (definitions ?? []) : undefined,
+        serverId: host,
+        usage,
+        entries,
+      }),
+    [provider, inInstallation, definitions, host, usage, entries],
+  );
+  return { connections, where: inInstallation ? "Host" : "host" };
+}
+
+function ExistingConnectionNotice({
+  provider,
+  existing,
+}: {
+  provider: "codex" | "claude";
+  existing: ExistingConnections;
+}) {
+  const label = ACCOUNT_PROVIDER_LABELS[provider];
+  const names = existing.connections
+    .map((connection) => describeExistingConnection(connection, existing.where))
+    .join(", ");
+  return (
+    <View style={styles.notice} testID={`${provider}-existing-connection`}>
+      <Text style={styles.text}>{`${label} is already connected: ${names}.`}</Text>
+      <Text style={styles.muted}>
+        {`This adds a second, separate ${label} account with its own sign-in. Close this if you meant to use the existing connection.`}
+      </Text>
+    </View>
   );
 }
 
@@ -274,6 +357,14 @@ const styles = StyleSheet.create((theme) => ({
   text: { color: theme.colors.foreground, fontSize: theme.fontSize.base },
   error: { color: theme.colors.destructive, fontSize: theme.fontSize.base },
   muted: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.base },
+  notice: {
+    gap: theme.spacing[1],
+    padding: theme.spacing[3],
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface2,
+  },
 }));
 
 /**

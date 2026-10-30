@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.958 - 2026-10-30
+
+### Fixed
+
+- The accounts first screen shows each provider's real state. With one-time sign-in on for a provider, a default connection the Host CLI has signed in (it reports usage) counts as connected, and the row says so with its plan instead of offering Connect. The screen no longer appears when every enabled provider is connected, and disabled providers are not offered.
+- The Codex row says "Sign in once. Host and Dev share the connection." when one-time Codex sign-in is on. The per-environment wording remains only while it is off.
+- Add Claude account and Add Codex account name the connections that already exist, including a signed-in or detected default CLI connection, before the form. The sheet is then titled "Add another ... account" and its button reads "Create additional account".
+
+### Known limitations
+
+- Counting a default Host sign-in as connected does not deliver it to Dev. The coordinator shares only accounts created through Vorteo, so Dev agents on the default connection still use Dev's own CLI sign-in.
+
 ## 0.11.0-beta.3.vorteo.957 - 2026-10-30
 
 ### Changed

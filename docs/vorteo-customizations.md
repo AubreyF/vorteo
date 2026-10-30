@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-30): the accounts first screen counts a signed-in default Host connection when one-time sign-in is on and hides when every enabled provider is connected; Add account sheets name existing connections first. Default connections are still not delivered to Dev. README unchanged.
+
 Maintenance review (2026-10-30): the install command points straight at the GitHub release asset; the Cloudflare redirect is dropped. README updated.
 
 Maintenance review (2026-10-30): service managers use the context clock. Tests only; README unchanged.
