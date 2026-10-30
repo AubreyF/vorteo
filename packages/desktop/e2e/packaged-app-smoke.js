@@ -804,7 +804,11 @@ async function openSmokeWorkspace({ appPath, env, page, daemonHome }) {
     ],
     label: "Create packaged smoke workspace",
   });
-  await page.getByRole("button", { name: "Sandbox smoke workspace", exact: true }).click();
+  const workspaceRow = page
+    .getByRole("button", { name: "Sandbox smoke workspace", exact: true })
+    .and(page.locator('[data-testid^="sidebar-workspace-row-"]'));
+  await workspaceRow.waitFor({ state: "visible" });
+  await workspaceRow.click();
   await page.waitForURL((url) => url.pathname.endsWith(`/workspace/${workspace.workspaceId}`));
   await page.getByRole("button", { name: "Agent", exact: true }).click();
   await page.getByRole("textbox", { name: "Message agent..." }).click();

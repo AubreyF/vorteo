@@ -82,6 +82,7 @@ export interface Agent {
   serverId: string;
   id: string;
   provider: AgentProvider;
+  providerUnavailable?: boolean;
   status: AgentLifecycleStatus;
   turn: TurnLiveness;
   createdAt: Date;

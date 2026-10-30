@@ -111,5 +111,5 @@ jobs:
           app="result-desktop/Applications/Vorteo.app"
           test -x "$app/Contents/MacOS/Paseo"
           test -L result-desktop/bin/paseo-desktop
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = "sh.paseo.desktop"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = "com.vorteo.desktop"
           find "$app" -name Info.plist -print0 | xargs -0 -n 1 plutil -lint

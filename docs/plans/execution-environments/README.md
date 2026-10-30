@@ -71,6 +71,7 @@ Each linked document owns a separately deliverable project with its own acceptan
 
 | Project                                                        | Outcome                                                                                         |
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| [Core services on the Host](host-core-services.md)             | Keep the interface and domains up through Docker and daemon restarts; lab and promotion channel |
 | [Task containers through Docker](docker-task-containers.md)    | Create and supervise isolated task environments using the Docker installation already available |
 | [Apple Container backend](apple-container.md)                  | Optional macOS backend for new Linux task containers                                            |
 | [Linux Host](linux-host.md)                                    | Run the Host half on Linux as `systemd --user` services with equivalent trust anchors           |
@@ -81,6 +82,7 @@ Each linked document owns a separately deliverable project with its own acceptan
 | [Linux Freed soak testing](freed-linux.md)                     | Reproducible headless soak runs with bounded resources                                          |
 | [Browser trust separation](browser-trust.md)                   | Safely restore browser automation across environments                                           |
 | [Primary installation recovery](installation-recovery.md)      | Reconstructible releases and separately planned migration                                       |
+| [Invisible Host restarts](invisible-restarts.md)               | Keep the interface and agents usable while the Host daemon restarts or upgrades                 |
 | [Transparent HTTPS mediation](https-mediation.md)              | Research compatibility and security before adding transparent credential injection              |
 | [Browser credential mediation](browser-credentials.md)         | Define which browser-authenticated actions can be safely delegated                              |
 | [Signed-in browser profiles](browser-profiles.md)              | Owner-created signed-in Host browser profiles granted to specific workspaces                    |

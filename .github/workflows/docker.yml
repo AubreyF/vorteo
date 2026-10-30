@@ -70,6 +70,9 @@ jobs:
           python3 -B docker/tailscale/test_https_broker.py
           python3 -B docker/tailscale/test_host_recovery.py
           python3 -B docker/tailscale/test_host_config.py
+          python3 -B docker/private-domain/native/test_native_gateway.py
+          python3 -B docker/private-domain/native/test_hosted_app.py
+          python3 -B docker/tailscale/test_scratch_reaper.py
           node --test docker/tailscale/initialize-web.test.mjs
           bash -n docker/multiplex/install.sh docker/multiplex/connect.sh docker/multiplex/update.sh docker/multiplex/common.sh docker/tailscale/entrypoint docker/tailscale/start-paseo
       - name: Validate the single Compose recipe

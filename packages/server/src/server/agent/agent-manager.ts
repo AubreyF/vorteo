@@ -1,3 +1,4 @@
+import { pendingCodexAsyncQuestions } from "./providers/codex/async-questions.js";
 import type { HeldRestart } from "@getpaseo/protocol/messages";
 import {
   blockedReviewDue,
@@ -44,7 +45,7 @@ import { projectTimelineRows } from "./timeline-projection.js";
 import type { PluginLifecycle } from "../plugins/lifecycle/index.js";
 import { describeHookAgent, publishAgentStream } from "../plugins/lifecycle/index.js";
 import type { PluginSessionOpenRequest } from "@getpaseo/plugin/server";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { managedWorkerLimit } from "./worker-limit.js";
 import { countRunningWorkers } from "./worker-activity.js";
@@ -143,7 +144,7 @@ import {
   type PendingForegroundRun,
 } from "./agent-run-state.js";
 import { invokeRewindCapability, type RewindMode } from "./rewind/rewind.js";
-import { isSystemInjectedEnvelope } from "./agent-prompt.js";
+import { hasArmedFinishNotification, isSystemInjectedEnvelope } from "./agent-prompt.js";
 import {
   buildSwitchHistory,
   prependSwitchHistory,
@@ -512,6 +513,33 @@ export type AttentionState =
       attentionReason: "finished" | "error" | "permission";
       attentionTimestamp: Date;
     };
+
+/** What an idle-release pass observed; the release is refused if the agent changed since. */
+export interface IdleSessionObservation {
+  updatedAt: number;
+  session: unknown;
+}
+
+function matchesIdleObservation(
+  agent: { updatedAt: Date; session: unknown },
+  expected: IdleSessionObservation,
+): boolean {
+  return agent.updatedAt.getTime() === expected.updatedAt && agent.session === expected.session;
+}
+
+/** Quota, usage-limit and controller custody each expect the agent's current session to stay. */
+function hasQuotaOrControllerHold(config: AgentSessionConfig): boolean {
+  const usageLimitHeld = Boolean(config.usageLimitHold && !config.usageLimitHold.releasedAt);
+  return Boolean(config.quotaPausedAt || config.controllerExecutionId) || usageLimitHeld;
+}
+
+/** An active goal continues by itself inside the provider; a usage-limited one resumes there. */
+function hasLiveGoal(session: Pick<AgentSession, "goals">): boolean {
+  const state = session.goals?.state;
+  if (!state) return false;
+  if (state.status !== "ready") return true;
+  return state.goal?.status === "active" || state.goal?.status === "usageLimited";
+}
 
 function resolveInitialAttention(input: AttentionState | undefined): AttentionState {
   if (input == null || !input.requiresAttention) {
@@ -1436,6 +1464,8 @@ export class AgentManager {
   private readonly backgroundTasks = new Set<Promise<void>>();
   private readonly agentRegistrationTasks = new Set<Promise<void>>();
   private readonly inFlightAgentCloses = new Map<string, Promise<void>>();
+  /** Agents whose idle session is being released; no run may start until the close settles. */
+  private readonly automaticCloses = new Set<string>();
   private readonly reloadedSessionCloses = new WeakMap<AgentSession, Promise<void>>();
   private readonly lifecycleMutationTails = new Map<string, Promise<void>>();
   private readonly agentStreamCoalescer: AgentStreamCoalescer;
@@ -1812,7 +1842,7 @@ export class AgentManager {
     prompt: AgentPromptInput,
     item: QueueItem,
   ): AsyncGenerator<AgentStreamEvent> | null {
-    if (this.isRestartDraining()) return null;
+    if (this.isRestartDraining() || this.automaticCloses.has(agentId)) return null;
     const agent = this.getAgent(agentId);
     const stored = this.registry?.getLoadedRecord(agentId);
     if (!agent || stored?.archivedAt || agent.lifecycle !== "idle") return null;
@@ -2780,10 +2810,18 @@ export class AgentManager {
   async fetchSavedTimeline(
     id: string,
     options?: AgentTimelineFetchOptions,
+    loadLegacyRows?: () => Promise<AgentTimelineRow[]>,
   ): Promise<AgentTimelineFetchResult> {
     // Reading committed history must not require starting its original provider.
-    if (!this.durableTimelineStore) throw new Error("Saved timeline storage is unavailable");
-    return this.durableTimelineStore.fetchCommitted(id, options);
+    if (this.durableTimelineStore) return this.durableTimelineStore.fetchCommitted(id, options);
+    if (!loadLegacyRows) throw new Error("Saved timeline storage is unavailable");
+    const rows = await loadLegacyRows();
+    // Native transcripts predate durable timelines. Keep pagination stable across reads,
+    // and reset cursors if the transcript changes, without registering a live session.
+    const epoch = createHash("sha256").update(JSON.stringify(rows)).digest("hex");
+    const saved = new InMemoryAgentTimelineStore();
+    saved.initialize(id, { rows, epoch });
+    return saved.fetch(id, options);
   }
 
   listProviderSubagents(parentAgentId: string): ProviderSubagentDescriptor[] {
@@ -3366,7 +3404,9 @@ export class AgentManager {
         "The original transcript could not be read. Restore access to the original account and retry; this thread has not changed.",
       );
     const rows: AgentTimelineRow[] = [];
-    for await (const rawEvent of this.streamHistoryWithSubmissions(record, events)) {
+    for await (const rawEvent of this.streamHistoryWithSubmissions(record, events, {
+      passive: true,
+    })) {
       const event = limitAgentStreamEventContent(rawEvent);
       if (event.type !== "timeline") continue;
       if (event.item.type === "user_message" && isSystemInjectedEnvelope(event.item.text)) continue;
@@ -3626,6 +3666,59 @@ export class AgentManager {
     return close;
   }
 
+  /**
+   * Closes an idle agent's provider session so its process exits; the agent reopens on demand
+   * the way an unloaded agent does after a restart. Leaves the agent loaded, returning false,
+   * whenever something still relies on the live session or the agent changed since the caller
+   * observed it idle.
+   */
+  async releaseIdleSession(agentId: string, expected?: IdleSessionObservation): Promise<boolean> {
+    const queue = this.messageQueueControl;
+    if (this.automaticCloses.has(agentId)) return false;
+    if (!queue?.read || !this.isIdleReleasable(agentId, expected)) return false;
+    const snapshot = await queue.read(agentId);
+    const queueBusy =
+      snapshot.paused || snapshot.items.length > 0 || Boolean(snapshot.deliveryError);
+    if (queueBusy || (await queue.restartContinuationHeld?.(agentId))) return false;
+    // Final check, then reserve the agent in the same synchronous step. Run admission
+    // (streamAgent, queued delivery) refuses an agent with a reserved run, so no turn can start
+    // on a session while it closes; a refused queue item is delivered after the agent reopens.
+    if (!this.isIdleReleasable(agentId, expected)) return false;
+    // The marker, unlike the reservation, cannot be settled by a Stop or a replacement's
+    // cancellation timeout, so admission stays closed until the close itself settles.
+    this.automaticCloses.add(agentId);
+    const reservation = this.runs.createPendingRun(agentId);
+    const hosted = Boolean(this.agents.get(agentId)?.session?.isDurablyHosted?.());
+    try {
+      // The host additionally refuses atomically if its session is no longer idle.
+      await this.closeAgent(agentId, hosted ? { onlyIfIdle: true } : undefined);
+      return true;
+    } catch (error) {
+      if (!hosted) throw error;
+      return false;
+    } finally {
+      // A completed close clears the agent's runs; otherwise drop only our own reservation.
+      if (this.runs.getRun(agentId) === reservation) this.runs.clearAgentRun(agentId);
+      this.automaticCloses.delete(agentId);
+    }
+  }
+
+  private isIdleReleasable(agentId: string, expected?: IdleSessionObservation): boolean {
+    const agent = this.agents.get(agentId);
+    if (!agent?.session || agent.lifecycle !== "idle" || agent.internal) return false;
+    // A newer update or a reopened session restarts the idle period the caller measured.
+    if (expected && !matchesIdleObservation(agent, expected)) return false;
+    if (this.isRestartDraining() || this.inFlightAgentCloses.has(agentId)) return false;
+    if (this.lifecycleMutationTails.has(agentId) || this.hasInFlightRun(agentId)) return false;
+    const awaitingPermission =
+      agent.pendingPermissions.size > 0 || agent.inFlightPermissionResponses.size > 0;
+    if (agent.activeTurnId || awaitingPermission || agent.pendingReplacement) return false;
+    if (this.controllerSessions.has(agentId) || agent.owner || agent.queueGoalHold) return false;
+    // Closing a watched child would send its caller a "was closed" notification.
+    if (hasArmedFinishNotification(this, agentId)) return false;
+    return !hasQuotaOrControllerHold(agent.config) && !hasLiveGoal(agent.session);
+  }
+
   private async closeAgentRuntime(agentId: string, onlyIfIdle = false): Promise<void> {
     const agent = this.requireAgent(agentId);
     await this.assertControllerSettled(agent);
@@ -3845,7 +3938,9 @@ export class AgentManager {
         availableModes: [],
         features: record.features,
         currentModeId: record.lastModeId ?? null,
-        pendingPermissions: new Map(),
+        pendingPermissions: new Map(
+          pendingCodexAsyncQuestions(record.persistence).map((request) => [request.id, request]),
+        ),
         bufferedPermissionResolutions: new Map(),
         inFlightPermissionResponses: new Set(),
         pendingReplacement: false,
@@ -4805,6 +4900,7 @@ export class AgentManager {
   ): AsyncGenerator<AgentStreamEvent> {
     this.assertAcceptingAgentRegistrations();
     const existingAgent = this.requireSessionAgent(agentId);
+    this.assertNotAutomaticallyClosing(agentId);
     this.assertQuotaNotPaused(agentId);
     this.takeOverUsageLimitHold(existingAgent, options);
     const parentId = existingAgent.labels[PARENT_AGENT_ID_LABEL];
@@ -5025,6 +5121,8 @@ export class AgentManager {
   ): Promise<AsyncGenerator<AgentStreamEvent>> {
     this.assertAcceptingAgentRegistrations();
     const snapshot = this.requireAgent(agentId);
+    // Refuse before cancelling: cancelling the release's reservation must not reopen admission.
+    this.assertNotAutomaticallyClosing(agentId);
     this.assertQuotaNotPaused(agentId);
     if (
       snapshot.lifecycle !== "running" &&
@@ -5597,6 +5695,8 @@ export class AgentManager {
 
   async rewind(agentId: string, messageId: string, mode: RewindMode): Promise<void> {
     const agent = this.requireSessionAgent(agentId);
+    // Rewind cancels any reservation, so it must not run while an idle release is closing.
+    this.assertNotAutomaticallyClosing(agentId);
     const submittedRow = this.timelineStore
       .getRows(agentId)
       .find(
@@ -6233,7 +6333,9 @@ export class AgentManager {
       activeForegroundTurnId: null,
       activeTurnId: null,
       activeTurnStartedAt: null,
-      pendingPermissions: new Map(),
+      pendingPermissions: new Map(
+        pendingCodexAsyncQuestions(agent.persistence).map((request) => [request.id, request]),
+      ),
       bufferedPermissionResolutions: new Map(),
       inFlightPermissionResponses: new Set(),
       pendingReplacement: false,
@@ -6530,6 +6632,7 @@ export class AgentManager {
   private async *streamHistoryWithSubmissions(
     agent: Pick<ActiveManagedAgent, "id" | "provider" | "profileSwitches" | "goalSubmissions">,
     history: AsyncIterable<AgentStreamEvent> | Iterable<AgentStreamEvent>,
+    options?: { passive: boolean },
   ): AsyncGenerator<AgentStreamEvent> {
     history = prependSwitchHistory(await this.readSwitchHistory(agent), agent.provider, history);
     if (!agent.goalSubmissions?.length && !this.messageQueueControl) {
@@ -6538,8 +6641,8 @@ export class AgentManager {
     }
     const events: AgentStreamEvent[] = [];
     for await (const event of history) events.push(event);
-    await this.messageQueueControl?.reconcileHistory(agent.id, events);
-    const queued = (await this.messageQueueControl?.acceptedHistory(agent.id)) ?? [];
+    if (!options?.passive) await this.messageQueueControl?.reconcileHistory(agent.id, events);
+    const queued = (await this.messageQueueControl?.acceptedHistory(agent.id, options)) ?? [];
     const withGoals = mergeGoalHistory(events, agent.goalSubmissions ?? [], agent.provider);
     yield* mergeQueueHistory(withGoals, queued, agent.provider);
   }
@@ -8025,6 +8128,11 @@ export class AgentManager {
       throw new Error(`Unknown agent '${normalizedId}'`);
     }
     return agent;
+  }
+
+  private assertNotAutomaticallyClosing(agentId: string): void {
+    if (this.automaticCloses.has(agentId))
+      throw new Error(`Agent ${agentId} is closing its idle session; send again in a moment`);
   }
 
   private requireSessionAgent(id: string): ActiveManagedAgent {

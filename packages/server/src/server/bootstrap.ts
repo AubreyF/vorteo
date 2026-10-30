@@ -164,6 +164,7 @@ import { DEFAULT_RELEASE_CHECK_MS, readDurableSessionsSettings } from "./session
 import { createAppliedSeqStore } from "./session-host/applied-store.js";
 import { loadAdoptedAgents, planHostedStartup } from "./session-host/boot-attach.js";
 import { startHostedIdleRelease } from "./session-host/idle-release.js";
+import { startIdleSessionRelease } from "./agent/idle-release.js";
 import { ensureAgentLoaded } from "./agent/agent-loading.js";
 import type { SessionHostConnector } from "./session-host/connector.js";
 import { bootstrapWorkspaceRegistries } from "./workspace-registry-bootstrap.js";
@@ -1714,6 +1715,10 @@ export async function createPaseoDaemon(
     sessionHostConnector,
     logger,
   );
+  const idleSessionRelease = startIdleSessionRelease({
+    manager: agentManager,
+    logger: logger.child({ module: "idle-session-release" }),
+  });
   await scheduleService.start();
   factoryScheduleInspection.activate(scheduleService);
   agentManager.setAgentArchivedCallback(async (agentId) => {
@@ -2185,6 +2190,7 @@ export async function createPaseoDaemon(
     } catch (error) {
       blockedTaskReviews.stop();
       usageLimitResumes.stop();
+      idleSessionRelease.stop();
       factoryScheduleInspection.revoke();
       localCredential = null;
       await deleteLocalCredential(config.paseoHome);
@@ -2267,6 +2273,7 @@ export async function createPaseoDaemon(
     step("quota reserve polling");
     await quotaReservePolling.stop();
     hostedIdleRelease.stop();
+    idleSessionRelease.stop();
     step("detach hosted sessions");
     // Durably hosted turns keep running in the session host; the next worker takes them over.
     await withTimeout({

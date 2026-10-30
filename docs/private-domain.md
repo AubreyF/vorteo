@@ -95,4 +95,78 @@ For gateway maintenance, coordinate downtime, back up its private state, rebuild
 
 To remove the gateway, restore the original bookmark, remove only its custom DNS records, and run `docker compose down` from the gateway directory. Retain volumes for rollback. Remove the custom application origin through its normal maintenance flow, revoke the gateway's DNS token and retire its Tailscale node when rollback is no longer needed. Leave the application and unrelated gateways running.
 
+## Run the gateway natively
+
+The Docker gateway stops when Docker Desktop does, even while the application stays healthy. The [native gateway](../docker/private-domain/native/native_gateway.py) runs the same Caddy build and a dedicated Tailscale node as login jobs on the Host. It needs no Docker, system extension or administrator rights. The node uses userspace networking with its own state and socket, so the Host's own Tailscale and its Serve routes stay untouched. Linux and Windows service definitions are not implemented yet.
+
+Build the pinned binaries with Go. Use the versions in the gateway [Dockerfile](../docker/private-domain/Dockerfile) and a Tailscale release matching the Host's client:
+
+```sh
+GOBIN="$PWD/bin" go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.7
+bin/xcaddy build v2.11.4 --with github.com/caddy-dns/cloudflare@v0.2.4 --output bin/caddy
+GOBIN="$PWD/bin" go install tailscale.com/cmd/tailscaled@<version> tailscale.com/cmd/tailscale@<version>
+```
+
+Write a private `gateway.json` outside the checkout. Each site either redirects or proxies. Plain HTTP upstreams must be loopback; others use verified HTTPS. `holdSeconds` makes Caddy hold requests while a loopback upstream restarts, up to 120 seconds, instead of failing the page load. Point the protected interface directly at the installation coordinator's loopback port, which serves it; the tailnet round trip through the Host's own Serve route is unnecessary on the same machine.
+
+```json
+{
+  "nodeName": "example-gateway",
+  "sites": [
+    { "hostname": "old.example.com", "redirect": "https://app.example.com" },
+    {
+      "hostname": "app.example.com",
+      "upstream": "http://127.0.0.1:<coordinator-port>",
+      "holdSeconds": 30
+    },
+    { "hostname": "site.example.com", "upstream": "https://<preview-host>.ts.net:<port>" }
+  ]
+}
+```
+
+Stage the gateway. `prepare` copies the binaries into the deployment, records their digests, writes the Caddyfile and stages the login jobs without loading them. Then save the DNS token in `secrets/cloudflare_dns_token` with a private editor.
+
+```sh
+python3 docker/private-domain/native/native_gateway.py prepare --deployment "$HOME/<gateway-native>" \
+  --config gateway.json --caddy bin/caddy --tailscaled bin/tailscaled --tailscale bin/tailscale
+python3 "$HOME/<gateway-native>/native_gateway.py" status --deployment "$HOME/<gateway-native>"
+```
+
+The jobs verify each binary's digest before starting it. Caddy receives the token only through its environment, never through arguments, the Caddyfile or the job definition.
+
+### Switch from the Docker gateway
+
+Run the native gateway as its own new node beside the Docker gateway, then move DNS. Neither gateway goes down, and rollback is moving DNS back. Do not copy the Docker gateway's node state into the native one: two processes sharing a node key conflict, and a migrated node can log in yet never reach a relay. A fresh node avoids both.
+
+1. Stage the native gateway with a new `nodeName`, save the DNS token, and run `activate --allow-login`. Approve the printed login, then run `bin/tailscale --socket <deployment>/tailscaled.sock serve --bg --tcp 443 tcp://127.0.0.1:8443`. Disable key expiry for the node in the Tailscale console.
+2. Wait for Caddy to obtain certificates, then test every hostname against the new node with `curl --resolve <hostname>:443:<new-node-ip>`. Certificates come from DNS validation, so they do not depend on where DNS points.
+3. Back up the DNS records, then change each DNS-only A record to the new node's address. Wait out the TTL and verify with ordinary resolution and from an intended device.
+4. Keep the Docker gateway running until the native one has renewed a certificate. Then stop it with `docker compose stop` and retire its node.
+
+To roll back, point the records back at the Docker gateway's address.
+
+## Serve a trusted web app from a Host release
+
+A web application behind the gateway should run from a reviewed release on the Host, not from a development checkout that container agents can write. The [hosted app tool](../docker/private-domain/native/hosted_app.py) builds a release from one Git commit, keeps live state in a Host-owned instance directory, and runs the release as a login job. It is macOS-only for now.
+
+Applications that refuse symlinked state run from one real instance directory. `deploy` synchronises release code into it and never copies over or deletes a configured state path. List every folder or file the application writes in `statePaths`. When a state folder also holds scratch, `stateSubpaths` limits imports to its live entries while deploys still leave the whole folder alone. `stateExcludes` skips tooling such as dependency folders during import.
+
+```sh
+python3 docker/private-domain/native/hosted_app.py init --deployment "$HOME/<app-host>" --config app.json --node <node>
+python3 docker/private-domain/native/hosted_app.py build --deployment "$HOME/<app-host>" --commit <reviewed-commit>
+python3 docker/private-domain/native/hosted_app.py stage --deployment "$HOME/<app-host>"
+```
+
+Only committed content enters a release, and tracked files under a state path stay with the state. Build commands run at low priority with the pinned Node. Rehearse with a separate deployment on another port and a state copy that leaves out credentials and outbound integrations, then compare its responses with the running copy.
+
+### Cut over an application
+
+1. Stop the container copy and any watchdog that would restart it. Two writers must never run at once.
+2. Run `import-state --source <checkout>` to copy the live state into the instance. It refuses to overwrite existing state; `--replace` is for a repeated, approved cutover only.
+3. Run `deploy --release <release>`, then `activate`. Activation refuses without a deployed release and imported state.
+4. Point the gateway site at the application's loopback port and verify each route.
+5. Update the application's agent instructions: its checkout is now a development copy, and reviewed changes reach live state through the application or a promotion.
+
+To roll back, run `deactivate`, restore the gateway route and start the container copy again. The instance keeps its state for diagnosis. Changes made on the Host after cutover are not copied back automatically.
+
 References: [Tailscale containers](https://tailscale.com/docs/features/containers/docker), [Caddy DNS validation](https://caddyserver.com/docs/automatic-https#dns-challenge), [Cloudflare Caddy plugin](https://github.com/caddy-dns/cloudflare), [Cloudflare DNS-only records](https://developers.cloudflare.com/dns/proxy-status/).

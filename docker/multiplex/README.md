@@ -18,6 +18,6 @@ To keep every new project in one folder that the container sees at the same path
 
 The installer builds the image from this checkout, then creates private persistent storage. The first build downloads dependencies and takes longer than subsequent builds. To reuse an existing image, pass its reference as the second argument.
 
-An explicitly authorized [macOS host extension](../../docs/execution-installation.md) can attach to this container and add full-account host execution in one protected interface. That separate setup requires host Tailscale and does not recreate this container.
+An explicitly authorized [macOS host extension](../../docs/execution-installation.md) can attach to this container and add full-account host execution in one protected interface. That separate setup requires host Tailscale and does not recreate this container. To pair it, set `PASEO_HOST_LOOPBACK_PORT=6768` when installing, which publishes the daemon on host loopback only. A second, separate installation for Vorteo development follows the [lab installation guide](../../docs/lab-installation.md).
 
 [Build, update and troubleshoot](../../docs/docker.md). [Optional workspace previews](../tailscale/README.md). Keep the deployment directory outside this checkout.

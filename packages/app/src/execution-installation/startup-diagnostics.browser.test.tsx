@@ -529,3 +529,73 @@ test("elapsed time uses the shared formatter directly beneath the progress bar",
     );
   }
 });
+
+test("fatal bootstrap failure remains visible after healthy probes and style events", async () => {
+  const { doc } = await openLoader();
+  const target = doc.defaultView;
+  if (!target) throw new Error("Startup window missing");
+  const fail = doc.createEvent("CustomEvent");
+  fail.initCustomEvent("vorteo-boot-failed", false, false, "installation-origin-mismatch");
+  target.dispatchEvent(fail);
+  expect(doc.getElementById("boot-status")?.dataset.expanded).toBe("true");
+  expect(doc.getElementById("boot-summary")?.textContent).toContain(
+    "Installation descriptor does not belong to this origin",
+  );
+  const style = doc.createEvent("CustomEvent");
+  style.initCustomEvent("vorteo-boot-styles", false, false, "waiting");
+  target.dispatchEvent(style);
+  doc.getElementById("boot-check")?.click();
+  await expect
+    .poll(() => doc.getElementById("boot-diagnostics")?.textContent)
+    .toContain("Passed — installation endpoint responded");
+  expect(doc.getElementById("boot-summary")?.textContent).toContain(
+    "Installation descriptor does not belong to this origin",
+  );
+  expect(doc.getElementById("boot-summary")?.textContent).not.toContain("still starting");
+  doc.getElementById("boot-copy")?.click();
+  await expect
+    .poll(() => doc.querySelector<HTMLTextAreaElement>("#boot-report")?.value)
+    .toContain('"kind": "installation-origin-mismatch"');
+  const finish = Reflect.get(target, "__vorteoFinishBoot");
+  if (typeof finish !== "function") throw new Error("Missing finish callback");
+  finish();
+  expect(doc.getElementById("boot-overlay")).not.toBeNull();
+});
+
+test("bootstrap failure events never expose arbitrary exception details", async () => {
+  const { doc } = await openLoader();
+  const event = doc.createEvent("CustomEvent");
+  event.initCustomEvent("vorteo-boot-failed", false, false, "secret-token-value");
+  doc.defaultView?.dispatchEvent(event);
+  doc.getElementById("boot-copy")?.click();
+  await expect
+    .poll(() => doc.querySelector<HTMLTextAreaElement>("#boot-report")?.value)
+    .toContain('"bootstrapFailure": null');
+  expect(doc.querySelector<HTMLTextAreaElement>("#boot-report")?.value).not.toContain(
+    "secret-token-value",
+  );
+});
+
+test("bootstrap failure events reject coercible objects without invoking them", async () => {
+  const { doc } = await openLoader();
+  let coerced = false;
+  const event = doc.createEvent("CustomEvent");
+  event.initCustomEvent("vorteo-boot-failed", false, false, {
+    toString() {
+      coerced = true;
+      return "installation-origin-mismatch";
+    },
+    toJSON() {
+      return "private-exception";
+    },
+  });
+  doc.defaultView?.dispatchEvent(event);
+  expect(coerced).toBe(false);
+  doc.getElementById("boot-copy")?.click();
+  await expect
+    .poll(() => doc.querySelector<HTMLTextAreaElement>("#boot-report")?.value)
+    .toContain('"bootstrapFailure": null');
+  expect(doc.querySelector<HTMLTextAreaElement>("#boot-report")?.value).not.toContain(
+    "private-exception",
+  );
+});

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type {
   AgentPermissionRequest,
+  AgentPersistenceHandle,
   AgentPermissionResponse,
   ToolCallTimelineItem,
 } from "../../agent-sdk-types.js";
@@ -152,4 +153,12 @@ export class CodexAsyncQuestions {
   serialize(): unknown {
     return Array.from(this.records.values());
   }
+}
+
+/** Closed projections restore owner questions only, never native execution approvals. */
+export function pendingCodexAsyncQuestions(
+  handle: AgentPersistenceHandle | null | undefined,
+): AgentPermissionRequest[] {
+  if (!handle || (handle.metadata?.provider ?? handle.provider) !== "codex") return [];
+  return new CodexAsyncQuestions(handle.metadata?.asyncQuestions).pending();
 }
