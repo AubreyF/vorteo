@@ -15,6 +15,25 @@ import {
 // Configuration fields with their own rules, outside the registry.
 const SPECIAL_CONFIGURATION_FIELDS = ["nativeHelperConfiguration"];
 
+test("a reviewed Dev updater Node change accepts only an absolute path", () => {
+  const plan = {
+    configurationChanges: [{ setting: "containerSourceUpdateNode", value: "/durable/bin/node" }],
+  } as CoordinatorBootstrapPlan;
+  expect(planConfigurationChanges(plan)).toEqual({
+    ok: true,
+    changes: [{ setting: "containerSourceUpdateNode", value: "/durable/bin/node" }],
+  });
+  expect(
+    planConfigurationChanges({
+      ...plan,
+      configurationChanges: [{ setting: "containerSourceUpdateNode", value: "node" }],
+    }),
+  ).toEqual({
+    ok: false,
+    reason: "Invalid value for configuration setting: containerSourceUpdateNode",
+  });
+});
+
 test("every per-setting plan field is registered or deliberately special", () => {
   const legacy = REVIEWED_CONFIGURATION_SETTING_NAMES.flatMap((setting) => {
     const definition: ReviewedConfigurationSettingDefinition =

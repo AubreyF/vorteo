@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-30): the reviewed coordinator configuration registry can change the Node executable used by an existing Dev source updater. Exact configuration verification preserves sibling fields and rejects changes without an existing updater; review text distinguishes this setting from supervisor replacement. Source preparation does not imply live configuration or Dev cutover. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-30): align restart guidance with the existing installed automatic and delegated approval policy. Exact tracked decisions remain required; duplicate owner approvals do not. Runtime, README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-30): clarify standing delivery authority and finite outcome acceptance. Routine phases retain existing authorization; explicit restrictions and tracked lifecycle approvals remain binding. Runtime, README overview and onboarding are unchanged.

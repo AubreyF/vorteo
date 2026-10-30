@@ -15,6 +15,10 @@ type Descriptions = {
  * new setting cannot reach approval without a description here.
  */
 const DESCRIPTIONS: Descriptions = {
+  containerSourceUpdateNode: (node) =>
+    node === null
+      ? "This plan cannot remove the Node executable required by Dev source updates."
+      : `Use ${node} for subsequent Dev source updates. This does not replace the running supervisor or restart Dev.`,
   factoryRuntimeAdoption: (config) =>
     config === null
       ? "Disable new Factory startup adoption requests. Existing recovery requirements remain."

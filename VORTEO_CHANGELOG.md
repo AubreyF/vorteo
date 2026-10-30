@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.937 - 2026-10-30
+
+### Maintenance
+
+- Allow reviewed coordinator updates to replace the Dev source updater's Node path while preserving its other bindings. The change requires an existing updater and does not replace the running supervisor or restart Dev.
+
 ## 0.11.0-beta.3.vorteo.936 - 2026-10-30
 
 ### Maintenance

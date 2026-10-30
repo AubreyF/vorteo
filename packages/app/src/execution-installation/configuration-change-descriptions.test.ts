@@ -3,6 +3,17 @@ import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bo
 import { describeConfigurationChanges } from "./configuration-change-descriptions";
 
 describe("describeConfigurationChanges", () => {
+  it("distinguishes the updater executable from a running supervisor replacement", () => {
+    expect(
+      describeConfigurationChanges({
+        configurationChanges: [
+          { setting: "containerSourceUpdateNode", value: "/durable/bin/node" },
+        ],
+      } as CoordinatorBootstrapPlan),
+    ).toEqual([
+      "Use /durable/bin/node for subsequent Dev source updates. This does not replace the running supervisor or restart Dev.",
+    ]);
+  });
   it("describes a listed change exactly like its legacy field", () => {
     const launcher = { candidate: "/fixture/candidate.plist", sha256: "c".repeat(64) };
     const legacy = describeConfigurationChanges({
