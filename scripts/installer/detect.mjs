@@ -298,6 +298,19 @@ function labResult(lab) {
  * What already exists on this machine, most authoritative first. `docker: false` skips
  * the Compose project query, for Host-only plans that make no Docker calls.
  */
+function legacyContainerResult(deployments) {
+  return {
+    kind: "legacy-container",
+    paths: {
+      container: deployments[0].path,
+      // The installer offers the deployment's own Projects folder as the default.
+      ...(deployments[0].projectsFolder ? { projectsFolder: deployments[0].projectsFolder } : {}),
+    },
+    deployment: deployments[0],
+    candidates: deployments.map((deployment) => deployment.path),
+  };
+}
+
 export async function detectExisting(context, { docker = true } = {}) {
   const current = currentInstallation(context.root);
   if (current) return current;
@@ -307,9 +320,11 @@ export async function detectExisting(context, { docker = true } = {}) {
     const here = findHostRoots(context).find(
       (found) => path.resolve(found.root) === path.resolve(context.root),
     );
-    return here && here.kind !== "current"
-      ? legacyHostResult(here, [])
-      : { kind: "none", paths: {} };
+    if (here && here.kind !== "current") return legacyHostResult(here, []);
+    // An owner (or a test) can name the one old deployment to wrap into this new folder.
+    const hinted = context.env?.VORTEO_LEGACY_DEPLOYMENT;
+    const deployment = hinted ? inspectDeployment(path.resolve(hinted)) : null;
+    return deployment ? legacyContainerResult([deployment]) : { kind: "none", paths: {} };
   }
   // An old Host installation wins over its own Dev deployment, which would otherwise be
   // found below as a legacy container and wrapped into a second installation.
@@ -323,19 +338,8 @@ export async function detectExisting(context, { docker = true } = {}) {
     exclude: lab ? [path.join(lab.path, "container")] : [],
     docker,
   });
-  if (deployments.length) {
-    return {
-      kind: "legacy-container",
-      paths: {
-        container: deployments[0].path,
-        // The installer offers the deployment's own Projects folder as the default.
-        ...(deployments[0].projectsFolder ? { projectsFolder: deployments[0].projectsFolder } : {}),
-      },
-      deployment: deployments[0],
-      candidates: deployments.map((deployment) => deployment.path),
-      ...(lab ? { lab: lab.path } : {}),
-    };
-  }
+  if (deployments.length)
+    return { ...legacyContainerResult(deployments), ...(lab ? { lab: lab.path } : {}) };
   return lab ? labResult(lab) : { kind: "none", paths: {} };
 }
 

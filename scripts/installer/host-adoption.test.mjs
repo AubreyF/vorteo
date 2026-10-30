@@ -301,6 +301,20 @@ describe("detection", () => {
     expect(await detectExisting(here)).toMatchObject({ kind: "legacy-host" });
   });
 
+  test("a non-default --root wraps only the old deployment named by VORTEO_LEGACY_DEPLOYMENT", async () => {
+    const { context } = machine();
+    const { deployment } = legacyInstallation(context.home, { root: labRoot(context) });
+    const trial = {
+      ...context,
+      root: path.join(context.home, "vorteo-trial"),
+      env: { ...context.env, VORTEO_LEGACY_DEPLOYMENT: deployment },
+    };
+    expect(await detectExisting(trial)).toMatchObject({
+      kind: "legacy-container",
+      paths: { container: deployment },
+    });
+  });
+
   test("an arbitrary root is found through its coordinator's LaunchAgent", async () => {
     const { context } = machine();
     const root = path.join(context.home, "Installations", "vorteo-host");

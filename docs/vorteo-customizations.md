@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-30): explicit legacy deployment for non-default installer roots. README unchanged.
+
 Maintenance review (2026-10-30): first full real install (Dev in gate mode plus Tailscale) passed acceptance; prefer the shared library copy of duplicate skills within one environment. README unchanged.
 
 Maintenance review (2026-10-30): fix installer stop handling and gate network reuse found during real installs. README unchanged.
