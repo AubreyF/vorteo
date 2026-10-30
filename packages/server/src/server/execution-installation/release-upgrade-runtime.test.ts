@@ -13,6 +13,9 @@ import {
 } from "./release-upgrade-runtime.js";
 import type { InstallationRestarts } from "./restarts.js";
 
+// Host snapshots and upgrades run only on macOS and Linux Hosts; Windows Hosts are #35.
+const posixTest = test.skipIf(process.platform === "win32");
+
 const INSTALLED = "1".repeat(40);
 const SUPERVISOR = "packages/server/dist/scripts/supervisor-entrypoint.js";
 const COORDINATOR = "packages/server/dist/server/server/execution-installation/main.js";
@@ -100,7 +103,7 @@ function runtime(jobs: RestartJob[], legacy = legacyInstallation()) {
   });
 }
 
-test("an installation from before the installer offers upgrades, which adopt it first", () => {
+posixTest("an installation from before the installer offers upgrades, which adopt it first", () => {
   const { config, configFile } = legacyInstallation();
   expect(adoptionRequired(config, configFile)).toBe(true);
   expect(upgradeBlocker(config)).toContain("one-command installer");

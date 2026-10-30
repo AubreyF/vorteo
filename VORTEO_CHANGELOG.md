@@ -6,6 +6,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ## Unreleased - 2026-10-30
 
+### Maintenance
+
+- Host snapshot and legacy upgrade tests skip on Windows CI, where their POSIX Host paths cannot exist; Windows Hosts remain planned in #35.
+
+## Unreleased - 2026-10-30
+
 ### Added
 
 - The Vorteo :: Optimizer workspace now gets an Optimizer agent. Once a provider is usable on the Host or a single-daemon install, at startup or after you connect your first account, the daemon creates one agent there with standing instructions shipped in source and runs its first review. It reviews daemon health and logs, Vorteo disk use, stale and heavy archived workspaces, failing providers, quota pressure, updates and settings, and reports findings as checklist items, open questions and journal entries. It changes nothing without your approval.

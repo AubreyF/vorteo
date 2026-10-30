@@ -22,6 +22,9 @@ import {
 } from "./snapshots.js";
 import { InstallationConfigSchema } from "./config.js";
 
+// Host snapshots and upgrades run only on macOS and Linux Hosts; Windows Hosts are #35.
+const posixTest = test.skipIf(process.platform === "win32");
+
 let root: string;
 
 beforeEach(() => {
@@ -78,7 +81,7 @@ function snapshots(sources: SnapshotSource[], now = () => new Date("2026-10-30T1
   });
 }
 
-test("captures every part with a manifest and leaves caches out", async () => {
+posixTest("captures every part with a manifest and leaves caches out", async () => {
   const { sources, container } = installation();
   const service = snapshots(sources);
   const snapshot = await service.take({ reason: "owner" });
@@ -166,87 +169,93 @@ function recordingServices(calls: string[], failStart?: ManagedService): Service
   };
 }
 
-test("restore stops services, replaces each part, then starts Dev, the Host and the coordinator", async () => {
-  const { sources, host, container, state } = installation();
-  const service = snapshots(sources);
-  const snapshot = await service.take({ reason: "owner" });
-  write(path.join(host, "config.json"), '{"changed":true}');
-  write(path.join(host, "new-file"), "after snapshot");
-  write(path.join(container, ".env"), "PASEO_IMAGE=new");
-  write(path.join(container, "workspace/kept"), "unrelated");
-  const parts = service.storedParts(snapshot);
-  const steps = planRestore(parts, true);
-  expect(steps.filter((step) => step.action !== "restore")).toEqual([
-    { action: "stop", service: "coordinator" },
-    { action: "stop", service: "host" },
-    { action: "stop", service: "dev" },
-    { action: "start", service: "dev" },
-    { action: "start", service: "host" },
-    { action: "start", service: "coordinator" },
-    { action: "verify-coordinator" },
-  ]);
-  const calls: string[] = [];
-  await executeRestore({
-    restoreId: "00000000-0000-4000-8000-000000000001",
-    parts,
-    steps,
-    ports: {
-      services: recordingServices(calls),
-      snapshot: { importDocker: async () => undefined },
-      verifyCoordinator: async () => {
-        calls.push("verify");
-      },
-      progress: () => undefined,
-    },
-  });
-  expect(calls).toEqual([
-    "stop coordinator",
-    "stop host",
-    "stop dev",
-    "start dev",
-    "start host",
-    "start coordinator",
-    "verify",
-  ]);
-  expect(readFileSync(path.join(host, "config.json"), "utf8")).toBe('{"daemon":{}}');
-  expect(existsSync(path.join(host, "new-file"))).toBe(false);
-  expect(readFileSync(path.join(container, ".env"), "utf8")).toBe("PASEO_IMAGE=old");
-  expect(readFileSync(path.join(container, "workspace/kept"), "utf8")).toBe("unrelated");
-  expect(existsSync(path.join(state, "restarts.json"))).toBe(true);
-  expect(existsSync(`${host}.before-restore-00000000-0000-4000-8000-000000000001`)).toBe(false);
-});
-
-test("a failed restore puts every replaced part back and starts the services again", async () => {
-  const { sources, host } = installation();
-  const service = snapshots(sources);
-  const snapshot = await service.take({ reason: "owner" });
-  write(path.join(host, "config.json"), '{"changed":true}');
-  const parts = service.storedParts(snapshot);
-  const calls: string[] = [];
-  await expect(
-    executeRestore({
-      restoreId: "00000000-0000-4000-8000-000000000002",
+posixTest(
+  "restore stops services, replaces each part, then starts Dev, the Host and the coordinator",
+  async () => {
+    const { sources, host, container, state } = installation();
+    const service = snapshots(sources);
+    const snapshot = await service.take({ reason: "owner" });
+    write(path.join(host, "config.json"), '{"changed":true}');
+    write(path.join(host, "new-file"), "after snapshot");
+    write(path.join(container, ".env"), "PASEO_IMAGE=new");
+    write(path.join(container, "workspace/kept"), "unrelated");
+    const parts = service.storedParts(snapshot);
+    const steps = planRestore(parts, true);
+    expect(steps.filter((step) => step.action !== "restore")).toEqual([
+      { action: "stop", service: "coordinator" },
+      { action: "stop", service: "host" },
+      { action: "stop", service: "dev" },
+      { action: "start", service: "dev" },
+      { action: "start", service: "host" },
+      { action: "start", service: "coordinator" },
+      { action: "verify-coordinator" },
+    ]);
+    const calls: string[] = [];
+    await executeRestore({
+      restoreId: "00000000-0000-4000-8000-000000000001",
       parts,
-      steps: planRestore(parts, false),
+      steps,
       ports: {
-        services: recordingServices(calls, "host"),
+        services: recordingServices(calls),
         snapshot: { importDocker: async () => undefined },
-        verifyCoordinator: async () => undefined,
+        verifyCoordinator: async () => {
+          calls.push("verify");
+        },
         progress: () => undefined,
       },
-    }),
-  ).rejects.toThrow("host did not start");
-  expect(readFileSync(path.join(host, "config.json"), "utf8")).toBe('{"changed":true}');
-  expect(calls).toEqual([
-    "stop coordinator",
-    "stop host",
-    "start host",
-    "start host",
-    "start coordinator",
-  ]);
-});
+    });
+    expect(calls).toEqual([
+      "stop coordinator",
+      "stop host",
+      "stop dev",
+      "start dev",
+      "start host",
+      "start coordinator",
+      "verify",
+    ]);
+    expect(readFileSync(path.join(host, "config.json"), "utf8")).toBe('{"daemon":{}}');
+    expect(existsSync(path.join(host, "new-file"))).toBe(false);
+    expect(readFileSync(path.join(container, ".env"), "utf8")).toBe("PASEO_IMAGE=old");
+    expect(readFileSync(path.join(container, "workspace/kept"), "utf8")).toBe("unrelated");
+    expect(existsSync(path.join(state, "restarts.json"))).toBe(true);
+    expect(existsSync(`${host}.before-restore-00000000-0000-4000-8000-000000000001`)).toBe(false);
+  },
+);
 
-test("snapshot sources follow the installation layout", () => {
+posixTest(
+  "a failed restore puts every replaced part back and starts the services again",
+  async () => {
+    const { sources, host } = installation();
+    const service = snapshots(sources);
+    const snapshot = await service.take({ reason: "owner" });
+    write(path.join(host, "config.json"), '{"changed":true}');
+    const parts = service.storedParts(snapshot);
+    const calls: string[] = [];
+    await expect(
+      executeRestore({
+        restoreId: "00000000-0000-4000-8000-000000000002",
+        parts,
+        steps: planRestore(parts, false),
+        ports: {
+          services: recordingServices(calls, "host"),
+          snapshot: { importDocker: async () => undefined },
+          verifyCoordinator: async () => undefined,
+          progress: () => undefined,
+        },
+      }),
+    ).rejects.toThrow("host did not start");
+    expect(readFileSync(path.join(host, "config.json"), "utf8")).toBe('{"changed":true}');
+    expect(calls).toEqual([
+      "stop coordinator",
+      "stop host",
+      "start host",
+      "start host",
+      "start coordinator",
+    ]);
+  },
+);
+
+posixTest("snapshot sources follow the installation layout", () => {
   const { container } = installation();
   const config = InstallationConfigSchema.parse({
     public: {
@@ -301,43 +310,46 @@ test("snapshot sources follow the installation layout", () => {
   ]);
 });
 
-test("service control uses launchd, systemd user units and Dev's own Compose helpers", async () => {
-  const calls: string[][] = [];
-  const control = createServiceControl(
-    {
-      coordinator: { launchdService: "gui/501/local.vorteo.fixture.installation" },
-      host: {
-        systemdService: {
-          kind: "systemd-user",
-          uid: 1000,
-          unit: "local.vorteo.fixture.host.service",
+posixTest(
+  "service control uses launchd, systemd user units and Dev's own Compose helpers",
+  async () => {
+    const calls: string[][] = [];
+    const control = createServiceControl(
+      {
+        coordinator: { launchdService: "gui/501/local.vorteo.fixture.installation" },
+        host: {
+          systemdService: {
+            kind: "systemd-user",
+            uid: 1000,
+            unit: "local.vorteo.fixture.host.service",
+          },
         },
+        dev: { directory: "/fixture/container" },
       },
-      dev: { directory: "/fixture/container" },
-    },
-    async (command, args) => {
-      calls.push([command, ...args]);
-      return "";
-    },
-    "/Users/owner/Library/LaunchAgents",
-  );
-  await control.stop("coordinator");
-  await control.start("coordinator");
-  await control.restart("coordinator");
-  await control.restart("host");
-  await control.stop("dev");
-  expect(calls.slice(0, 4)).toEqual([
-    ["/bin/launchctl", "bootout", "gui/501/local.vorteo.fixture.installation"],
-    [
-      "/bin/launchctl",
-      "bootstrap",
-      "gui/501",
-      "/Users/owner/Library/LaunchAgents/local.vorteo.fixture.installation.plist",
-    ],
-    ["/bin/launchctl", "kickstart", "-k", "gui/501/local.vorteo.fixture.installation"],
-    ["/usr/bin/systemctl", "--user", "restart", "local.vorteo.fixture.host.service"],
-  ]);
-  expect(calls[4][0]).toBe("/bin/bash");
-  expect(calls[4].at(-1)).toBe("/fixture/container");
-  expect(calls[4][2]).toContain("paseo_compose stop paseo");
-});
+      async (command, args) => {
+        calls.push([command, ...args]);
+        return "";
+      },
+      "/Users/owner/Library/LaunchAgents",
+    );
+    await control.stop("coordinator");
+    await control.start("coordinator");
+    await control.restart("coordinator");
+    await control.restart("host");
+    await control.stop("dev");
+    expect(calls.slice(0, 4)).toEqual([
+      ["/bin/launchctl", "bootout", "gui/501/local.vorteo.fixture.installation"],
+      [
+        "/bin/launchctl",
+        "bootstrap",
+        "gui/501",
+        "/Users/owner/Library/LaunchAgents/local.vorteo.fixture.installation.plist",
+      ],
+      ["/bin/launchctl", "kickstart", "-k", "gui/501/local.vorteo.fixture.installation"],
+      ["/usr/bin/systemctl", "--user", "restart", "local.vorteo.fixture.host.service"],
+    ]);
+    expect(calls[4][0]).toBe("/bin/bash");
+    expect(calls[4].at(-1)).toBe("/fixture/container");
+    expect(calls[4][2]).toContain("paseo_compose stop paseo");
+  },
+);
