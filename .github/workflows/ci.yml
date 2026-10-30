@@ -45,11 +45,19 @@ jobs:
         with:
           node-version: "22"
 
+      # Commit version bumps touch every manifest; route on the substantive diff.
+      - name: Ignore version-only manifest bumps
+        if: ${{ github.event_name == 'pull_request' }}
+        run: node scripts/ci-neutralize-version-bumps.mjs "${{ github.event.pull_request.base.sha }}"
+
       - name: Detect affected CI contracts
         id: filter
         uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3
         with:
           filters: .github/ci-paths.yml
+          # An empty token makes the filter diff the local routing commit
+          # instead of asking the API for the pull request's raw file list.
+          token: ""
 
       - name: Test Vorteo commit versioning
         run: node --test scripts/vorton-version.test.mjs

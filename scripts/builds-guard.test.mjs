@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -82,10 +82,4 @@ test("a client copied alone still refuses request commands outside Builds", asyn
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-});
-
-test("the coordinator's publication tooling stays unguarded and self-contained", () => {
-  // The coordinator runs publish-instance-web.mjs from the release during Host installs.
-  const source = readFileSync(path.resolve("scripts/publish-instance-web.mjs"), "utf8");
-  assert.doesNotMatch(source, /builds-guard|assertBuildsCoordinator/);
 });

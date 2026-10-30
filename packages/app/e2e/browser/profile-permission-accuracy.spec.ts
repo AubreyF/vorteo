@@ -45,7 +45,6 @@ test("profile edits warn legacy chats and recreation uses the updated permission
       });
       await resizeAndSettle(page, { width: 390, height: 844 });
       await expect(warning).toBeVisible();
-      await page.screenshot({ path: test.info().outputPath("legacy-permission-warning.png") });
       await resizeAndSettle(page, { width: 1280, height: 900 });
       await page.getByTestId("profile-permission-recreate").click();
       await chooseNewTaskForProfile(page);

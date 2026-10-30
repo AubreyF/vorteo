@@ -2,7 +2,7 @@ import { expect, test } from "../support/fixtures";
 
 test("persists demo edits across reload, updates Changes live and resets only demo data", async ({
   page,
-}, info) => {
+}) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1800, height: 1000 });
   await page.goto("/?demo=1");
@@ -36,7 +36,6 @@ test("persists demo edits across reload, updates Changes live and resets only de
         0,
     )
     .toBeGreaterThanOrEqual(32);
-  await page.screenshot({ path: info.outputPath("saved-demo-file.png"), fullPage: true });
   await page.getByTestId("demo-reset").click();
   await page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-1").click();
   await page.keyboard.press(mac ? "Meta+Shift+E" : "Control+Shift+E");

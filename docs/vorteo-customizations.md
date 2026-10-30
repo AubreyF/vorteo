@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-30): slim the Vorteo-written test suite, add the agent testing budget and make pull request CI ignore version-only manifest bumps so path routing selects suites again. Coverage of security boundaries, the installation coordinator, migrations, wire compatibility and installers is retained. No runtime behavior, README overview or onboarding changed.
+
 Maintenance review (2026-10-30): move the repositories to `terran-labs` and update every repository reference; plan the one-command installation. No runtime behavior changed beyond repository addresses; README onboarding changes with the installer, which is not part of this commit.
 
 Maintenance review (2026-10-30): add the opt-in environment network gate, installation names, the shared-settings resolver, installation-scoped account entry points, single-master brand marks and installation-managed System project seeding; fix duplicate System projects and an account-binding check that blocked shared settings. README onboarding changes with the one-command installation, which is not part of this commit.

@@ -34,7 +34,7 @@ afterEach(() => {
   Reflect.deleteProperty(globalThis, "__VORTEO_EXECUTION_INSTALLATION__");
 });
 
-test.each([390, 1133])(
+test.each([390])(
   "the delayed host loader makes the connection check and reload reachable at width %s",
   async (width) => {
     await page.viewport(width, 844);

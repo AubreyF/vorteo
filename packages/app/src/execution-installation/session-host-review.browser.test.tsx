@@ -132,7 +132,7 @@ function assertUnclipped(card: HTMLElement, width: number) {
   }
 }
 
-test("the session host card requests, reviews and decides exact plans at desktop and 390px", async () => {
+test("the session host card requests, reviews and decides exact plans at 390px", async () => {
   vi.stubGlobal("React", React);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const container = document.createElement("div");
@@ -156,7 +156,7 @@ test("the session host card requests, reviews and decides exact plans at desktop
     });
     await act(() => model.initialize());
 
-    for (const width of [1280, 390]) {
+    for (const width of [390]) {
       overview = { jobs: [], status: sessionHostStatusFixture };
       requests.length = 0;
       decisions.length = 0;

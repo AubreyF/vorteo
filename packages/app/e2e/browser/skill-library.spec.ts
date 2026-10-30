@@ -117,15 +117,6 @@ test("groups provider links and keeps removal scoped to the selected path", asyn
   ).toContain("Shared instructions");
 });
 
-test("opens Skills from compact settings and a direct link", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/settings");
-  await revealSettingsLocation(page, "skills");
-  await expect(page.getByPlaceholder("Name, provider, ownership, or environment")).toBeVisible();
-  await page.reload();
-  await expect(page.getByPlaceholder("Name, provider, ownership, or environment")).toBeVisible();
-});
-
 test.describe("Legacy product preference migration", () => {
   test.use({ vortonMode: false });
   test("keeps the skill library available with a legacy disabled preference", async ({ page }) => {

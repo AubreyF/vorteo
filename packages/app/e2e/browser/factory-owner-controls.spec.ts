@@ -12,7 +12,7 @@ import { getServerId } from "../support/helpers/server-id";
 // UI outcomes; native authority and retained lifecycle have their own integration tests.
 test("Factory owner controls show applied and refused outcomes on desktop and compact", async ({
   page,
-}, testInfo) => {
+}) => {
   const directory = await mkdtemp(path.join(tmpdir(), "factory-controls-ui-"));
   const client = await connectNewWorkspaceDaemonClient({ ownProjects: false });
   const previous = await client.getDaemonConfig();
@@ -83,7 +83,6 @@ export default function contribute(server) {
     await expect(
       page.getByText("Factory control applied. Current state is shown below.", { exact: true }),
     ).toBeVisible();
-    await page.screenshot({ path: testInfo.outputPath("factory-controls-desktop.png") });
     await page.setViewportSize({ width: 390, height: 844 });
     await openMobileAgentSidebar(page);
     await page.getByRole("button", { name: "Factory controls test", exact: true }).click();
@@ -93,7 +92,6 @@ export default function contribute(server) {
     await expect(
       page.getByText("Account authorization requires reconciliation.", { exact: true }),
     ).toBeVisible();
-    await page.screenshot({ path: testInfo.outputPath("factory-controls-compact.png") });
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);

@@ -9,7 +9,7 @@ import { waitForSettledPosition } from "../support/helpers/sheet-layout";
 test.use({ dismissWorktreeSetupCallout: false });
 
 for (const width of [1440, 390]) {
-  test(`long modal keeps its actions visible at ${width}px`, async ({ page }, info) => {
+  test(`long modal keeps its actions visible at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 600 });
     await page.emulateMedia({ reducedMotion: "reduce" });
     const agent = await seedMockAgentWorkspace({
@@ -60,7 +60,6 @@ for (const width of [1440, 390]) {
         );
       });
       expect(hit).toBe(true);
-      await page.screenshot({ path: info.outputPath(`fixed-footer-${width}.png`) });
       await save.click();
       await expect(page.getByTestId("checklist-editor")).not.toBeAttached();
       expect(

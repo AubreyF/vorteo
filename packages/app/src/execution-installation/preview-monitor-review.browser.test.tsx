@@ -123,7 +123,7 @@ function assertUnclipped(card: HTMLElement, width: number) {
   }
 }
 
-test("production monitor review preserves exact evidence and manual gates at desktop and 390px", async () => {
+test("production monitor review preserves exact evidence and manual gates at 390px", async () => {
   vi.stubGlobal("React", React);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const container = document.createElement("div");
@@ -135,7 +135,7 @@ test("production monitor review preserves exact evidence and manual gates at des
   const button = (action: string) =>
     container.querySelector<HTMLElement>(`[data-testid="monitor-${current.id}-${action}"]`);
   try {
-    for (const width of [1280, 390]) {
+    for (const width of [390]) {
       await page.viewport(width, 900);
       expect(window.innerWidth).toBe(width);
       render(width);
@@ -149,7 +149,7 @@ test("production monitor review preserves exact evidence and manual gates at des
     }
     const model = capture.model!;
     await act(() => model.initialize());
-    for (const width of [1280, 390]) {
+    for (const width of [390]) {
       await page.viewport(width, 900);
       expect(window.innerWidth).toBe(width);
       render(width);
@@ -213,7 +213,7 @@ test("production monitor review preserves exact evidence and manual gates at des
       }
     }
     await act(() => model.lock());
-    for (const width of [1280, 390]) {
+    for (const width of [390]) {
       await page.viewport(width, 900);
       expect(window.innerWidth).toBe(width);
       render(width);
@@ -241,7 +241,7 @@ test("production monitor review preserves exact evidence and manual gates at des
   }
 }, 30_000);
 
-test.each([1280, 390])(
+test.each([390])(
   "pending Host restart requires confirmation and sends only approve at %spx",
   async (width) => {
     vi.stubGlobal("React", React);

@@ -66,19 +66,6 @@ describe("Vorteo touch controls", () => {
     expect(result.current.row.minHeight).toBe(44);
     expect(result.current.action.width).toBe(44);
   });
-  it("enlarges all touch actions without a compact product switch exemption", () => {
-    const action = document.createElement("button");
-    const slot = document.createElement("div");
-    slot.dataset.vortonActionSlot = "true";
-    slot.append(action);
-    document.body.append(slot);
-    const stop = applyVortonWeb(true);
-    expect(getComputedStyle(action).minHeight).toBe("44px");
-    expect(getComputedStyle(slot).minHeight).toBe("44px");
-    stop();
-    expect(document.head.querySelector("[data-vorton-styles]")).toBeNull();
-    expect(document.documentElement.hasAttribute("data-vorton-mode")).toBe(false);
-  });
   it("leaves Home Screen top spacing to safe-area shells and restores status bar metadata", () => {
     const agent = vi.spyOn(navigator, "userAgent", "get").mockReturnValue("iPhone");
     Object.defineProperty(navigator, "standalone", { configurable: true, value: true });

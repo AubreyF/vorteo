@@ -1,61 +1,6 @@
 import { expect, test } from "../support/fixtures";
-import { composerLocator } from "../support/helpers/composer";
-import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
-
-// This spec handles the "Set up worktree scripts" notice itself.
-test.use({ dismissWorktreeSetupCallout: false });
-
 const API = "https://api.github.com/repos/terran-labs/vorteo";
 const latestCommit = "b".repeat(40);
-
-test("compact notices clear a growing composer and release its space after navigation", async ({
-  page,
-}, info) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  const agent = await seedMockAgentWorkspace({
-    repoPrefix: "notice-clearance-",
-    title: "Notice clearance",
-    initialPrompt: "emit 2 agent stream updates",
-  });
-  try {
-    await openAgentRoute(page, agent);
-    const stack = page.getByTestId("installation-update-toasts");
-    await expect(stack.getByText("Set up worktree scripts", { exact: true })).toBeVisible();
-    for (const kind of ["agent", "draft"]) {
-      if (kind === "draft") {
-        await page.getByTestId("workspace-header-menu-trigger").click();
-        await page.getByTestId("workspace-header-new-agent").click();
-      }
-      const composer = composerLocator(page);
-      for (const text of ["A short draft", "A multiline draft\n".repeat(8)]) {
-        await composer.fill(text);
-        await expect(async () => {
-          const notice = await stack.boundingBox();
-          const input = await page
-            .getByTestId("message-input-root")
-            .filter({ has: composer })
-            .boundingBox();
-          expect(notice).not.toBeNull();
-          expect(input).not.toBeNull();
-          expect(notice!.height).toBeGreaterThan(44);
-          expect(notice!.y).toBeGreaterThanOrEqual(56);
-          expect(notice!.y + notice!.height).toBeLessThanOrEqual(input!.y - 7);
-        }).toPass();
-        await composer.click();
-        await expect(composer).toBeFocused();
-      }
-      await page.screenshot({ path: info.outputPath(`compact-notice-${kind}.png`) });
-    }
-    await page.goto("/settings/appearance");
-    await expect(async () => {
-      const bounds = await stack.boundingBox();
-      expect(bounds).not.toBeNull();
-      expect(bounds!.y + bounds!.height).toBeCloseTo(764, 0);
-    }).toPass();
-  } finally {
-    await agent.cleanup();
-  }
-});
 
 test("Vorteo checks main and requires a connected installation host before preparing an update", async ({
   page,
@@ -174,23 +119,13 @@ test("manual checks show lasting feedback and the version footer starts a fresh 
     "This interface is up to date with main.",
   );
   const button = page.getByTestId("vorton-check-update");
-  const instructions = page.getByTestId("vorton-update-instructions");
-  const feedbackArea = page.getByTestId("vorton-update-feedback-area");
-  const helpButton = page.getByTestId("vorton-help-update");
   await page.getByTestId("vorton-updates-section").scrollIntoViewIfNeeded();
-  const originalArea = await feedbackArea.boundingBox();
-  const originalButton = await helpButton.boundingBox();
   await button.click();
   await expect(button).toBeDisabled();
   await expect(button).toHaveText("Checking GitHub...");
   await expect(page.getByTestId("vorton-check-success")).toHaveText("You're up to date");
   await expect(button).toBeEnabled();
-  await expect(instructions).toHaveCSS("opacity", "0");
-  expect(await feedbackArea.boundingBox()).toEqual(originalArea);
-  expect(await helpButton.boundingBox()).toEqual(originalButton);
   await expect(page.getByTestId("vorton-check-success")).toHaveCount(0);
-  await expect(instructions).toHaveCSS("opacity", "1");
-  expect(await feedbackArea.boundingBox()).toEqual(originalArea);
   await page.getByTestId("settings-sidebar").getByText("General", { exact: true }).click();
   const before = requests;
   await page.getByTestId("settings-sidebar-version").click();

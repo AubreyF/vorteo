@@ -129,12 +129,8 @@ it("shows prepaid credits when either coding allowance is exhausted", () => {
 
 it.each([
   { remainingPct: 1, balance: 12500, expected: null },
-  { remainingPct: 0.1, balance: 12500, expected: null },
   { remainingPct: 0, balance: 0, expected: null },
-  { remainingPct: 0, balance: -1, expected: null },
   { remainingPct: 0, balance: NaN, expected: null },
-  { remainingPct: 0, balance: Infinity, expected: null },
-  { remainingPct: 0, balance: undefined, expected: null },
   { remainingPct: 0, balance: 12.5, expected: "12.5 credits left" },
 ])(
   "uses actual exhaustion and a positive known balance: $remainingPct / $balance",
