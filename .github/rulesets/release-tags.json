@@ -1,0 +1,13 @@
+{
+  "name": "Vorteo release tags",
+  "target": "tag",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/tags/release-*"],
+      "exclude": []
+    }
+  },
+  "rules": [{ "type": "update" }, { "type": "deletion" }]
+}
