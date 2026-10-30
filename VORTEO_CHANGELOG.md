@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.942 - 2026-10-30
+
+### Added
+
+- The installer offers to install missing prerequisites: Node.js 24 and Git before it fetches the release, then Docker when a Dev container is wanted and Tailscale when remote access uses it. Each install needs an explicit yes (`--install-node`, `--install-git`, `--install-docker`, `--start-docker`, `--install-tailscale`); `--yes` never answers them. `--skip-prerequisites` installs nothing and names each fix.
+
+### Maintenance
+
+- `scripts/installer/prerequisites.sh` is the source of the prerequisite functions; `install.sh` carries a copy between `prerequisites.sh` markers, refreshed by `bash scripts/installer/embed-prerequisites.sh`, and the install.sh tests fail when the copy drifts. CI runs the prerequisite library tests with the other installer tests.
+
 ## 0.11.0-beta.3.vorteo.941 - 2026-10-30
 
 ### Maintenance
