@@ -1,6 +1,6 @@
 # Gate credential attachment
 
-Status: planned fast follow after the one-command installation, October 30, 2026. Not implemented.
+Status: planned, high priority after the one-command installation ([#18](https://github.com/terran-labs/vorteo/issues/18)), October 30, 2026. Not implemented.
 
 ## Goal
 

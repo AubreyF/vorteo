@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-30): drop the fast-follow label in favor of `priority:high`. Documentation only; README unchanged.
+
 Maintenance review (2026-10-30): move unfinished work to GitHub issues with Freed's priority and factory labels, reduce the roadmap to an index, and plan gate credential attachment. No runtime behavior changed; README unchanged.
 
 Maintenance review (2026-10-30): add Host-owned Codex sign-in shared with Dev behind `codexHostRefresh` (new `accounts/codex-signin-*` and shared `accounts/host-owned-*` modules, owner routes under `/api/installation/owner/codex/signin`, daemon feature `codexInstallationSignIn`); new installations enable Claude and Codex Host refresh. Token lifetime and refresh behavior await a live check. README unchanged.

@@ -13,7 +13,7 @@ Every open issue carries one priority label. Priority orders selection; it never
 | `priority:normal`   | Planned, after the high items.                       |
 | `priority:low`      | Worth doing when convenient.                         |
 
-`fast-follow` marks high items planned immediately after the current release. `debt` marks independently closable technical or process debt.
+`debt` marks independently closable technical or process debt.
 
 ## Factory states
 
@@ -21,7 +21,6 @@ Agent work uses the same labels as Freed: `factory:ready` (an agent may take it)
 
 ## Views
 
-- [Fast follows](https://github.com/terran-labs/vorteo/issues?q=is%3Aopen+label%3Afast-follow)
 - [High priority](https://github.com/terran-labs/vorteo/issues?q=is%3Aopen+label%3Apriority%3Ahigh)
 - [Ready for the factory](https://github.com/terran-labs/vorteo/issues?q=is%3Aopen+label%3Afactory%3Aready)
 
