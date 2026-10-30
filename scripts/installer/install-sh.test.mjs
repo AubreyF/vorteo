@@ -134,6 +134,10 @@ esac
     pbcopy: `#!/bin/bash\ncat >"$FAKE_CLIPBOARD"\n`,
     xclip: `#!/bin/bash\ncat >"$FAKE_CLIPBOARD"\n`,
     tput: `#!/bin/bash\necho 100\n`,
+    // Present and running, so the prerequisite library installs nothing. A test deletes
+    // one to see the library ask.
+    docker: `#!/bin/bash\nexit 0\n`,
+    tailscale: `#!/bin/bash\nexit 0\n`,
   };
 }
 
@@ -150,6 +154,8 @@ function sandbox() {
     chmodSync(path.join(bin, name), 0o755);
   }
   writeFileSync(path.join(dir, "engine.mjs"), fakeEngine);
+  // Stands in for /Applications, so a Docker or Tailscale app on this machine is not seen.
+  mkdirSync(path.join(dir, "Applications"));
   const files = {
     dir,
     home,
@@ -173,6 +179,7 @@ function sandbox() {
     FAKE_REPO: repoRoot,
     FAKE_SHA: releaseSha,
     VORTEO_TEST_TTY: "none",
+    VORTEO_PREREQ_APPLICATIONS: path.join(dir, "Applications"),
   };
   const run = (args = [], extraEnv = {}, { script = installScript, stdin } = {}) => {
     const result = spawnSync(
@@ -225,6 +232,18 @@ describe("install.sh", () => {
       { encoding: "utf8" },
     );
     assert.equal(result.status, 0, result.stdout);
+  });
+
+  test("embeds an exact copy of prerequisites.sh", () => {
+    const script = readFileSync(installScript, "utf8");
+    const library = readFileSync(path.join(repoRoot, "scripts/installer/prerequisites.sh"), "utf8");
+    const begin = script.match(/^# BEGIN prerequisites\.sh.*\n/m);
+    const end = script.indexOf("\n# END prerequisites.sh\n");
+    assert.ok(begin && end !== -1, "install.sh lost its prerequisites.sh markers");
+    assert.ok(
+      script.slice(begin.index + begin[0].length, end + 1) === library,
+      "install.sh's copy of prerequisites.sh is out of date. Run: bash scripts/installer/embed-prerequisites.sh",
+    );
   });
 
   test("a truncated download runs nothing", () => {
@@ -461,8 +480,63 @@ describe("install.sh", () => {
     assert.match(asked.stdout, /found v20\.11\.0/);
     const declined = box.run(["--yes", "--install-node=no"], { FAKE_NODE_VERSION: "v20.11.0" });
     assert.equal(declined.status, 1);
-    assert.match(declined.stderr, /Node\.js 24 is required/);
-    assert.match(declined.stderr, /Fix:/);
+    assert.match(declined.stdout, /Node\.js 24 is required and was not installed/);
+    assert.match(declined.stdout, /Fix:/);
+    assert.equal(
+      box.calls().some((call) => call.tool === "curl"),
+      false,
+      "the release was fetched without Node.js",
+    );
+  });
+
+  test("missing Tailscale is a question asked after the answers, and detect runs again", () => {
+    const box = sandbox();
+    rmSync(path.join(box.bin, "tailscale"));
+    const answered = ["--dev-container=yes", "--name=Vorteo", "--projects-folder=~/dev"];
+    const asked = box.run(["--yes", ...answered]);
+    assert.equal(asked.status, 3, asked.stdout + asked.stderr);
+    assert.deepEqual(questionIds(asked.stdout), [["install-tailscale", "yes"]]);
+    assert.match(asked.stdout, /Remote access needs Tailscale/);
+
+    const local = box.run(["--yes", "--remote=local", ...answered]);
+    assert.equal(local.status, 0, local.stdout + local.stderr);
+
+    const before = box.calls().length;
+    const declined = box.run(["--yes", "--install-tailscale=no", ...answered]);
+    assert.equal(declined.status, 1);
+    assert.match(declined.stdout, /Tailscale is required and was not installed/);
+    assert.match(declined.stdout, /Or rerun with --remote=local/);
+    assert.equal(
+      box
+        .calls()
+        .slice(before)
+        .some((call) => call.tool === "engine" && call.argv[0] === "plan"),
+      false,
+      "a plan was made after a declined install",
+    );
+
+    // Docker present, Tailscale ready: detect runs once before the questions and once after
+    // the prerequisite check.
+    const fresh = sandbox();
+    const done = fresh.run(["--yes"]);
+    assert.equal(done.status, 0, done.stdout + done.stderr);
+    const detects = fresh
+      .calls()
+      .filter((call) => call.tool === "engine" && call.argv[0] === "detect");
+    assert.equal(detects.length, 2);
+  });
+
+  test("--skip-prerequisites installs nothing and names the fix", () => {
+    const box = sandbox();
+    rmSync(path.join(box.bin, "tailscale"));
+    const result = box.run(["--yes", "--skip-prerequisites"]);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.equal(questionIds(result.stdout).length, 0);
+    assert.match(result.stdout, /✗ Tailscale \(not installed\)/);
+    assert.match(result.stdout, /Prerequisite installs are skipped/);
+    const viaEnv = box.run(["--yes"], { VORTEO_SKIP_PREREQUISITES: "1" });
+    assert.equal(viaEnv.status, 1);
+    assert.match(viaEnv.stdout, /Prerequisite installs are skipped/);
   });
 
   test("preflight names the fix for missing Docker and Tailscale", () => {
@@ -547,6 +621,8 @@ describe("install.sh", () => {
     const box = sandbox();
     assert.equal(box.run(["--remote=satellite"]).status, 2);
     assert.equal(box.run(["--frobnicate"]).status, 2);
+    assert.equal(box.run(["--install-git=maybe"]).status, 2);
+    assert.equal(box.run([], { VORTEO_START_DOCKER: "later" }).status, 2);
   });
 });
 
