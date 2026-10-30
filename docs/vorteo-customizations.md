@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-30): service managers use the context clock. Tests only; README unchanged.
+
 Maintenance review (2026-10-30): launchd reload waits for unload and retries bootstrap, found in the production-upgrade rehearsal. README unchanged.
 
 Maintenance review (2026-10-30): gate switch removes the project's orphan containers, found in the production-upgrade rehearsal. README unchanged.

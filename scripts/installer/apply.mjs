@@ -24,7 +24,13 @@ const RERUN =
   "Fix the problem above, then run the same apply command again; it resumes at this step.";
 
 export function createServiceManager(kind, context) {
-  const options = { run: context.run, uid: context.uid, home: context.home, user: context.user };
+  const options = {
+    run: context.run,
+    uid: context.uid,
+    home: context.home,
+    user: context.user,
+    sleep: context.sleep,
+  };
   if (kind === "launchd") return createLaunchdManager(options);
   if (kind === "systemd-user") return createSystemdManager(options);
   if (kind === "process") return createProcessManager(options);

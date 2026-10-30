@@ -88,7 +88,13 @@ async function engineRevision(context, git) {
 }
 
 function serviceManager(kind, context) {
-  const options = { run: context.run, uid: context.uid, home: context.home, user: context.user };
+  const options = {
+    run: context.run,
+    uid: context.uid,
+    home: context.home,
+    user: context.user,
+    sleep: context.sleep,
+  };
   return kind === "launchd" ? createLaunchdManager(options) : createSystemdManager(options);
 }
 
