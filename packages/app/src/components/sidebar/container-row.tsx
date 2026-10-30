@@ -111,7 +111,7 @@ export function SidebarSectionRow({
       >
         <SidebarLeadingSlot
           chevron={collapsibleChevron(collapsible, collapsed)}
-          revealChevron={isHovered || touch}
+          revealChevron={isHovered}
         >
           <SidebarFolderIcon />
         </SidebarLeadingSlot>

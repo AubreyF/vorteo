@@ -14,12 +14,15 @@ export function ProjectRailList({
   workspaceEntries,
   width,
   onNavigate,
+  onFocused,
   onContentSizeChange,
 }: {
   project: SidebarProjectEntry;
   workspaceEntries: ReadonlyMap<string, SidebarWorkspaceEntry>;
   width: number;
   onNavigate: () => void;
+  /** After a Focus button focuses its item in the sidebar. */
+  onFocused: () => void;
   onContentSizeChange: (width: number, height: number) => void;
 }) {
   const projects = useMemo(() => [project], [project]);
@@ -54,6 +57,7 @@ export function ProjectRailList({
           groupMode="project"
           onWorkspacePress={onNavigate}
           rootFolders={false}
+          onFocusElsewhere={onFocused}
         />
       </SidebarInsetContext.Provider>
     </SidebarWidthContext.Provider>
