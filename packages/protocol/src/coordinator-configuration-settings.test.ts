@@ -15,6 +15,84 @@ import {
 // Configuration fields with their own rules, outside the registry.
 const SPECIAL_CONFIGURATION_FIELDS = ["nativeHelperConfiguration"];
 
+function telemetryPlan() {
+  const digest = "a".repeat(64);
+  const file = { path: "/synthetic/fixture", sha256: digest };
+  const release = {
+    sourceCommit: "b".repeat(40),
+    directory: "/synthetic/release",
+    artifactSha256: digest,
+    node: file,
+    entrypoint: file,
+    configuration: file,
+    launcher: file,
+  };
+  return CoordinatorBootstrapPlanSchema.parse({
+    version: 1,
+    operation: "coordinator-bootstrap",
+    installationId: "00000000-0000-4000-8000-000000000001",
+    service: "gui/501/local.vorteo.fixture.installation",
+    expectedProcess: {
+      pid: 1,
+      bootId: "synthetic",
+      startIdentity: "synthetic",
+      argumentsSha256: digest,
+    },
+    previous: release,
+    candidate: release,
+    state: {
+      directory: "/synthetic/state",
+      restartJournal: "/synthetic/restarts",
+      ownerSessions: "/synthetic/owners",
+    },
+    hostRequestsAfter: null,
+  });
+}
+
+test("a coordinator replacement plan cannot imply telemetry opt-in and only an explicit reviewed setting enables it", () => {
+  const ordinary = telemetryPlan();
+  expect(plansConfigurationChange(ordinary)).toBe(false);
+  expect(planConfigurationChanges(ordinary)).toEqual({ ok: true, changes: [] });
+  for (const value of [true, null]) {
+    const explicit = {
+      ...ordinary,
+      configurationChanges: [{ setting: "operationalTelemetryEnabled", value }],
+    };
+    expect(plansConfigurationChange(explicit)).toBe(true);
+    expect(planConfigurationChanges(explicit)).toEqual({
+      ok: true,
+      changes: [{ setting: "operationalTelemetryEnabled", value }],
+    });
+  }
+  const invalid = {
+    ...ordinary,
+    configurationChanges: [{ setting: "operationalTelemetryEnabled", value: false }],
+  };
+  expect(planConfigurationChanges(invalid)).toEqual({
+    ok: false,
+    reason: "Invalid value for configuration setting: operationalTelemetryEnabled",
+  });
+});
+
+test("a reviewed Dev updater Node change accepts only an absolute path", () => {
+  const plan = {
+    configurationChanges: [{ setting: "containerSourceUpdateNode", value: "/durable/bin/node" }],
+  } as CoordinatorBootstrapPlan;
+  expect(planConfigurationChanges(plan)).toEqual({
+    ok: true,
+    changes: [{ setting: "containerSourceUpdateNode", value: "/durable/bin/node" }],
+  });
+  expect(
+    planConfigurationChanges({
+      ...plan,
+      configurationChanges: [{ setting: "containerSourceUpdateNode", value: "node" }],
+    }),
+  ).toEqual({
+    ok: false,
+    reason: "Invalid value for configuration setting: containerSourceUpdateNode",
+  });
+});
+
 test("every per-setting plan field is registered or deliberately special", () => {
   const legacy = REVIEWED_CONFIGURATION_SETTING_NAMES.flatMap((setting) => {
     const definition: ReviewedConfigurationSettingDefinition =

@@ -1,5 +1,9 @@
 # Vorteo customizations beyond Paseo
 
+Private coordinator performance logging is opt-in through the reviewed `operationalTelemetryEnabled` setting. When enabled, it samples process CPU and memory, cached queue and connection health, and fixed operation labels once per minute without overlapping writes. Storage is limited to 48 hourly slots of 256 KiB each. Records exclude prompts, account content and endpoints. Rotation refuses unrecognized records, including duplicate JSON keys, and preserves their bytes. Removing the setting stops future sampling and retains existing private records. Source validation, installation and activation are separate delivery checks. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-30): the reviewed coordinator configuration registry can change the Node executable used by an existing Dev source updater. Exact configuration verification preserves sibling fields and rejects changes without an existing updater; review text distinguishes this setting from supervisor replacement. Source preparation does not imply live configuration or Dev cutover. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-30): align restart guidance with the existing installed automatic and delegated approval policy. Exact tracked decisions remain required; duplicate owner approvals do not. Runtime, README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-30): clarify standing delivery authority and finite outcome acceptance. Routine phases retain existing authorization; explicit restrictions and tracked lifecycle approvals remain binding. Runtime, README overview and onboarding are unchanged.

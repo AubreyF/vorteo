@@ -15,6 +15,19 @@ const SYSTEMD_SERVICE = {
   unit: "local.vorteo.fixture.host.service",
 };
 
+test("private operational telemetry is off by default and accepts only an explicit true opt-in", () => {
+  const source = config({ launchdService: "gui/501/local.vorteo.fixture.host" });
+  expect(InstallationConfigSchema.parse(source).operationalTelemetryEnabled).toBeUndefined();
+  const enabled = InstallationConfigSchema.parse({ ...source, operationalTelemetryEnabled: true });
+  expect(enabled.operationalTelemetryEnabled).toBe(true);
+  expect(Object.hasOwn(enabled.public, "operationalTelemetryEnabled")).toBe(false);
+  for (const invalid of [false, "true", 1, null])
+    expect(
+      InstallationConfigSchema.safeParse({ ...source, operationalTelemetryEnabled: invalid })
+        .success,
+    ).toBe(false);
+});
+
 function config(host: Record<string, unknown>) {
   return {
     public: {

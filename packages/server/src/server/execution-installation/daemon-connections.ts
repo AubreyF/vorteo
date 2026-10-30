@@ -1,5 +1,11 @@
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type { ExecutionEnvironmentKind } from "@getpaseo/protocol/execution-installation";
+import type { OperationalConnectionObservation } from "./operational-telemetry-record.js";
+
+interface ConnectionObservations {
+  host: OperationalConnectionObservation | null;
+  container: OperationalConnectionObservation | null;
+}
 
 /** The parts of a daemon client the shared connections manage. */
 export type SharedDaemonClient = Pick<DaemonClient, "close" | "getConnectionState">;
@@ -8,11 +14,14 @@ export interface InstallationDaemonConnections<Client extends SharedDaemonClient
   /** Borrow the environment's shared connection. `close()` on the returned
    * client ends only this lease; the connection stays open for other passes. */
   connect(kind: ExecutionEnvironmentKind): Promise<Client>;
+  operationalSnapshot(): ConnectionObservations;
   close(): void;
 }
 
 interface SharedConnection<Client> {
   client: Promise<Client>;
+  resolved?: Client;
+  authenticatedAtMs?: number;
   leases: number;
   timer?: NodeJS.Timeout;
 }
@@ -28,13 +37,21 @@ interface SharedConnection<Client> {
  */
 export function createInstallationDaemonConnections<Client extends SharedDaemonClient>(
   open: (kind: ExecutionEnvironmentKind) => Promise<Client>,
-  { idleMs = 60_000 }: { idleMs?: number } = {},
+  { idleMs = 60_000, now = Date.now }: { idleMs?: number; now?: () => number } = {},
 ): InstallationDaemonConnections<Client> {
   const shared = new Map<ExecutionEnvironmentKind, SharedConnection<Client>>();
+  const observations: ConnectionObservations = { host: null, container: null };
 
   function retire(kind: ExecutionEnvironmentKind, entry: SharedConnection<Client>): void {
     clearTimeout(entry.timer);
-    if (shared.get(kind) === entry) shared.delete(kind);
+    if (shared.get(kind) === entry) {
+      shared.delete(kind);
+      observations[kind] = {
+        status: "disconnected",
+        observedAtMs: now(),
+        authenticatedAtMs: entry.authenticatedAtMs ?? null,
+      };
+    }
     void entry.client.then(
       (client) => client.close(),
       () => undefined,
@@ -88,7 +105,11 @@ export function createInstallationDaemonConnections<Client extends SharedDaemonC
         if (shared.get(kind) === entry) shared.delete(kind);
         throw error;
       }
-      if (client.getConnectionState().status === "connected") return lease(kind, entry, client);
+      if (client.getConnectionState().status === "connected") {
+        entry.resolved = client;
+        entry.authenticatedAtMs ??= now();
+        return lease(kind, entry, client);
+      }
       entry.leases -= 1;
       retire(kind, entry);
       if (fresh) throw new Error("Installation daemon connection closed before use");
@@ -97,6 +118,22 @@ export function createInstallationDaemonConnections<Client extends SharedDaemonC
 
   return {
     connect,
+    operationalSnapshot() {
+      for (const [kind, entry] of shared) {
+        let status = "connecting";
+        if (entry.resolved) status = entry.resolved.getConnectionState().status;
+        if (status === "disposed" || status === "idle") status = "disconnected";
+        observations[kind] = {
+          status,
+          observedAtMs: now(),
+          authenticatedAtMs: entry.authenticatedAtMs ?? null,
+        };
+      }
+      return {
+        host: observations.host && { ...observations.host },
+        container: observations.container && { ...observations.container },
+      };
+    },
     close() {
       for (const [kind, entry] of shared) retire(kind, entry);
     },

@@ -1,4 +1,10 @@
 import { WorkerLaunchVerifiedCauseSchema } from "@getpaseo/protocol/execution-installation";
+import { summarizeOperationalQueues } from "./operational-telemetry-queues.js";
+import {
+  createOperationalActivityBatch,
+  type OperationalActivitySink,
+} from "./operational-telemetry-activity.js";
+import type { OperationalQueueObservation } from "./operational-telemetry-record.js";
 import {
   DEFAULT_SHARED_TARGET_MESSAGE,
   RESTART_OPERATIONS,
@@ -296,6 +302,7 @@ function requestPredatesPolicy(
 }
 
 export class InstallationRestarts {
+  private operationalActivitySink: OperationalActivitySink | null = null;
   private readonly progress: NonNullable<RestartStartupOptions["progress"]>;
   private readonly dispatchDeadlineMs: number;
   private jobs: RestartJob[];
@@ -465,6 +472,14 @@ export class InstallationRestarts {
     return structuredClone(
       this.jobs.map((job) => ({ ...job, impact: this.impactCache.get(job.target) })),
     );
+  }
+
+  operationalSummary(): OperationalQueueObservation {
+    return summarizeOperationalQueues(this.snapshot);
+  }
+
+  setOperationalActivitySink(sink: OperationalActivitySink): void {
+    this.operationalActivitySink = sink;
   }
 
   serviceMaintenanceAvailable(): boolean {
@@ -3092,14 +3107,17 @@ export class InstallationRestarts {
     const remaining = new Map<string, LifecycleJob>(
       [...jobs, ...helpers, ...monitors, ...services, ...sessionHosts].map((job) => [job.id, job]),
     );
+    const activity = this.operationalActivitySink ? createOperationalActivityBatch() : null;
     const next: LifecycleJob[] = [];
     for (const previous of this.snapshot) {
       const job = remaining.get(previous.id);
       if (job) {
+        activity?.change(previous, job);
         next.push(job);
         remaining.delete(previous.id);
       }
     }
+    for (const job of remaining.values()) activity?.change(undefined, job);
     next.push(...remaining.values());
     this.journal.write(next, evidence);
     this.snapshot = next;
@@ -3107,6 +3125,8 @@ export class InstallationRestarts {
     this.helpers = helpers;
     this.monitors = monitors;
     this.sessionHosts = sessionHosts;
+    if (activity && this.operationalActivitySink)
+      activity.flush(this.operationalActivitySink, this.now);
   }
 
   private replaceService(
@@ -3122,6 +3142,11 @@ export class InstallationRestarts {
         throw new RestartRequestError("Maintenance journal changed; inspect its current receipt");
       return jobs.map((job) => (job.id === previous.id ? next : job));
     }, evidence);
+    if (this.operationalActivitySink) {
+      const activity = createOperationalActivityBatch();
+      activity.change(previous, next);
+      activity.flush(this.operationalActivitySink, this.now);
+    }
   }
 
   private async drainServices(): Promise<void> {

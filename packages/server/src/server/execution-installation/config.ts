@@ -61,6 +61,8 @@ const HostDaemonSchema = DaemonConnectionSchema.extend({
 
 export const InstallationConfigSchema = z.strictObject({
   public: ExecutionInstallationSchema,
+  /** Only an explicitly reviewed private configuration enables operational sampling. */
+  operationalTelemetryEnabled: z.literal(true).optional(),
   nativeHelper: NativeHelperConfigurationSchema.optional(),
   previewMonitor: PreviewMonitorConfigurationSchema.optional(),
   restartApprovalPolicy: z.strictObject({ hostRequestsAfter: z.string().datetime() }).optional(),
