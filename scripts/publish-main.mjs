@@ -256,6 +256,16 @@ export async function openPullRequest(
   return waitForHead(gh, plan, viewPullRequest(gh, plan.repository, number), { pollMs });
 }
 
+function isInstallationAuthor({ plan, pr, viewer, owner, approvers, canWrite, gh }) {
+  if (pr.isCrossRepository || pr.author?.login !== viewer || !canWrite(viewer)) return false;
+  if (approvers.has(viewer)) return true;
+  const ownerType = gh(["api", `repos/${plan.repository}`, "--jq", ".owner.type"]);
+  if (ownerType !== "Organization") return false;
+  // Repository administration alone does not establish organization ownership.
+  const membership = JSON.parse(gh(["api", `user/memberships/orgs/${owner}`]));
+  return membership.state === "active" && membership.role === "admin";
+}
+
 /**
  * Decides whether a pull request may merge. Reviewers count only with write access,
  * checked through GitHub's permission API, and each reviewer's latest decision counts.
@@ -306,12 +316,7 @@ export function assertReviewed(plan, pr, { gh = runGh, delegates = readDelegates
       `Pull request #${pr.number} has changes requested by ${blocking.map((r) => r.user).join(", ")}.`,
     );
   }
-  if (
-    !pr.isCrossRepository &&
-    pr.author?.login === viewer &&
-    approvers.has(viewer) &&
-    canWrite(viewer)
-  ) {
+  if (isInstallationAuthor({ plan, pr, viewer, owner, approvers, canWrite, gh })) {
     return "authored by this installation's account";
   }
   // Agents act through the account running Builds, so its approval proves no human decision.

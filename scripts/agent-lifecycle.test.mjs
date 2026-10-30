@@ -604,3 +604,49 @@ test("manifest conflicts on Vorteo versions alone keep the installed side", () =
   assert.equal(dependency.unresolved, 1);
   assert.match(dependency.text, /<<<<<<< HEAD/);
 });
+
+test("organization owners can deliver their own PRs without delegating repository administrators", () => {
+  const plan = { repository: "org/repo", head: "abc" };
+  const own = { number: 7, isCrossRepository: false, author: { login: "owner" } };
+  const check = ({
+    role = "admin",
+    state = "active",
+    permission = "admin",
+    reviews = [],
+    pr = own,
+    unavailable = false,
+  } = {}) =>
+    assertReviewed(plan, pr, {
+      delegates: [],
+      gh(args) {
+        if (args[1] === "user") return "owner";
+        if (args[1] === "repos/org/repo")
+          return args.at(-1) === ".owner.type" ? "Organization" : "org";
+        if (args[1] === "user/memberships/orgs/org") {
+          if (unavailable) throw new Error("membership unavailable");
+          return JSON.stringify({ role, state });
+        }
+        if (args[1]?.includes("/collaborators/")) return permission;
+        if (args.includes("repos/org/repo/pulls/7/reviews"))
+          return reviews.map((x) => JSON.stringify(x)).join("\n");
+        throw new Error(`Unexpected command ${args.join(" ")}`);
+      },
+    });
+  assert.equal(check(), "authored by this installation's account");
+  assert.throws(() => check({ role: "member" }), /waits for review/);
+  assert.throws(() => check({ state: "pending" }), /waits for review/);
+  assert.throws(() => check({ permission: "read" }), /waits for review/);
+  assert.throws(() => check({ unavailable: true }), /membership unavailable/);
+  assert.throws(() => check({ pr: { ...own, isCrossRepository: true } }), /waits for review/);
+  assert.throws(
+    () => check({ pr: { ...own, author: { login: "someone-else" } } }),
+    /waits for review/,
+  );
+  assert.throws(
+    () =>
+      check({
+        reviews: [{ id: 1, state: "CHANGES_REQUESTED", commit_id: "abc", user: "reviewer" }],
+      }),
+    /changes requested/,
+  );
+});
