@@ -86,6 +86,7 @@ async function freezeHome(sourceHome: string, requestedRoot: string | null): Pro
   mkdirSync(frozenHome, { recursive: true });
 
   copyJsonTree(path.join(sourceHome, "agents"), path.join(frozenHome, "agents"));
+  copyJsonTree(path.join(sourceHome, "agent-journals"), path.join(frozenHome, "agent-journals"));
   copyJsonTree(path.join(sourceHome, "projects"), path.join(frozenHome, "projects"));
 
   const configPath = path.join(sourceHome, "config.json");

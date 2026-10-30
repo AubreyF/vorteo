@@ -1,12 +1,8 @@
 // @vitest-environment jsdom
-import type { ReactNode } from "react";
 import { act, renderHook } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  KeyboardActionDispatcherProvider,
-  useKeyboardActionDispatcher,
-} from "@/keyboard/keyboard-action-dispatcher-context";
-import { useSidebarFocusController } from "./context";
+import { beforeEach, describe, expect, it } from "vitest";
+import { focusSidebarProject, useSidebarFocusController } from "./context";
+import { EMPTY_SIDEBAR_FOLDER_STATE, useSidebarFolderStore } from "@/sidebar-folders/store";
 import type { SidebarFocusWorld } from "./model";
 import { useSidebarFocusStore } from "./store";
 
@@ -16,29 +12,9 @@ const world: SidebarFocusWorld = {
   projects: new Map([["app", { name: "App", sections: [] }]]),
   hiddenFolderIds: new Set(),
 };
-const ESCAPE = { id: "agent.interrupt", scope: "global" } as const;
-
-function wrapper({ children }: { children: ReactNode }) {
-  return <KeyboardActionDispatcherProvider>{children}</KeyboardActionDispatcherProvider>;
-}
 
 function renderController() {
-  return renderHook(
-    () => ({
-      controller: useSidebarFocusController({ world, enabled: true }),
-      dispatcher: useKeyboardActionDispatcher(),
-    }),
-    { wrapper },
-  );
-}
-
-function focusableIn(scope: boolean): HTMLButtonElement {
-  const container = document.createElement("div");
-  if (scope) container.dataset.sidebarFocusScope = "";
-  const button = document.createElement("button");
-  container.append(button);
-  document.body.append(container);
-  return button;
+  return renderHook(() => useSidebarFocusController({ world, enabled: true }));
 }
 
 beforeEach(() => {
@@ -47,38 +23,21 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
-  document.body.replaceChildren();
-});
-
-describe("sidebar focus Escape", () => {
-  it("leaves focus while keyboard focus is in the sidebar", () => {
+describe("sidebar focus controller", () => {
+  it("leaves focus only through focusOn(null), as the All projects crumb does", () => {
     const { result } = renderController();
-    expect(result.current.controller.focus).toEqual({ kind: "project", projectKey: "app" });
-    focusableIn(true).focus();
-    let handled = false;
+    expect(result.current.focus).toEqual({ kind: "project", projectKey: "app" });
     act(() => {
-      handled = result.current.dispatcher.dispatch(ESCAPE);
+      result.current.focusOn(null);
     });
-    expect(handled).toBe(true);
     expect(useSidebarFocusStore.getState().focus).toBeNull();
-    expect(result.current.controller.focus).toBeNull();
-  });
-
-  it("leaves Escape to other surfaces, such as agent interrupt, outside the sidebar", () => {
-    const { result } = renderController();
-    focusableIn(false).focus();
-    expect(result.current.dispatcher.dispatch(ESCAPE)).toBe(false);
-    expect(useSidebarFocusStore.getState().focus?.target).toEqual({
-      kind: "project",
-      projectKey: "app",
-    });
+    expect(result.current.focus).toBeNull();
   });
 
   it("stores the ancestors of a newly focused item for later fallback", () => {
     const { result } = renderController();
     act(() => {
-      result.current.controller.focusOn({
+      result.current.focusOn({
         kind: "section",
         projectKey: "app",
         section: "standing",
@@ -88,5 +47,52 @@ describe("sidebar focus Escape", () => {
       target: { kind: "section", projectKey: "app", section: "standing" },
       ancestors: [{ kind: "project", projectKey: "app" }],
     });
+  });
+});
+
+describe("focusing a project from the compact rail", () => {
+  it("stores the same focus as the project row's Focus button, with its folder ancestors", () => {
+    const folder = (id: string, parentId: string | null) => ({
+      id,
+      name: id,
+      parentId,
+      scope: { kind: "root" as const },
+      createdAt: "2026-10-29T00:00:00Z",
+    });
+    useSidebarFolderStore.setState({
+      ...EMPTY_SIDEBAR_FOLDER_STATE,
+      sidebarFolders: { work: folder("work", null), client: folder("client", "work") },
+      itemFolder: { app: "client" },
+    });
+    useSidebarFocusStore.setState({ focus: null });
+    const { result } = renderHook(() =>
+      useSidebarFocusController({
+        world: {
+          folders: useSidebarFolderStore.getState().sidebarFolders,
+          itemFolder: useSidebarFolderStore.getState().itemFolder,
+          projects: new Map([["app", { name: "App", sections: [] }]]),
+          hiddenFolderIds: new Set(),
+        },
+        enabled: true,
+      }),
+    );
+    act(() => {
+      result.current.focusOn({ kind: "project", projectKey: "app" });
+    });
+    const fromButton = useSidebarFocusStore.getState().focus;
+    useSidebarFocusStore.setState({ focus: null });
+    act(() => {
+      focusSidebarProject("app");
+    });
+    expect(useSidebarFocusStore.getState().focus).toEqual(fromButton);
+    expect(fromButton).toEqual({
+      target: { kind: "project", projectKey: "app" },
+      ancestors: [
+        { kind: "folder", folderId: "work" },
+        { kind: "folder", folderId: "client" },
+      ],
+    });
+    expect(result.current.focus).toEqual({ kind: "project", projectKey: "app" });
+    useSidebarFolderStore.setState(EMPTY_SIDEBAR_FOLDER_STATE);
   });
 });

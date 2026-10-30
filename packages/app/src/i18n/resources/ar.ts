@@ -1190,7 +1190,6 @@ export const ar: TranslationResources = {
     },
     focus: {
       focusItem: "التركيز على {{name}}",
-      menuItem: "تركيز",
       allProjects: "كل المشاريع",
       breadcrumb: "مسار التركيز في الشريط الجانبي",
     },

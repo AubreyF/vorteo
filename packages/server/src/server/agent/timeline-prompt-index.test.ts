@@ -68,4 +68,18 @@ describe("buildTimelinePromptIndex", () => {
     expect(prompts[0]).toMatchObject({ seq: 1, origin: "agent" });
     expect(prompts[1]).not.toHaveProperty("origin");
   });
+
+  it("returns only prompts after a known position", () => {
+    const rows: AgentTimelineRow[] = [3, 4, 8, 9].map((seq) => ({
+      seq,
+      timestamp: "2026-01-01T00:00:00.000Z",
+      item:
+        seq === 4
+          ? { type: "assistant_message", text: "response" }
+          : { type: "user_message", text: `prompt ${seq}` },
+    }));
+
+    expect(buildTimelinePromptIndex("epoch-1", rows, 3).prompts.map((p) => p.seq)).toEqual([8, 9]);
+    expect(buildTimelinePromptIndex("epoch-1", rows, 9).prompts).toEqual([]);
+  });
 });

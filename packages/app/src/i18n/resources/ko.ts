@@ -1197,7 +1197,6 @@ export const ko: TranslationResources = {
     },
     focus: {
       focusItem: "{{name}}에 집중",
-      menuItem: "집중",
       allProjects: "모든 프로젝트",
       breadcrumb: "사이드바 집중 경로",
     },

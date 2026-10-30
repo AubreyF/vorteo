@@ -1236,7 +1236,6 @@ export const en = {
     },
     focus: {
       focusItem: "Focus {{name}}",
-      menuItem: "Focus",
       allProjects: "All projects",
       breadcrumb: "Sidebar focus path",
     },

@@ -16,7 +16,8 @@ const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMut
 /**
  * The leading slot every sidebar container row shares: projects, folders, Standing and Factory.
  * It shows the row's icon at rest and swaps in the disclosure arrow while `revealChevron` is
- * true (hover, or always on touch). A row without an icon keeps its arrow visible.
+ * true, which is pointer hover only: touch layouts keep the icon, and tapping the row still
+ * folds it. A row without an icon keeps its arrow visible.
  */
 export function SidebarLeadingSlot({
   chevron,

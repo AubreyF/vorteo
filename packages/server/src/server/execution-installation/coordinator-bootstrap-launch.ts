@@ -1,3 +1,7 @@
+import {
+  withInitializationDiagnostic,
+  type InitializationPhase,
+} from "./coordinator-initialization-diagnostic.js";
 import { reserveEnrolledBootstrapLaunch } from "./coordinator-bootstrap-maintenance-dispatch.js";
 import { verifyCoordinatorSubmission } from "./daemon-automation.js";
 import { createHash } from "node:crypto";
@@ -1402,25 +1406,9 @@ async function createSafeManagedBootstrapReview(
   setup: string | undefined,
   daemonId: string,
 ): Promise<BootstrapReviewService | undefined> {
-  try {
-    return await createManagedBootstrapReview(setup, daemonId);
-  } catch (error) {
-    // Keep a safe diagnosis reachable through the existing review UI. In
-    // particular an older Host must not rewrite history it cannot understand.
-    const description =
-      error instanceof BootstrapRequestConflict
-        ? error.message
-        : "Coordinator maintenance is unavailable: this Host cannot validate retained renewal evidence. Install a compatible Host reader; do not replay or rewrite history.";
-    const unavailable = () => {
-      throw new BootstrapRequestConflict(description);
-    };
-    return {
-      unavailableReason: description,
-      list: unavailable,
-      prepare: async () => unavailable(),
-      decide: async () => unavailable(),
-    };
-  }
+  return withInitializationDiagnostic((phase) =>
+    initializeManagedBootstrapReview(setup, daemonId, phase),
+  );
 }
 
 /** Launcher configuration, never an RPC, supplies the runner setup. Existing
@@ -1429,12 +1417,21 @@ export async function createManagedBootstrapReview(
   setupFile: string | undefined,
   daemonId: string,
 ): Promise<BootstrapReviewService | undefined> {
+  return initializeManagedBootstrapReview(setupFile, daemonId, () => {});
+}
+
+async function initializeManagedBootstrapReview(
+  setupFile: string | undefined,
+  daemonId: string,
+  phase: (value: InitializationPhase) => void,
+): Promise<BootstrapReviewService | undefined> {
   if (!setupFile) return undefined;
   const uid = process.getuid?.();
   if (process.platform !== "darwin" || uid === undefined)
     throw new BootstrapRequestConflict("Native Host bootstrap launch required");
   const readSetup = () =>
     BootstrapRunnerSetupSchema.parse(readPrivateBootstrapConfiguration(setupFile, uid));
+  phase("runner_schema");
   const original = readSetup();
   if (original.daemonId !== daemonId)
     throw new BootstrapRequestConflict("Bootstrap setup belongs to another daemon");
@@ -1451,11 +1448,13 @@ export async function createManagedBootstrapReview(
     });
   // Reconstruction and setup verification read the same selected Host tree.
   return withBootstrapArtifactReuse(async () => {
+    phase("derive_renewal");
     const setup = (await reconstruct()) ?? original;
     const readAdmission = () =>
       BootstrapAdmissionSetupSchema.parse(
         readPrivateBootstrapConfiguration(setup.admissionSetupFile, uid),
       );
+    phase("admission_schema");
     const admission = readAdmission();
     const verifySetup = () =>
       withBootstrapArtifactReuse(async () => {
@@ -1485,7 +1484,9 @@ export async function createManagedBootstrapReview(
           throw new BootstrapRequestConflict("Bootstrap runner artifact changed");
         return roots;
       });
+    phase("verify_setup");
     await verifySetup();
+    phase("create_review_service");
     const requests = await createBootstrapReviewService(
       setup.admissionSetupFile,
       daemonId,
@@ -1500,7 +1501,9 @@ export async function createManagedBootstrapReview(
         : undefined,
     );
     const configurationFile = setup.renewal?.configuration.path ?? admission.configurationFile;
+    phase("renewal_fingerprint");
     const derivedContext = renewalContextFingerprint(requests.list(), configurationFile);
+    phase("create_dispatch_service");
     return {
       ...createDispatchingBootstrapReview({
         setup,
