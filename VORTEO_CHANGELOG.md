@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.950 - 2026-10-30
+
+### Fixed
+
+- A new installation no longer asks the owner to resolve skills when one machine holds different copies of a skill in several tools' folders: the copy in `~/.agents/skills`, the shared library's folder, is kept (#52).
+
 ## 0.11.0-beta.3.vorteo.949 - 2026-10-30
 
 ### Fixed

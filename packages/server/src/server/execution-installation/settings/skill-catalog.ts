@@ -23,6 +23,7 @@ export async function collectInstallationSkills(
   if (result.inventory.roots.some((root) => root.status === "error"))
     throw new Error("Skill discovery is incomplete; preserve the existing catalog");
   const definitions: InstallationSkill[] = [];
+  const paths = new Map<string, string>();
   for (const skill of result.inventory.skills) {
     if (skill.owner !== "personal") continue;
     if (skill.issues.length || !skill.sha256)
@@ -42,8 +43,30 @@ export async function collectInstallationSkills(
       )
     )
       definitions.push(definition);
+    paths.set(definition.identity, skill.path);
   }
-  return definitions.toSorted((left, right) => left.identity.localeCompare(right.identity));
+  return preferSharedLibraryCopies(definitions, paths).toSorted((left, right) =>
+    left.identity.localeCompare(right.identity),
+  );
+}
+
+/**
+ * One environment can hold different copies of a skill in several tools' folders. The
+ * shared library lives in `~/.agents/skills`, so its copy wins without asking the owner;
+ * only names with no copy there still need a choice.
+ */
+function preferSharedLibraryCopies(
+  definitions: InstallationSkill[],
+  paths: ReadonlyMap<string, string>,
+): InstallationSkill[] {
+  const shared = (definition: InstallationSkill) =>
+    /[\\/]\.agents[\\/]skills[\\/]/.test(paths.get(definition.identity) ?? "");
+  return definitions.filter((definition) => {
+    const sameName = definitions.filter((other) => other.name === definition.name);
+    if (sameName.length < 2) return true;
+    const canonical = sameName.filter(shared);
+    return canonical.length === 1 ? canonical[0] === definition : true;
+  });
 }
 
 /** Every variant is retained in protected storage before a canonical choice can be made. */
