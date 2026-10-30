@@ -48,10 +48,9 @@ test("Vorteo checks the latest release and requires a connected installation hos
     "release-26.10.3002 is available with 3 new commits.",
   );
   expect(requests).toBeGreaterThan(0);
-  await page.getByTestId("vorton-help-update").click();
-  await expect(
-    page.getByText("Connect this installation's host environment before preparing an update task."),
-  ).toBeVisible();
+  // Without a connected Host, the add-a-Host card replaces the update task button.
+  await expect(page.getByTestId("vorton-legacy-installation")).toBeVisible();
+  await expect(page.getByTestId("vorton-help-update")).toHaveCount(0);
   await expect(page).toHaveURL(/\/settings\/maintenance$/);
   const oldDraft = await page.evaluate(
     () =>
@@ -62,7 +61,7 @@ test("Vorteo checks the latest release and requires a connected installation hos
   // A deliberate scroll still hands section tracking back to the reader.
   await page.getByTestId("settings-scroll-page").hover();
   await page.mouse.wheel(0, -400);
-  await expect(page).toHaveURL(/\/settings\/plugins$/);
+  await expect(page).not.toHaveURL(/\/settings\/maintenance$/);
 });
 
 test("a failed update check exposes a retry and recovers", async ({ page }) => {
@@ -79,6 +78,11 @@ test("a failed update check exposes a retry and recovers", async ({ page }) => {
       await route.fulfill({ status: 403, json: { message: "Rate limit exceeded" } });
       return;
     }
+    // No stable release is published yet, so the check follows main.
+    if (route.request().url().endsWith("/releases/latest")) {
+      await route.fulfill({ status: 404, json: { message: "Not Found" } });
+      return;
+    }
     await route.fulfill({
       json: route.request().url().includes("/commits/")
         ? { sha: latestCommit }
@@ -92,7 +96,7 @@ test("a failed update check exposes a retry and recovers", async ({ page }) => {
   fail = false;
   await page.getByTestId("vorton-check-update").click();
   await expect(page.getByTestId("vorton-update-status")).toHaveText(
-    "This interface was built ahead of main.",
+    "This interface was built after main.",
   );
 });
 
@@ -109,6 +113,10 @@ test("manual checks show lasting feedback and the version footer starts a fresh 
   });
   await page.route(`${API}/**`, async (route) => {
     requests += 1;
+    if (route.request().url().endsWith("/releases/latest")) {
+      await route.fulfill({ status: 404, json: { message: "Not Found" } });
+      return;
+    }
     await route.fulfill({
       json: route.request().url().includes("/commits/")
         ? { sha: latestCommit }

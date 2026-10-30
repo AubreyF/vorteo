@@ -24,7 +24,8 @@ function statusText(update: VortonUpdate | undefined, t: TFunction): string {
   if (!update) return t("settings.about.vortonUpdates.idle");
   return t(`settings.about.vortonUpdates.${update.status}`, {
     count: update.incomingCommits,
-    release: update.latestRelease ?? "the latest release",
+    // Before the first stable release the check compares against main, so name it.
+    release: update.latestRelease ?? "main",
   });
 }
 

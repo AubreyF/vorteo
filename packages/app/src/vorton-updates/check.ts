@@ -105,7 +105,7 @@ export function buildUpdatePrompt(
   latestCommit: string | null,
   latestRelease?: string | null,
 ) {
-  const release = latestRelease ?? "the latest release";
+  const release = latestRelease ?? "main";
   return `Help me update my Vorteo installation from ${VORTON_REPOSITORY} to ${release}.
 The web client’s source base is ${currentCommit ?? "an unknown commit"}. ${latestCommit ? `The update check found ${release} at commit ${latestCommit}.` : "Check the latest release on GitHub."}
 

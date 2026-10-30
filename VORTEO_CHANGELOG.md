@@ -6,6 +6,16 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ## Unreleased - 2026-10-30
 
+### Fixed
+
+- Before the first stable release, Vorteo update status, the Needs attention hint and the update task prompt name main, which the check follows, instead of "the latest release".
+
+### Maintenance
+
+- The update browser tests answer the latest-release lookup with Not Found, as GitHub does before any release, and expect the add-a-Host card where the update task button used to be.
+
+## Unreleased - 2026-10-30
+
 ### Maintenance
 
 - Browser tests follow the removed theme dropdown and the terran-labs repository, and take the first Unreleased What's new entry. The keyboard reorder test is marked fixme while #55 tracks its intermittent missing drop line, which also occurs on main.
