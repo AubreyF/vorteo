@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Every Vorteo commit bumps the version in every workspace manifest and the
-// lockfile. Those bumps match the `workspace` and package routing groups in
+// A Vorteo release preparation, and every commit from before calendar versions,
+// bumps the version in every workspace manifest and the lockfile. Those bumps match the `workspace` and package routing groups in
 // .github/ci-paths.yml, which made every pull request run the full suite.
 //
 // Before path filtering, this script restores each manifest whose only change

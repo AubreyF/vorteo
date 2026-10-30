@@ -1,24 +1,24 @@
 #!/usr/bin/env node
 // Resolves the Vorteo release that new installs and in-app upgrades use: the newest
-// `release-<counter>` tag (stable) or the newest tag of either kind (beta), as tagged by
+// `release-<version>` tag (stable) or the newest tag of either kind (beta), as tagged by
 // scripts/vorteo-release.mjs after the install tests pass, or the one VORTEO_VERSION pins.
+// Versions are calendar versions such as 26.10.3001 (scripts/vorteo-version.mjs).
 // Never `main`. It uses only Node built-ins and the global fetch.
 //
-// Usage: node scripts/release/latest.mjs [--channel stable|beta] [--version <tag or counter>]
+// Usage: node scripts/release/latest.mjs [--channel stable|beta] [--version <tag or version>]
 //                                        [--repository <owner/repo>]
-// Prints {"tag","commit","counter","channel","assetUrl"} as JSON. Exit status 0 means
+// Prints {"tag","commit","version","channel","assetUrl"} as JSON. Exit status 0 means
 // resolved, 2 means no release exists yet (or the pin names none), and 1 means the lookup
 // failed. GITHUB_TOKEN or GH_TOKEN raises the API rate limit.
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { compareTags, isVersion, parseTag } from "../vorteo-version.mjs";
 
 // The one place this package names the GitHub home. Change it here when the owner moves.
 export const REPOSITORY = "terran-labs/vorteo";
 export const INSTALL_ASSET = "install.sh";
 const API_URL = "https://api.github.com";
-// docs/release.md#vorteo-releases. Upstream `v*` tags never match.
-const TAG_PATTERN = /^release-([1-9]\d*)(-beta)?$/;
 
 export class ReleaseResolutionError extends Error {
   /** @param {"not-found" | "invalid" | "api"} code */
@@ -29,22 +29,20 @@ export class ReleaseResolutionError extends Error {
   }
 }
 
-/** Accepts `release-940`, `release-940-beta` or the counter `940` (stable). */
+/**
+ * Accepts `release-26.10.3001`, `release-26.10.3001-beta`, the version `26.10.3001`
+ * (stable) or `26.10.3001-beta`. docs/release.md#vorteo-releases; upstream `v*` tags never match.
+ */
 export function normalizeTag(value) {
   const text = String(value).trim();
-  const tag = /^[1-9]\d*$/.test(text) ? `release-${text}` : text;
-  if (!TAG_PATTERN.test(tag)) {
+  const tag = isVersion(text.replace(/-beta$/, "")) ? `release-${text}` : text;
+  if (!parseTag(tag)) {
     throw new ReleaseResolutionError(
       "invalid",
-      `VORTEO_VERSION ${JSON.stringify(value)} is not a release such as release-940 or 940.`,
+      `VORTEO_VERSION ${JSON.stringify(value)} is not a release such as release-26.10.3001 or 26.10.3001.`,
     );
   }
   return tag;
-}
-
-function parseTag(tag) {
-  const match = TAG_PATTERN.exec(tag ?? "");
-  return match ? { counter: Number(match[1]), channel: match[2] ? "beta" : "stable" } : null;
 }
 
 function installAsset(release) {
@@ -106,7 +104,7 @@ async function findRelease({ fetchImpl, base, token, pinned, channel }) {
   const recent = (await request(fetchImpl, `${base}/releases?per_page=100`, token)) ?? [];
   const newest = recent
     .filter((release) => isInstallable(release, channel))
-    .sort((a, b) => parseTag(b.tag_name).counter - parseTag(a.tag_name).counter)[0];
+    .sort((a, b) => compareTags(parseTag(a.tag_name), parseTag(b.tag_name)))[0];
   if (!newest) {
     throw new ReleaseResolutionError("not-found", `No ${channel} Vorteo release exists yet.`);
   }
@@ -116,7 +114,7 @@ async function findRelease({ fetchImpl, base, token, pinned, channel }) {
 /**
  * @param {{ repository?: string, version?: string, channel?: "stable" | "beta", token?: string,
  *   fetch?: typeof fetch, apiUrl?: string, env?: NodeJS.ProcessEnv }} [options]
- * @returns {Promise<{ tag: string, commit: string, counter: number, channel: string, assetUrl: string }>}
+ * @returns {Promise<{ tag: string, commit: string, version: string, channel: string, assetUrl: string }>}
  */
 export async function resolveRelease(options = {}) {
   const env = options.env ?? process.env;
@@ -149,7 +147,7 @@ export async function resolveRelease(options = {}) {
   return {
     tag,
     commit,
-    counter: parsed.counter,
+    version: parsed.version,
     channel: parsed.channel,
     assetUrl: installAsset(release).browser_download_url,
   };
@@ -162,7 +160,7 @@ function parseArgs(argv) {
     if (!["--version", "--repository", "--channel"].includes(flag) || !value) {
       throw new ReleaseResolutionError(
         "invalid",
-        "Usage: latest.mjs [--channel stable|beta] [--version <tag or counter>] [--repository <owner/repo>]",
+        "Usage: latest.mjs [--channel stable|beta] [--version <tag or version>] [--repository <owner/repo>]",
       );
     }
     options[flag.slice(2)] = value;

@@ -105,7 +105,7 @@ function fakePorts(changes: Partial<UpgradePorts> = {}) {
 }
 
 async function approved(upgrades: InstallationUpgrades) {
-  const pending = await upgrades.request("release-940");
+  const pending = await upgrades.request("release-26.10.3000");
   expect(pending).toMatchObject({ status: "pending", sourceCommit: RELEASE_COMMIT });
   return upgrades.decide(pending.id, pending.revision, "approve");
 }
@@ -285,8 +285,8 @@ test("a failed Host build stops before the coordinator and Dev", async () => {
 test("approval names the reviewed revision and only one upgrade is active", async () => {
   const fake = fakePorts();
   const upgrades = new InstallationUpgrades(journal, fake.ports);
-  const pending = await upgrades.request("release-940");
-  await expect(upgrades.request("release-941")).rejects.toThrow("already pending");
+  const pending = await upgrades.request("release-26.10.3000");
+  await expect(upgrades.request("release-26.10.3001")).rejects.toThrow("already pending");
   expect(() =>
     upgrades.decide(pending.id, "00000000-0000-4000-8000-0000000000ff", "approve"),
   ).toThrow("changed");
@@ -296,7 +296,7 @@ test("approval names the reviewed revision and only one upgrade is active", asyn
   expect(rejected.status).toBe("rejected");
   const current = fakePorts({ currentCommit: () => RELEASE_COMMIT });
   await expect(
-    new InstallationUpgrades(journal, current.ports).request("release-940"),
+    new InstallationUpgrades(journal, current.ports).request("release-26.10.3000"),
   ).rejects.toThrow("already runs");
   expect(JSON.stringify(upgrades.list())).not.toContain("private");
 });

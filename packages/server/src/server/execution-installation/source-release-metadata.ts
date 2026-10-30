@@ -15,15 +15,37 @@ const lockSchema = z
   })
   .passthrough();
 const sections = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
-const versionPattern = /^(\d+\.\d+\.\d+(?:-beta\.\d+)?)[.-](?:vorteo|vorton)\.(\d+)$/;
-function versionParts(version: string) {
-  const match = versionPattern.exec(version);
+// Sources from before calendar versions bump a per-commit counter, 0.11.0-beta.3.vorteo.957.
+const legacyPattern = /^(\d+\.\d+\.\d+(?:-beta\.\d+)?)[.-](?:vorteo|vorton)\.(\d+)$/;
+// Calendar versions YY.M.DDNN (scripts/vorteo-version.mjs) change only when a release is
+// prepared, so combined commits keep the newest one.
+const calendarPattern = /^([1-9]\d+)\.([1-9]|1[0-2])\.([1-9]\d{2,3})$/;
+/** Heading of combined entries in calendar-versioned sources, as the commit hook requires. */
+const UNRELEASED = "Unreleased";
+function legacyParts(version: string) {
+  const match = legacyPattern.exec(version);
   if (!match || !Number.isSafeInteger(Number(match[2])))
     throw new Error("Unsupported release version; resolve metadata explicitly");
   return { base: match[1]!, counter: Number(match[2]) };
 }
+function calendarRank(version: string) {
+  const match = calendarPattern.exec(version);
+  return match ? match.slice(1).map(Number) : null;
+}
+function newerCalendar(left: string, right: string) {
+  const a = calendarRank(left)!;
+  const b = calendarRank(right)!;
+  const index = a.findIndex((value, position) => value !== b[position]);
+  return index !== -1 && a[index]! < b[index]! ? right : left;
+}
 function releaseVersion(versions: string[], increment: number) {
-  const parts = versions.map(versionParts);
+  const calendar = versions.filter((version) => calendarRank(version));
+  // Legacy versions are older than every calendar version.
+  if (calendar.length > 0) {
+    for (const version of versions) if (!calendarRank(version)) legacyParts(version);
+    return calendar.reduce(newerCalendar);
+  }
+  const parts = versions.map(legacyParts);
   if (parts.some((item) => item.base !== parts[0]!.base))
     throw new Error("Upstream release bases differ; resolve explicitly");
   const counter = Math.max(99, ...parts.map((item) => item.counter)) + increment;
@@ -200,6 +222,7 @@ export async function finalizeReleaseMetadata(
   const summary = reasons.map((reason) => `- ${reason.replace(/\s+/g, " ")}`).join("\n");
   // trimEnd: the intro already ends in a newline, so without it the entry gains a second blank
   // line that oxfmt --check (CI) rejects on every combined commit.
-  const notes = `${metadata.notes.slice(0, split).trimEnd()}\n\n## ${version} - ${date}\n\n### Maintenance\n\n${summary}\n\n${metadata.notes.slice(split + 1)}`;
+  const label = calendarRank(version) ? UNRELEASED : version;
+  const notes = `${metadata.notes.slice(0, split).trimEnd()}\n\n## ${label} - ${date}\n\n### Maintenance\n\n${summary}\n\n${metadata.notes.slice(split + 1)}`;
   return metadata.files(version, notes);
 }

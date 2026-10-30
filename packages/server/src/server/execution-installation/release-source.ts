@@ -1,6 +1,6 @@
 /**
  * The repository whose release tags installations upgrade to. Builds tags
- * `release-<counter>` (stable) and `release-<counter>-beta` with
+ * `release-<version>` (stable) and `release-<version>-beta`, such as release-26.10.3001, with
  * scripts/vorteo-release.mjs after the install tests pass. Change the owner here
  * only; every server use derives from it.
  */

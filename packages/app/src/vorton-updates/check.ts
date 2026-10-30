@@ -3,8 +3,11 @@ import { z } from "zod";
 export const VORTON_REPOSITORY = "https://github.com/terran-labs/vorteo";
 const API = "https://api.github.com/repos/terran-labs/vorteo";
 const CommitSchema = z.object({ sha: z.string().regex(/^[a-f0-9]{40}$/) });
-// Stable releases are `release-<counter>` tags; GitHub's latest release is the newest one.
-const ReleaseSchema = z.object({ tag_name: z.string().regex(/^release-[1-9]\d*$/) });
+// Stable releases are `release-<version>` tags with calendar versions such as 26.10.3001;
+// GitHub's latest release is the newest one.
+const ReleaseSchema = z.object({
+  tag_name: z.string().regex(/^release-[1-9]\d+\.(?:[1-9]|1[0-2])\.[1-9]\d{2,3}$/),
+});
 const ComparisonSchema = z.object({
   status: z.enum(["ahead", "behind", "identical", "diverged"]),
   ahead_by: z.number().int().nonnegative(),
@@ -15,7 +18,7 @@ export interface VortonUpdate {
   /** The commit the latest release tag names. */
   latestCommit: string;
   incomingCommits: number;
-  /** The latest stable release tag, such as `release-940`. Absent before the first release. */
+  /** The latest stable release tag, such as `release-26.10.3001`. Absent before the first release. */
   latestRelease?: string;
 }
 

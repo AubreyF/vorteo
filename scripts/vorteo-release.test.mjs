@@ -26,14 +26,15 @@ import {
   startsOnTag,
 } from "./lib/workflow-triggers.mjs";
 import {
+  RELEASE_BRANCHES,
   createTag,
   latestFor,
   parseInstalled,
   parseRemoteTags,
   prepareTag,
+  prepareVersion,
   releaseNotes,
   tagName,
-  versionCounter,
 } from "./vorteo-release.mjs";
 
 const roots = [];
@@ -64,15 +65,21 @@ function fixture() {
   return { root, origin, clone };
 }
 
-function versionCommit(clone, counter, { push = true } = {}) {
-  const version = `0.11.0-beta.3.vorteo.${counter}`;
+// Commits a release preparation for `version`, or an ordinary change with `label` Unreleased.
+function versionCommit(clone, version, { push = true, label = version } = {}) {
+  const changelog = path.join(clone, "VORTEO_CHANGELOG.md");
+  let previous = "# Vorteo changelog\n";
+  try {
+    previous = readFileSync(changelog, "utf8");
+  } catch {}
+  const [intro, ...entries] = previous.split(/^(?=## )/m);
   writeFileSync(path.join(clone, "package.json"), `${JSON.stringify({ version })}\n`);
   writeFileSync(
-    path.join(clone, "VORTEO_CHANGELOG.md"),
-    `# Vorteo changelog\n\n## ${version} - 2026-10-29\n\n- Change ${counter}\n`,
+    changelog,
+    `${intro.trimEnd()}\n\n## ${label} - 2026-10-30\n\n- Change ${label}\n\n${entries.join("")}`,
   );
   run(clone, "add", ".");
-  run(clone, "commit", "--quiet", "-m", `Version ${counter}`);
+  run(clone, "commit", "--quiet", "-m", `Version ${version} ${label}`);
   if (push) run(clone, "push", "--quiet", "origin", "HEAD:main");
   return run(clone, "rev-parse", "HEAD");
 }
@@ -83,69 +90,77 @@ function gitleaksEnv(root) {
   return { ...process.env, PASEO_GITLEAKS_BIN: bin };
 }
 
-test("tag names carry the channel and the Vorteo counter", () => {
-  assert.equal(tagName("beta", 922), "release-922-beta");
-  assert.equal(tagName("stable", 922), "release-922");
-  assert.equal(versionCounter("0.11.0-beta.3.vorteo.922"), 922);
-  assert.equal(versionCounter("0.12.0-vorteo.1000"), 1000);
-  assert.equal(versionCounter("0.9.0-beta.2.vorton.40"), 40);
-  assert.throws(() => versionCounter("0.11.0"), /no Vorteo counter/);
-  assert.equal(parseInstalled("0.11.0-beta.3.vorteo.922"), 922);
-  assert.equal(parseInstalled("930"), 930);
-  assert.equal(parseInstalled(undefined), 0);
-});
-
 test("discovery offers the newest newer tag; beta also follows stable", () => {
   const tags = parseRemoteTags(
     [
-      "aaa\trefs/tags/release-900-beta",
-      "a1a\trefs/tags/release-900-beta^{}",
-      "bbb\trefs/tags/release-900",
-      "b1b\trefs/tags/release-900^{}",
-      "ccc\trefs/tags/release-950-beta",
+      "aaa\trefs/tags/release-26.10.3000-beta",
+      "a1a\trefs/tags/release-26.10.3000-beta^{}",
+      "bbb\trefs/tags/release-26.10.3000",
+      "b1b\trefs/tags/release-26.10.3000^{}",
+      "ccc\trefs/tags/release-26.11.100-beta",
       "ddd\trefs/tags/v0.7.2",
       "eee\trefs/tags/release-oops",
+      "fff\trefs/tags/release-957",
     ].join("\n"),
   );
   assert.deepEqual(
     tags.map((tag) => [tag.name, tag.commit]),
     [
-      ["release-950-beta", "ccc"],
-      ["release-900", "b1b"],
-      ["release-900-beta", "a1a"],
+      ["release-26.11.100-beta", "ccc"],
+      ["release-26.10.3000", "b1b"],
+      ["release-26.10.3000-beta", "a1a"],
     ],
   );
-  assert.equal(latestFor(tags, "stable", 899).name, "release-900");
-  assert.equal(latestFor(tags, "stable", 900), null);
-  assert.equal(latestFor(tags, "beta", 900).name, "release-950-beta");
-  assert.equal(latestFor(tags, "beta", 950), null);
+  // Installations from before calendar versions are offered the first release.
+  assert.equal(latestFor(tags, "stable", "0.11.0-beta.3.vorteo.957").name, "release-26.10.3000");
+  assert.equal(latestFor(tags, "stable", null).name, "release-26.10.3000");
+  assert.equal(latestFor(tags, "stable", "26.10.3000"), null);
+  assert.equal(latestFor(tags, "beta", "26.10.3000").name, "release-26.11.100-beta");
+  assert.equal(latestFor(tags, "beta", "26.11.100"), null);
   assert.throws(() => latestFor(tags, "nightly"), /beta or stable/);
+  assert.equal(parseInstalled("26.10.3001"), "26.10.3001");
+  assert.equal(parseInstalled("0.11.0-beta.3.vorteo.922"), "0.11.0-beta.3.vorteo.922");
+  assert.equal(parseInstalled(undefined), null);
+  assert.throws(() => parseInstalled("930"), /not an installed Vorteo version/);
+  assert.deepEqual(RELEASE_BRANCHES, { beta: "main", stable: "main" });
 });
 
-test("release notes cover the changelog entries since the previous tag", () => {
+test("release notes cover the entries of every release since the previous tag", () => {
   const changelog = [
     "# Vorteo changelog",
-    "## 0.11.0-beta.3.vorteo.12 - 2026-10-29\n\n- Twelve",
-    "## 0.11.0-beta.3.vorteo.11 - 2026-10-29\n\n- Eleven",
-    "## 0.11.0-beta.3.vorteo.10 - 2026-10-28\n\n- Ten",
+    "## Unreleased - 2026-11-02\n\n- Pending",
+    "## 26.11.200 - 2026-11-02\n\n- Prepare 26.11.200",
+    "## Unreleased - 2026-11-01\n\n- Fix in 26.11.200",
+    "## 26.11.100 - 2026-11-01\n\n- Prepare 26.11.100",
+    "## 26.10.3000 - 2026-10-30\n\n- Calendar versions",
+    "## 0.11.0-beta.3.vorteo.957 - 2026-10-30\n\n- Legacy",
   ].join("\n\n");
-  const notes = releaseNotes(changelog, 10, 12);
-  assert.match(notes, /Twelve[\s\S]*Eleven/);
-  assert.doesNotMatch(notes, /Ten/);
-  assert.match(releaseNotes(changelog, 0, 12, 1), /And 2 earlier entries/);
+  const notes = releaseNotes(changelog, "26.10.3000", "26.11.200");
+  assert.match(notes, /Prepare 26\.11\.200[\s\S]*Fix in 26\.11\.200[\s\S]*Prepare 26\.11\.100/);
+  assert.doesNotMatch(notes, /Pending|Calendar versions|Legacy/);
+  const first = releaseNotes(changelog, null, "26.10.3000");
+  assert.match(first, /Calendar versions/);
+  assert.doesNotMatch(first, /Legacy|26\.11/);
+  assert.match(releaseNotes(changelog, null, "26.11.200", 1), /And 3 earlier entries/);
 });
 
-test("tags go only on main, never repeat, and stable needs beta on the same commit", () => {
+test("prepare picks the next build; tags go only on prepared commits, never repeat, and stable needs beta", () => {
   const { root, clone } = fixture();
   const env = gitleaksEnv(root);
-  const first = versionCommit(clone, 100);
+  const legacy = versionCommit(clone, "0.11.0-beta.3.vorteo.957");
+  assert.throws(
+    () => prepareTag({ cwd: clone, channel: "beta", commit: legacy }),
+    /not a calendar version/,
+  );
+  const first = versionCommit(clone, "26.10.3000");
   assert.throws(() => prepareTag({ cwd: clone, channel: "beta" }), /--commit/);
   assert.throws(
     () => prepareTag({ cwd: clone, channel: "stable", commit: "HEAD" }),
-    /needs release-100-beta/,
+    /needs release-26\.10\.3000-beta/,
   );
   const beta = prepareTag({ cwd: clone, channel: "beta", commit: "HEAD" });
-  assert.equal(beta.name, "release-100-beta");
+  assert.equal(beta.name, "release-26.10.3000-beta");
+  assert.equal(beta.previous, null);
   assert.equal(createTag(beta, env).commit, first);
   assert.throws(
     () => prepareTag({ cwd: clone, channel: "beta", commit: "HEAD" }),
@@ -153,27 +168,65 @@ test("tags go only on main, never repeat, and stable needs beta on the same comm
   );
   const stable = prepareTag({ cwd: clone, channel: "stable", commit: "HEAD" });
   assert.equal(createTag(stable, env).commit, first);
-  // A commit that has not reached main cannot be tagged.
-  versionCommit(clone, 101, { push: false });
+  // A later commit keeps the version but is not that release.
+  versionCommit(clone, "26.10.3000", { label: "Unreleased" });
+  assert.throws(
+    () => prepareTag({ cwd: clone, channel: "beta", commit: "HEAD" }),
+    /Unreleased changes above 26\.10\.3000/,
+  );
+  // A commit that has not reached the release branch cannot be tagged.
+  versionCommit(clone, "26.10.3001", { push: false });
   assert.throws(
     () => prepareTag({ cwd: clone, channel: "beta", commit: "HEAD" }),
     /not on origin\/main/,
   );
   run(clone, "push", "--quiet", "origin", "HEAD:main");
-  // An older commit can no longer be tagged once a newer one is.
   const second = prepareTag({ cwd: clone, channel: "beta", commit: "HEAD" });
   createTag(second, env);
+  assert.equal(second.previous, "26.10.3000");
+  // An older commit can no longer be tagged once a newer one is.
   assert.throws(
     () => prepareTag({ cwd: clone, channel: "beta", commit: first }),
-    /already exists|already newer/,
+    /already exists|already as new/,
   );
-  assert.equal(second.previous, 100);
+  // The release branch is explicit per channel and can be overridden.
+  assert.throws(
+    () => prepareTag({ cwd: clone, channel: "stable", commit: "HEAD", branch: "production" }),
+    /production/,
+  );
+  // prepare sets one build past every tag and the current version on the same day.
+  {
+    const { clone: prepared } = fixture();
+    const manifest = (version) => ({ name: "root", version, workspaces: [] });
+    writeFileSync(
+      path.join(prepared, "package.json"),
+      `${JSON.stringify(manifest("0.11.0-beta.3.vorteo.957"))}\n`,
+    );
+    writeFileSync(
+      path.join(prepared, "package-lock.json"),
+      `${JSON.stringify({ version: "0.11.0-beta.3.vorteo.957", packages: { "": {} } })}\n`,
+    );
+    run(prepared, "add", ".");
+    run(prepared, "commit", "--quiet", "-m", "legacy");
+    const day = { cwd: prepared, channel: "beta", date: "2026-10-30" };
+    assert.equal(prepareVersion({ ...day, tags: [] }).version, "26.10.3000");
+    run(prepared, "commit", "--quiet", "-am", "prepare");
+    const tags = [{ version: "26.10.3001" }, { version: "26.10.2999" }];
+    const next = prepareVersion({ ...day, tags });
+    assert.equal(next.version, "26.10.3002");
+    assert.equal(next.previous, "26.10.3000");
+    const lock = JSON.parse(readFileSync(path.join(prepared, "package-lock.json"), "utf8"));
+    assert.equal(lock.packages[""].version, "26.10.3002");
+    assert.throws(() => prepareVersion({ ...day, date: "2026-10-29", tags }), /later than today/);
+    assert.throws(() => prepareVersion({ ...day, date: "30/10/2026", tags }), /YYYY-MM-DD/);
+    assert.throws(() => prepareVersion({ ...day, channel: "nightly", tags }), /beta or stable/);
+  }
 });
 
 test("a failed tag push leaves no local tag behind to block the retry", () => {
   const { root, origin, clone } = fixture();
   const env = gitleaksEnv(root);
-  versionCommit(clone, 100);
+  versionCommit(clone, "26.10.3000");
   const plan = prepareTag({ cwd: clone, channel: "beta", commit: "HEAD" });
   // A remote that rejects every push.
   writeFileSync(path.join(origin, "hooks", "pre-receive"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
@@ -288,7 +341,7 @@ test("release tags start no upstream workflow; GitHub Releases start only guarde
   const vorteo = all.filter((workflow) => startsOnTag(workflow.events, "vorteo-922"));
   assert.ok(vorteo.some((workflow) => workflow.file === "android-apk-release.yml"));
   assert.ok(vorteo.some((workflow) => workflow.file === "desktop-release.yml"));
-  for (const tag of [tagName("beta", 922), tagName("stable", 922)]) {
+  for (const tag of [tagName("beta", "26.10.3001"), tagName("stable", "26.10.3001")]) {
     const started = all
       .filter((workflow) => startsOnTag(workflow.events, tag))
       .map((workflow) => workflow.file);

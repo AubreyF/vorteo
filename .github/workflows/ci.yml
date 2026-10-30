@@ -59,8 +59,8 @@ jobs:
           # instead of asking the API for the pull request's raw file list.
           token: ""
 
-      - name: Test Vorteo commit versioning
-        run: node --test scripts/vorton-version.test.mjs
+      - name: Test Vorteo versions and commit checks
+        run: node --test scripts/vorteo-version.test.mjs scripts/vorton-version.test.mjs
 
       - name: Test agent lifecycle scripts and instruction budgets
         run: node --test scripts/agent-lifecycle.test.mjs scripts/agent-instructions.test.mjs scripts/vorteo-release.test.mjs

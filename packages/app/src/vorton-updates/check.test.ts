@@ -3,7 +3,7 @@ import { buildUpdatePrompt, checkVortonUpdate } from "./check";
 
 const current = "a".repeat(40);
 const latest = "b".repeat(40);
-const release = "release-942";
+const release = "release-26.10.3002";
 const signal = () => new AbortController().signal;
 const latestRelease = () => Response.json({ tag_name: release });
 
@@ -44,7 +44,7 @@ describe("Vorton release update check", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(fetch.mock.calls[0][0]).toMatch(/\/releases\/latest$/);
     // The release tag, not main, names the commit to compare against.
-    expect(fetch.mock.calls[1][0]).toMatch(/\/commits\/release-942$/);
+    expect(fetch.mock.calls[1][0]).toMatch(/\/commits\/release-26\.10\.3002$/);
   });
 
   it.each([

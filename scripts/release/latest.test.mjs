@@ -37,15 +37,15 @@ function github(routes) {
 
 test("stable resolves GitHub's latest release and its commit", async () => {
   const { fetch } = github({
-    [`${API}/releases/latest`]: release("release-940"),
-    [`${API}/commits/release-940`]: { sha: SHA(940) },
+    [`${API}/releases/latest`]: release("release-26.10.3000"),
+    [`${API}/commits/release-26.10.3000`]: { sha: SHA(3000) },
   });
   assert.deepEqual(await resolveRelease({ fetch, env: {} }), {
-    tag: "release-940",
-    commit: SHA(940),
-    counter: 940,
+    tag: "release-26.10.3000",
+    commit: SHA(3000),
+    version: "26.10.3000",
     channel: "stable",
-    assetUrl: `https://github.com/${REPOSITORY}/releases/download/release-940/install.sh`,
+    assetUrl: `https://github.com/${REPOSITORY}/releases/download/release-26.10.3000/install.sh`,
   });
 });
 
@@ -53,34 +53,44 @@ test("stable skips upstream tags and releases without the installer", async () =
   const { fetch } = github({
     [`${API}/releases/latest`]: release("v0.11.0"),
     [`${API}/releases?per_page=100`]: [
-      release("release-950-beta"),
-      release("release-945", { asset: false }),
-      release("release-941", { draft: true }),
-      release("release-938"),
+      release("release-26.11.100-beta"),
+      release("release-26.10.3105", { asset: false }),
+      release("release-26.10.3101", { draft: true }),
+      release("release-957"),
+      release("release-26.9.800"),
+      release("release-26.10.900"),
     ],
-    [`${API}/commits/release-938`]: { sha: SHA(938) },
+    [`${API}/commits/release-26.10.900`]: { sha: SHA(900) },
   });
-  assert.equal((await resolveRelease({ fetch, env: {} })).tag, "release-938");
+  // Calendar order, not string order: 26.10.900 is newer than 26.9.800.
+  assert.equal((await resolveRelease({ fetch, env: {} })).tag, "release-26.10.900");
 });
 
 test("beta takes the newest tag of either kind", async () => {
   const { fetch } = github({
-    [`${API}/releases?per_page=100`]: [release("release-938"), release("release-950-beta")],
-    [`${API}/commits/release-950-beta`]: { sha: SHA(950) },
+    [`${API}/releases?per_page=100`]: [
+      release("release-26.10.3000"),
+      release("release-26.11.100-beta"),
+    ],
+    [`${API}/commits/release-26.11.100-beta`]: { sha: SHA(1100) },
   });
   const resolved = await resolveRelease({ fetch, env: { VORTEO_CHANNEL: "beta" } });
-  assert.equal(resolved.tag, "release-950-beta");
+  assert.equal(resolved.tag, "release-26.11.100-beta");
+  assert.equal(resolved.version, "26.11.100");
   assert.equal(resolved.channel, "beta");
 });
 
-test("a pin accepts a tag or a counter and must carry the installer", async () => {
-  assert.equal(normalizeTag("940"), "release-940");
-  assert.equal(normalizeTag("release-940-beta"), "release-940-beta");
-  assert.throws(() => normalizeTag("v0.11.0"), ReleaseResolutionError);
+test("a pin accepts a tag or a version and must carry the installer", async () => {
+  assert.equal(normalizeTag("26.10.3000"), "release-26.10.3000");
+  assert.equal(normalizeTag("26.10.3000-beta"), "release-26.10.3000-beta");
+  assert.equal(normalizeTag("release-26.10.3000-beta"), "release-26.10.3000-beta");
+  for (const other of ["v0.11.0", "940", "release-940", "26.03.3000"]) {
+    assert.throws(() => normalizeTag(other), ReleaseResolutionError, other);
+  }
   const { fetch } = github({
-    [`${API}/releases/tags/release-940`]: release("release-940", { asset: false }),
+    [`${API}/releases/tags/release-26.10.3000`]: release("release-26.10.3000", { asset: false }),
   });
-  await assert.rejects(resolveRelease({ fetch, env: { VORTEO_VERSION: "940" } }), {
+  await assert.rejects(resolveRelease({ fetch, env: { VORTEO_VERSION: "26.10.3000" } }), {
     code: "not-found",
   });
 });

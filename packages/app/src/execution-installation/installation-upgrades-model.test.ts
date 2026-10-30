@@ -23,7 +23,7 @@ const snapshot: InstallationSnapshot = {
   id: "20261030T120000Z",
   createdAt: "2026-10-30T12:00:00.000Z",
   reason: "upgrade",
-  release: "release-942",
+  release: "release-26.10.3002",
   parts: [
     { kind: "coordinator-state", source: "/var/vorteo/coordinator", files: 4, bytes: 100 },
     { kind: "dev-home", source: "docker:vorteo-dev:/home/dev", files: 9, bytes: 900 },
@@ -49,7 +49,7 @@ function restoreStatus(status: "running" | "succeeded" | "failed", id = restoreI
 function upgrade(
   status: InstallationUpgrade["status"],
   createdAt: string,
-  release = "release-942",
+  release = "release-26.10.3002",
 ): InstallationUpgrade {
   return {
     id: "0b6c9f4e-6c39-4e6e-9f6e-7a5d3c2b1a00",
@@ -66,7 +66,7 @@ function upgrade(
 
 function upgrades(
   entries: InstallationUpgrade[],
-  release: string | null = "release-941",
+  release: string | null = "release-26.10.3001",
 ): UpgradeStatus {
   return {
     available: true,
@@ -80,7 +80,7 @@ function upgrades(
 
 describe("safety snapshots", () => {
   it("names the reason and every part", () => {
-    expect(snapshotReasonLabel(snapshot)).toBe("Before upgrade to release-942");
+    expect(snapshotReasonLabel(snapshot)).toBe("Before upgrade to release-26.10.3002");
     expect(snapshotReasonLabel({ ...snapshot, reason: "owner" })).toBe("Taken by owner");
     expect(snapshotPartsSummary(snapshot)).toBe(
       "Installation coordinator state, Dev container home",
@@ -135,11 +135,11 @@ describe("release upgrades", () => {
   });
 
   it("offers a newer release only when the coordinator supports upgrades and none is active", () => {
-    const input = { latestRelease: "release-942", updateAvailable: true };
-    expect(upgradeOffer({ ...input, status: upgrades([]) })).toBe("release-942");
+    const input = { latestRelease: "release-26.10.3002", updateAvailable: true };
+    expect(upgradeOffer({ ...input, status: upgrades([]) })).toBe("release-26.10.3002");
     expect(upgradeOffer({ ...input, status: null })).toBeNull();
     expect(upgradeOffer({ ...input, status: { ...upgrades([]), available: false } })).toBeNull();
-    expect(upgradeOffer({ ...input, status: upgrades([], "release-942") })).toBeNull();
+    expect(upgradeOffer({ ...input, status: upgrades([], "release-26.10.3002") })).toBeNull();
     expect(upgradeOffer({ ...input, updateAvailable: false, status: upgrades([]) })).toBeNull();
     expect(
       upgradeOffer({
