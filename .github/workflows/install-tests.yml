@@ -110,6 +110,14 @@ jobs:
       - name: Diagnostics
         if: failure()
         run: node scripts/release/e2e/install-e2e.mjs diagnose
+      - name: Upload install diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-diagnostics-${{ runner.os }}
+          path: ${{ env.VORTEO_E2E_STATE }}/diagnostics
+          retention-days: 7
+          if-no-files-found: warn
 
   macos:
     name: macos (Host only, launchd)
@@ -138,3 +146,11 @@ jobs:
       - name: Diagnostics
         if: failure()
         run: node scripts/release/e2e/install-e2e.mjs diagnose
+      - name: Upload install diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-diagnostics-${{ runner.os }}
+          path: ${{ env.VORTEO_E2E_STATE }}/diagnostics
+          retention-days: 7
+          if-no-files-found: warn

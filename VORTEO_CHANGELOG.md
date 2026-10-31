@@ -6,6 +6,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ## Unreleased - 2026-10-31
 
+### Maintenance
+
+- Capture Host build and container logs when clean-machine installation tests fail
+
+## Unreleased - 2026-10-31
+
 ### Fixed
 
 - Recognize verified organization owners when delivering their own pull requests after a repository transfer. Repository administration alone remains insufficient; checks on the exact commit and blocking reviews still apply.

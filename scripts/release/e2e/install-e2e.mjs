@@ -14,7 +14,7 @@
 // Secrets: the owner password is read from its file, masked in GitHub logs and
 // never printed. Diagnostics print status and service state, not credentials.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -530,6 +530,32 @@ async function uninstall() {
 function diagnose() {
   const status = existsSync(CONTRACT.installedCli) ? readStatus() : { error: "not installed" };
   console.log(JSON.stringify(status, null, 2));
+  const diagnostics = path.join(stateDir, "diagnostics");
+  mkdirSync(diagnostics, { recursive: true });
+  const password = existsSync(CONTRACT.passwordFile)
+    ? readFileSync(CONTRACT.passwordFile, "utf8").trim()
+    : "";
+  function record(name, content) {
+    const redacted = password ? content.replaceAll(password, "[REDACTED]") : content;
+    writeFileSync(path.join(diagnostics, name), redacted);
+    console.log(`::group::${name}\n${redacted}\n::endgroup::`);
+  }
+  const logs = path.join(CONTRACT.home, "host", "logs");
+  if (existsSync(logs)) {
+    for (const entry of readdirSync(logs, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".log")) {
+        record(entry.name, readFileSync(path.join(logs, entry.name), "utf8"));
+      }
+    }
+  }
+  if (isLinux) {
+    // These are disposable CI containers; do not export inspect output or env files.
+    const containers = run("docker", ["ps", "-aq"], { check: false });
+    for (const id of (containers.stdout ?? "").trim().split("\n").filter(Boolean)) {
+      const result = run("docker", ["logs", "--tail", "500", id], { check: false });
+      record(`container-${id}.log`, `${result.stdout ?? ""}${result.stderr ?? ""}`);
+    }
+  }
   if (process.platform === "darwin") {
     run("launchctl", ["list"], { check: false, stdio: "inherit" });
     return;
