@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## Unreleased - 2026-10-31
+
+### Fixed
+
+- Prevent Dev from reaching Host services through its internal Docker bridge address
+
 ## 26.10.3102 - 2026-10-31
 
 ### Maintenance

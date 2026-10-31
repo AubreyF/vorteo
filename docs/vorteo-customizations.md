@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-31): the Dev internal network disables the bridge's IPv4 address, closing direct access to Host services bound on that address. A real Docker 24 control reproduced the old bypass and verified refusal with the option enabled; Dev-to-gate peer traffic and the gate's published loopback port remain reachable. Full release acceptance remains pending.
+
 Maintenance review (2026-10-31): candidate 26.10.3102 includes Dev client provisioning for private Linux homes. A restricted Linux container verified fresh installation and retry over an old root-owned client file. Exact-commit acceptance remains pending.
 
 Maintenance review (2026-10-31): Dev client provisioning writes private files atomically as the Dev account, passing credentials through stdin rather than process arguments. This avoids a root traversal failure in private Linux homes and permits retrying after the older root-owned copy. Container capabilities remain unchanged.
