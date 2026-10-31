@@ -34,6 +34,9 @@ export const BLOCKED_REVIEW_PROMPT =
   "Periodic blocked-work review. Read your current checklist, goal and recent conversation, then recheck the concrete " +
   "conditions that blocked your work. Use current evidence. If a blocker has cleared, update the " +
   "task and continue the owner's authorized work; edit or resume your own blocked goal when appropriate. " +
-  "If it remains, record a concise reason and the next condition to check, then end this turn. " +
+  "Reconcile every unfinished checklist item. A remaining blocker pauses only dependent work: record its " +
+  "reason and the next condition to check, then continue any independent authorized implementation, testing, " +
+  "review or preparation. End as blocked only when every remaining item is blocked, awaiting an external " +
+  "result, or explicitly paused. Preserve completion notifications for pending work. " +
   "Do not repeat requests already awaiting the owner, create workers, override an owner pause, " +
   "raise budgets, or bypass queue, restart, account or permission holds. This review grants no new authority.";
