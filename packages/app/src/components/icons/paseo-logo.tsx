@@ -1,5 +1,4 @@
-import { useId, useMemo } from "react";
-import { Image } from "react-native";
+import { useId } from "react";
 import Svg, {
   Defs,
   LinearGradient,
@@ -12,6 +11,7 @@ import Svg, {
 } from "react-native-svg";
 import { withUnistyles } from "react-native-unistyles";
 import { logoPalette, type LogoPalette } from "./vorteo-logo-palette";
+import { vorteoMasterSource } from "./vorteo-master";
 
 const silhouetteMaskStyle: MaskProps["style"] = { maskType: "alpha" };
 const shadingMaskStyle: MaskProps["style"] = { maskType: "luminance" };
@@ -25,20 +25,10 @@ function LogoArtwork({ size = 64, color, palette }: VorteoLogoProps & { palette:
   const gradientId = `vorteo-${useId().replace(/:/g, "")}`;
   const silhouetteId = `${gradientId}-silhouette`;
   const shadingId = `${gradientId}-shading`;
-  const whiteArtwork = require("../../../assets/brand/vorteo-white.png");
-  const imageStyle = useMemo(
-    () => ({ width: size, height: size, ...(color ? { tintColor: color } : {}) }),
-    [size, color],
-  );
-  if (color || palette.mode !== "gradient") {
-    const source =
-      !color && palette.mode === "rainbow"
-        ? require("../../../assets/brand/vorteo-color.png")
-        : require("../../../assets/brand/vorteo-white.png");
-    return (
-      <Image source={source} style={imageStyle} resizeMode="contain" accessibilityLabel="Vorteo" />
-    );
-  }
+  const whiteArtwork = vorteoMasterSource();
+  // One master for every scene: a tint is a gradient whose ends match.
+  const start = color ?? palette.start;
+  const end = color ?? palette.end;
   return (
     <Svg width={size} height={size} viewBox="0 0 640 640" accessibilityLabel="Vorteo">
       <Defs>
@@ -50,8 +40,8 @@ function LogoArtwork({ size = 64, color, palette }: VorteoLogoProps & { palette:
           x2="640"
           y2="640"
         >
-          <Stop offset="0" stopColor={palette.start} />
-          <Stop offset="1" stopColor={palette.end} />
+          <Stop offset="0" stopColor={start} />
+          <Stop offset="1" stopColor={end} />
         </LinearGradient>
         <Mask
           id={silhouetteId}

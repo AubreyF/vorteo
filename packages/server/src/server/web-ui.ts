@@ -176,7 +176,8 @@ export interface WebUiMiddlewareOptions {
   distDir: string | null;
   label: string;
   logger: Logger;
-  installation?: ExecutionInstallation;
+  /** Read per page load, so owner changes such as the installation name apply on reload. */
+  installation?: ExecutionInstallation | (() => ExecutionInstallation);
 }
 
 export function createWebUiMiddleware(options: WebUiMiddlewareOptions): RequestHandler {
@@ -214,7 +215,8 @@ export function createWebUiMiddleware(options: WebUiMiddlewareOptions): RequestH
       label,
       req,
       res,
-      installation: options.installation,
+      installation:
+        typeof options.installation === "function" ? options.installation() : options.installation,
     });
   };
 }
@@ -335,6 +337,14 @@ async function sendIndexHtml(
   }
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function serializeInlineScriptJson(value: unknown): string {
   return JSON.stringify(value)
     .replace(/</g, "\\u003C")
@@ -359,9 +369,13 @@ function injectConnectionHint(
     ? `window.__VORTEO_EXECUTION_INSTALLATION__=${serializeInlineScriptJson(installation)}`
     : `window.__PASEO_INITIAL_DAEMON_CONNECTION__=${serializeInlineScriptJson(hint)}`;
   const script = `<script>${assignment}</script>`;
+  // The tab names the installation, so two open side by side are never confused.
+  const titled = installation?.name
+    ? html.replace(/<title>[^<]*<\/title>/i, `<title>${escapeHtml(installation.name)}</title>`)
+    : html;
   const headClose = /<\/head>/i;
-  if (headClose.test(html)) {
-    return html.replace(headClose, `${script}</head>`);
+  if (headClose.test(titled)) {
+    return titled.replace(headClose, `${script}</head>`);
   }
-  return script + html;
+  return script + titled;
 }

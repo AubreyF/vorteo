@@ -4477,3 +4477,74 @@ test.each(["127.0.0.1", "localhost"])(
     expect(f.calls).toEqual([]);
   },
 );
+
+test("a Host-only installation exposes one connection and refuses Dev credentials and targets", async () => {
+  const { request } = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    (config) => {
+      delete config.container;
+      config.public.environments = config.public.environments.filter(
+        (environment) => environment.kind === "host",
+      );
+    },
+  );
+  const unlock = await request("/api/installation/owner/unlock", "owner-test-password", {});
+  expect(unlock.status).toBe(200);
+  const cookie = unlock.headers.get("set-cookie")?.split(";")[0];
+  if (!cookie) throw new Error("Missing owner cookie");
+  const connections = await (
+    await request("/api/installation/owner/connections", undefined, {}, undefined, cookie)
+  ).json();
+  expect(connections.connections.map((item: { kind: string }) => item.kind)).toEqual(["host"]);
+  expect((await request("/api/installation/capabilities", "guest-agent-test-token")).status).toBe(
+    401,
+  );
+  const restart = await request(
+    "/api/installation/owner/restarts",
+    undefined,
+    { target: "container-daemon", reason: "Dev restart" },
+    undefined,
+    cookie,
+  );
+  expect(restart.status).toBe(409);
+});
+
+test("the gate route authority reaches agent routes only", async () => {
+  const { url } = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    (config) => {
+      config.access = {
+        remote: "tailscale",
+        gateRoute: { authority: "host.docker.internal:7000" },
+      };
+    },
+  );
+  const viaGate = (route: string, method = "GET") =>
+    requestWithHost(`${url}${route}`, {
+      method,
+      headers: { Host: "host.docker.internal:7000", "Content-Type": "application/json" },
+      ...(method === "POST" ? { body: "{}" } : {}),
+    });
+  expect((await viaGate("/api/installation/health")).status).toBe(200);
+  expect((await viaGate("/")).status).toBe(403);
+  expect((await viaGate("/api/installation/owner/unlock", "POST")).status).toBe(403);
+  const other = await requestWithHost(`${url}/api/installation/health`, {
+    method: "GET",
+    headers: { Host: "elsewhere.docker.internal:7000" },
+  });
+  expect(other.status).toBe(403);
+});

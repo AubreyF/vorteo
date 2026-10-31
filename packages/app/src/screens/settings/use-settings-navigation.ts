@@ -4,6 +4,7 @@ import { useRouter, type Href } from "expo-router";
 import { scoreTextFields } from "@getpaseo/protocol/search/text-match";
 import { isWeb } from "@/constants/platform";
 import type { SettingsView } from "@/navigation/settings-navigation";
+import { providerRowAnchorId } from "./settings-focus";
 import { buildSettingsSectionRoute } from "@/utils/host-routes";
 import {
   getPane,
@@ -29,9 +30,25 @@ function scrollRequest(
   pane: string | null,
   entry: ResolvedSettingsEntry | null,
   animated: boolean,
+  anchorId: string | null = null,
 ): SettingsScrollRequest {
   requestNonce += 1;
-  return { section, pane, entry, animated, nonce: requestNonce };
+  return { section, pane, entry, animated, anchorId, nonce: requestNonce };
+}
+
+/** The row a deep link scrolls to inside its pane, when it names one. */
+function focusAnchorId(view: SettingsView): string | null {
+  if (view.kind !== "section" || view.focus?.kind !== "provider") return null;
+  return providerRowAnchorId(view.focus.providerType);
+}
+
+/**
+ * The section the address names. Host overview addresses
+ * (`/settings/hosts/<id>/host`) open Environments.
+ */
+function sectionForPath(pathname: string): SettingsSectionId {
+  const slug = pathname.split("/")[2] ?? "";
+  return slug === "hosts" ? "environments" : resolveSettingsTarget(slug).section;
 }
 
 /** `/settings/<section>`, with `?setting=` to land on one row. */
@@ -100,8 +117,15 @@ export function useSettingsNavigation({
     () => (settingId ? (entries.find((entry) => entry.id === settingId) ?? null) : null),
     [entries, settingId],
   );
+  const routeAnchorId = focusAnchorId(view);
   const [request, setRequest] = useState<SettingsScrollRequest>(() =>
-    scrollRequest(routeTarget?.section ?? "general", routeTarget?.pane ?? null, null, false),
+    scrollRequest(
+      routeTarget?.section ?? "general",
+      routeTarget?.pane ?? null,
+      null,
+      false,
+      routeAnchorId,
+    ),
   );
   const [activeSection, setActiveSection] = useState<SettingsSectionId>(
     routeTarget?.section ?? "general",
@@ -115,11 +139,12 @@ export function useSettingsNavigation({
         routeEntry?.pane ?? routeTarget.pane,
         routeEntry,
         false,
+        routeAnchorId,
       ),
     );
     // A new entries array for the same entry must not repeat the jump.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeTarget, routeEntryId]);
+  }, [routeTarget, routeEntryId, routeAnchorId]);
 
   const handleActiveSectionChange = useCallback(
     (section: SettingsSectionId) => {
@@ -129,8 +154,7 @@ export function useSettingsNavigation({
       if (isWeb && view.kind === "section" && typeof window !== "undefined") {
         // An address that already opens this section keeps its precision, such
         // as /settings/connections landing on the Connections pane.
-        const slug = window.location.pathname.split("/")[2] ?? "";
-        if (resolveSettingsTarget(slug).section !== section) {
+        if (sectionForPath(window.location.pathname) !== section) {
           window.history.replaceState(window.history.state, "", buildSettingsSectionRoute(section));
         }
       }

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { claudeConnectionStatus } from "./claude-connection-status";
+import { claudeConnectionStatus, installationConnectionStatus } from "./claude-connection-status";
 
 test("shared readiness requires every included delivery, not just a saved token", () => {
   expect(claudeConnectionStatus(undefined)).toContain("Checking");
@@ -61,4 +61,34 @@ test("full sign-in names the Host account and asks for sign-in again when its gr
       environments: [{ serverId: "dev", status: "disconnected" }],
     }),
   ).toContain("Sign in again");
+});
+
+test("Codex uses the same installation-wide readiness with its own name", () => {
+  expect(
+    installationConnectionStatus(
+      { connected: false, needsSignIn: true, environments: [] },
+      "Codex",
+    ),
+  ).toBe("Codex sign-in expired on the Host. Sign in again to keep Host and Dev working.");
+  expect(
+    installationConnectionStatus(
+      {
+        connected: true,
+        needsSignIn: false,
+        accountLabel: "owner@example.com",
+        environments: [{ serverId: "dev", status: "ready" }],
+      },
+      "Codex",
+    ),
+  ).toBe("Connected and ready. Signed in as owner@example.com.");
+  expect(
+    installationConnectionStatus(
+      {
+        connected: true,
+        needsSignIn: false,
+        environments: [{ serverId: "dev", status: "pending" }],
+      },
+      "Codex",
+    ),
+  ).toContain("You do not need to sign in again.");
 });

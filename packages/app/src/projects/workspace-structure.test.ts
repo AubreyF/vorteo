@@ -38,6 +38,24 @@ function workspace(id: string, projectId: string, root: string): WorkspaceDescri
 }
 
 describe("buildWorkspaceStructureProjects", () => {
+  test("an empty Vorteo System project has no row until it holds a workspace", () => {
+    const system = project({ id: "prj_system", key: "system:srv_dev", root: "/home/paseo/system" });
+    const empty = buildWorkspaceStructureProjects({
+      sessions: [{ serverId: "srv_dev", projects: [system], workspaces: [] }],
+    });
+    expect(empty).toEqual([]);
+    const occupied = buildWorkspaceStructureProjects({
+      sessions: [
+        {
+          serverId: "srv_dev",
+          projects: [system],
+          workspaces: [workspace("wks_source", "prj_system", "/home/paseo/system")],
+        },
+      ],
+    });
+    expect(occupied).toHaveLength(1);
+  });
+
   test("moves a workspace between projects without changing its environment or directory", () => {
     const moved = workspace("ws-host", "host-files", "/host/files");
     moved.projectMembership = { key: "remote:github.com/acme/app", name: "App" };

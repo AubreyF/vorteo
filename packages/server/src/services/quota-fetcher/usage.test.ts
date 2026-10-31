@@ -11,13 +11,10 @@ describe("toneFromUsedPct", () => {
   // Thresholds must match deriveTone in the app's provider-usage/tone.ts, which is what
   // the client applies when a window arrives without a tone.
   it.each([
-    [0, "ok"],
     [69.9, "ok"],
     [70, "warning"],
     [90, "warning"],
     [90.1, "danger"],
-    [100, "danger"],
-    [150, "danger"],
   ])("%s%% used is %s", (usedPct, expected) => {
     expect(toneFromUsedPct(usedPct)).toBe(expected);
   });

@@ -5,7 +5,11 @@ import { QueueAttachmentStore } from "./message-queue/attachments.js";
 import { createAgentQueueDelivery } from "./message-queue/agent-delivery.js";
 import { MessageQueueService } from "./message-queue/service.js";
 import { MessageQueueStore } from "./message-queue/store.js";
-import { ProviderLoginService } from "../services/provider-login/service.js";
+import {
+  CLAUDE_START_FAILURE,
+  CODEX_START_FAILURE,
+  ProviderLoginService,
+} from "../services/provider-login/service.js";
 import { stat } from "node:fs/promises";
 import type { CreationSnapshot } from "@getpaseo/protocol/messages";
 import { CreationService } from "./creation/index.js";
@@ -829,6 +833,17 @@ export class VoiceAssistantWebSocketServer {
         getProviderConfigs: () => this.daemonConfigStore.get().providers,
       });
     this.providerLoginService = new ProviderLoginService({
+      logger: this.logger,
+      startFailureMessage: (providerId) => {
+        const definition =
+          this.providerSnapshotManager.getAgentManagerProviderState().providerDefinitions[
+            providerId
+          ];
+        const kind = definition?.derivedFromProviderId ?? providerId;
+        if (kind === "claude") return CLAUDE_START_FAILURE;
+        if (kind === "codex") return CODEX_START_FAILURE;
+        return undefined;
+      },
       getClient: (providerId) => {
         const state = this.providerSnapshotManager.getAgentManagerProviderState();
         if (state.providerDefinitions[providerId]?.enabled !== true) return null;
@@ -2083,6 +2098,7 @@ export class VoiceAssistantWebSocketServer {
         codexAccountCreation: true,
         claudeAccountCreation: true,
         claudeFullSignIn: true,
+        codexInstallationSignIn: true,
         providerSecretDelivery: true,
         providerCredentialRemoval: true,
         providerOrdering: true,

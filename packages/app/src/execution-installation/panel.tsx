@@ -74,8 +74,10 @@ import {
   PreclaimRecoveryReview,
   PreclaimRecoveryBanner,
 } from "./bootstrap-panel";
-import { readExecutionInstallation } from "./policy";
+import { installationHasDev, readExecutionInstallation } from "./policy";
 import { InstallationClient, requestInstallationOwner, hasInstallationConnections } from "./client";
+import { SafetySnapshotsCard } from "./safety-snapshots";
+import { InstallationUpgradeCard } from "./installation-upgrade-card";
 import {
   InstallationPanelModel,
   restartRequestSummary,
@@ -86,7 +88,9 @@ import {
   restartBlockingReason,
   restartRepairGuidance,
   restartActionDisabledReason,
+  passwordCopyCommand,
 } from "./panel-model";
+import { copyToClipboard } from "@/utils/copy-to-clipboard";
 import type {
   MaintenanceService,
   ProfileSharingStatus,
@@ -102,25 +106,47 @@ function disclosureProps(expanded: boolean) {
 }
 
 let panelModel: InstallationPanelModel | null = null;
+// The owner client behind the panel model, shared with owner cards outside the panel.
+let panelClient: InstallationClient | null = null;
 function getInstallationPanel(registryLoaded: boolean): InstallationPanelModel | null {
   const installation = readExecutionInstallation();
   if (!installation) return null;
   const runtime = getHostRuntimeStore();
   if (!registryLoaded) return null;
-  if (!panelModel)
-    panelModel = new InstallationPanelModel(
-      new InstallationClient(installation, {
-        request: requestInstallationOwner,
-        register: runtime,
-      }),
-      {
-        connectionsRegistered: hasInstallationConnections(installation, runtime.getHosts()),
-        openRequested:
-          typeof window !== "undefined" &&
-          new URL(window.location.href).searchParams.get("installation") === "1",
-      },
-    );
+  if (!panelModel) {
+    panelClient = new InstallationClient(installation, {
+      request: requestInstallationOwner,
+      register: runtime,
+    });
+    panelModel = new InstallationPanelModel(panelClient, {
+      connectionsRegistered: hasInstallationConnections(installation, runtime.getHosts()),
+      openRequested:
+        typeof window !== "undefined" &&
+        new URL(window.location.href).searchParams.get("installation") === "1",
+    });
+  }
   return panelModel;
+}
+
+const noSubscription = () => () => {};
+const lockedState = () => false;
+
+/** The installation owner client while controls are unlocked, otherwise null. */
+export function useInstallationOwnerClient(): InstallationClient | null {
+  const model = getInstallationPanel(useHostRegistryLoaded());
+  const unlocked = useSyncExternalStore(
+    model?.subscribe ?? noSubscription,
+    model ? () => model.getState().unlocked : lockedState,
+    model ? () => model.getState().unlocked : lockedState,
+  );
+  return model && unlocked ? panelClient : null;
+}
+
+/** Loopback installations are reached without Tailscale. */
+function installationIsLocal(): boolean {
+  const origin = readExecutionInstallation()?.origin;
+  if (!origin) return false;
+  return ["localhost", "127.0.0.1", "[::1]"].includes(new URL(origin).hostname);
 }
 
 export function InstallationWelcome() {
@@ -142,7 +168,9 @@ function InstallationWelcomeForm({ model }: { model: InstallationPanelModel }) {
   if (state.unlocked) {
     return (
       <Text accessibilityLiveRegion="polite" style={styles.text}>
-        Signed in. Connecting to your environments. Keep Tailscale connected on this device.
+        {installationIsLocal()
+          ? "Signed in. Connecting to your environments."
+          : "Signed in. Connecting to your environments. Keep Tailscale connected on this device."}
       </Text>
     );
   }
@@ -178,6 +206,44 @@ function InstallationWelcomeForm({ model }: { model: InstallationPanelModel }) {
       >
         {state.busy ? "Connecting..." : "Connect"}
       </Button>
+      {state.passwordFile ? <PasswordFileHint passwordFile={state.passwordFile} /> : null}
+    </View>
+  );
+}
+
+// The coordinator reports the path only when the file exists. The command runs
+// on the Host; the password itself never passes through this page.
+function PasswordFileHint({ passwordFile }: { passwordFile: string }) {
+  const command = passwordCopyCommand(passwordFile);
+  const [notice, setNotice] = useState<string | null>(null);
+  const copy = useCallback(async () => {
+    try {
+      await copyToClipboard(command);
+      setNotice("Command copied. Run it in Terminal on your Host, then paste the password above.");
+    } catch {
+      setNotice("Could not copy the command. Select it above and copy it manually.");
+    }
+  }, [command]);
+  return (
+    <View testID="installation-password-hint">
+      <Text style={styles.text}>
+        The host installer generated this password. It is in this file on your Host:
+      </Text>
+      <Text selectable style={styles.text} testID="installation-password-file">
+        {passwordFile}
+      </Text>
+      <Text style={styles.text}>To copy it to the clipboard on your Host, run:</Text>
+      <Text selectable style={styles.text} testID="installation-password-command">
+        {command}
+      </Text>
+      <Button variant="outline" onPress={copy} testID="installation-password-copy-command">
+        Copy command
+      </Button>
+      {notice ? (
+        <Text accessibilityLiveRegion="polite" style={styles.text}>
+          {notice}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -369,6 +435,8 @@ function InstallationPanel({
   );
   const toggleHistory = useCallback(() => setHistoryVisible((value) => !value), []);
   const toggleSharing = useCallback(() => setSharingVisible((value) => !value), []);
+  // Profile sharing synchronizes Host and Dev; a Host-only installation has nothing to share.
+  const hasDev = installationHasDev(readExecutionInstallation());
   let sharingLabel = state.profileSharing ? "Synchronized" : "Unavailable";
   let sharingVariant: StatusBadgeVariant = state.profileSharing ? "success" : "muted";
   if (conflicts) {
@@ -445,29 +513,33 @@ function InstallationPanel({
             {state.lastUpdatedAt && active.length === 0 ? (
               <Text style={[styles.textInset, styles.text]}>No pending restart requests</Text>
             ) : null}
-            <View style={[styles.cardBody, settingsStyles.rowBorder]}>
-              <View style={styles.requestHeader}>
-                <Button
-                  variant="ghost"
-                  size={controlSize}
-                  onPress={toggleSharing}
-                  {...disclosureProps(sharingVisible)}
-                  testID="installation-sharing-toggle"
-                >
-                  {sharingVisible ? "Hide profile sharing" : "Profile sharing"}
-                </Button>
-                <StatusBadge label={sharingLabel} variant={sharingVariant} />
+            <SafetySnapshotsCard client={panelClient} />
+            <InstallationUpgradeCard client={panelClient} />
+            {hasDev ? (
+              <View style={[styles.cardBody, settingsStyles.rowBorder]}>
+                <View style={styles.requestHeader}>
+                  <Button
+                    variant="ghost"
+                    size={controlSize}
+                    onPress={toggleSharing}
+                    {...disclosureProps(sharingVisible)}
+                    testID="installation-sharing-toggle"
+                  >
+                    {sharingVisible ? "Hide profile sharing" : "Profile sharing"}
+                  </Button>
+                  <StatusBadge label={sharingLabel} variant={sharingVariant} />
+                </View>
+                {sharingVisible ? (
+                  <SettingsExpansion testID="installation-sharing-content">
+                    <ProfileSharingStatusView
+                      status={state.profileSharing}
+                      model={model}
+                      busy={state.busy}
+                    />
+                  </SettingsExpansion>
+                ) : null}
               </View>
-              {sharingVisible ? (
-                <SettingsExpansion testID="installation-sharing-content">
-                  <ProfileSharingStatusView
-                    status={state.profileSharing}
-                    model={model}
-                    busy={state.busy}
-                  />
-                </SettingsExpansion>
-              ) : null}
-            </View>
+            ) : null}
             <InstallationHistory
               history={visibleHistory}
               model={model}
@@ -643,6 +715,29 @@ function FullMaintenanceDelegation({
   );
 }
 
+const MAINTENANCE_PERMISSIONS = [
+  [
+    "host",
+    "Host",
+    "Allows routine Host updates, build scripts and daemon restarts without another approval. Current turns finish before replacement; Host connections may briefly disconnect.",
+  ],
+  [
+    "container-daemon",
+    "Dev",
+    "Allows routine Dev updates, build scripts and daemon restarts without another approval. Current turns finish before replacement; Dev connections may briefly disconnect.",
+  ],
+  [
+    "coordinator",
+    "Coordinator",
+    "Allows maintenance of the service that manages installation requests. Maintenance controls may briefly be unavailable. Execution requires verified independent recovery and an exact compatible rollback plan.",
+  ],
+  [
+    "supervisor",
+    "Supervisor",
+    "Allows maintenance of the process manager that keeps daemons running. Its managed daemon may also be interrupted. Execution requires supported admission, process preservation and verified recovery.",
+  ],
+] as const;
+
 export function DaemonAutomationControl({
   model,
   state,
@@ -650,6 +745,8 @@ export function DaemonAutomationControl({
   model: InstallationPanelModel;
   state: ReturnType<InstallationPanelModel["getState"]>;
 }) {
+  // Host-only installations have no Dev daemon to authorize.
+  const hasDev = installationHasDev(readExecutionInstallation());
   if (!state.daemonAutomation)
     return (
       <View
@@ -667,52 +764,31 @@ export function DaemonAutomationControl({
     <View style={[styles.cardBody, settingsStyles.rowBorder]} testID="daemon-automation-preference">
       <Text style={settingsStyles.rowTitle}>Automatic maintenance authorization</Text>
       <FullMaintenanceDelegation model={model} state={state} />
-      {(
-        [
-          [
-            "host",
-            "Host",
-            "Allows routine Host updates, build scripts and daemon restarts without another approval. Current turns finish before replacement; Host connections may briefly disconnect.",
-          ],
-          [
-            "container-daemon",
-            "Dev",
-            "Allows routine Dev updates, build scripts and daemon restarts without another approval. Current turns finish before replacement; Dev connections may briefly disconnect.",
-          ],
-          [
-            "coordinator",
-            "Coordinator",
-            "Allows maintenance of the service that manages installation requests. Maintenance controls may briefly be unavailable. Execution requires verified independent recovery and an exact compatible rollback plan.",
-          ],
-          [
-            "supervisor",
-            "Supervisor",
-            "Allows maintenance of the process manager that keeps daemons running. Its managed daemon may also be interrupted. Execution requires supported admission, process preservation and verified recovery.",
-          ],
-        ] as const
-      ).map(([service, label, explanation]) => {
-        return (
-          <MaintenancePermission
-            key={service}
-            service={service}
-            label={label}
-            explanation={explanation}
-            model={model}
-            checked={Boolean(
-              state.maintenanceDelegation?.enabled || state.daemonAutomation?.services?.[service],
-            )}
-            disabled={
-              state.busy ||
-              Boolean(state.maintenanceDelegation?.enabled) ||
-              !state.daemonAutomation?.services
-            }
-            readiness={
-              state.maintenanceStatus?.services?.find((item) => item.service === service)?.reason ??
-              "Checking maintenance readiness..."
-            }
-          />
-        );
-      })}
+      {MAINTENANCE_PERMISSIONS.filter(([service]) => service !== "container-daemon" || hasDev).map(
+        ([service, label, explanation]) => {
+          return (
+            <MaintenancePermission
+              key={service}
+              service={service}
+              label={label}
+              explanation={explanation}
+              model={model}
+              checked={Boolean(
+                state.maintenanceDelegation?.enabled || state.daemonAutomation?.services?.[service],
+              )}
+              disabled={
+                state.busy ||
+                Boolean(state.maintenanceDelegation?.enabled) ||
+                !state.daemonAutomation?.services
+              }
+              readiness={
+                state.maintenanceStatus?.services?.find((item) => item.service === service)
+                  ?.reason ?? "Checking maintenance readiness..."
+              }
+            />
+          );
+        },
+      )}
       {!state.daemonAutomation.services ? (
         <Text style={styles.text}>
           Update the coordinator to configure separate service permissions. Existing permissions
@@ -767,7 +843,9 @@ function InstallationOwnerAccess({
   return (
     <View style={styles.cardBody}>
       <View style={styles.requestHeader}>
-        <Text style={settingsStyles.rowTitle}>Host and container</Text>
+        <Text style={settingsStyles.rowTitle}>
+          {installationHasDev(readExecutionInstallation()) ? "Host and container" : "Host"}
+        </Text>
         <View style={styles.actions}>
           <StatusBadge
             label={state.initialized ? ownerLabel : "Checking access"}

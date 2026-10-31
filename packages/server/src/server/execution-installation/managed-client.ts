@@ -33,8 +33,11 @@ export function resolveManagedInstallationClient(input: ManagedClientInput): str
     const config = PairedClientSchema.parse(JSON.parse(readFileSync(descriptor, "utf8")));
     const origin = new URL(config.origin);
     const loopback = origin.hostname === "localhost" || origin.hostname === "127.0.0.1";
+    // A gate-mode Dev reaches a local-only coordinator through the gate's named route.
+    const gateRoute =
+      origin.hostname === "host.docker.internal" && process.env.PASEO_NETWORK_MODE === "gate";
     const secureTransport =
-      origin.protocol === "https:" || (origin.protocol === "http:" && loopback);
+      origin.protocol === "https:" || (origin.protocol === "http:" && (loopback || gateRoute));
     if (origin.origin !== config.origin || !secureTransport)
       throw new Error("Invalid paired client origin");
     return file;

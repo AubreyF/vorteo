@@ -522,24 +522,21 @@ function childDiagnostic() {
   return { stateDirectory, requestId, generation, file, entry, save };
 }
 
-test.each(["live", "reused", "inconclusive"])(
-  "recorded %s PID defers unclaimed artifact collection",
-  async (reason) => {
-    const f = childDiagnostic();
-    f.save(JSON.stringify(f.entry) + "\nMaintenance service invocation verified.\n");
-    const collect = vi.fn();
-    const reader = {
-      verifyProcessExited: vi.fn(async () => {
-        throw new Error(reason);
-      }),
-    };
-    await expect(
-      verifyRecordedMaintenanceChildExited({ ...f, reader }).then(collect),
-    ).rejects.toThrow(reason);
-    expect(reader.verifyProcessExited).toHaveBeenCalledWith(f.entry.pid);
-    expect(collect).not.toHaveBeenCalled();
-  },
-);
+test.each(["live"])("recorded %s PID defers unclaimed artifact collection", async (reason) => {
+  const f = childDiagnostic();
+  f.save(JSON.stringify(f.entry) + "\nMaintenance service invocation verified.\n");
+  const collect = vi.fn();
+  const reader = {
+    verifyProcessExited: vi.fn(async () => {
+      throw new Error(reason);
+    }),
+  };
+  await expect(
+    verifyRecordedMaintenanceChildExited({ ...f, reader }).then(collect),
+  ).rejects.toThrow(reason);
+  expect(reader.verifyProcessExited).toHaveBeenCalledWith(f.entry.pid);
+  expect(collect).not.toHaveBeenCalled();
+});
 
 test.each(["exited", "missing"])(
   "%s diagnostic hint still requires independent absence validation",

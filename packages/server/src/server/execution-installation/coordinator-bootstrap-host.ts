@@ -505,7 +505,11 @@ function expectedBootstrapConfiguration(
   current: InstallationConfig,
 ): InstallationConfig {
   // Copy each section edited below so the live configuration is never mutated.
-  const expected = { ...current, host: { ...current.host }, container: { ...current.container } };
+  const expected: InstallationConfig = {
+    ...current,
+    host: { ...current.host },
+    ...(current.container ? { container: { ...current.container } } : {}),
+  };
   if (current.containerSourceUpdates)
     expected.containerSourceUpdates = { ...current.containerSourceUpdates };
   if (plan.sourceUpdateTooling === true) {
@@ -598,9 +602,9 @@ function inspectBootstrapConfiguration(
   if (!isDeepStrictEqual(current, previous))
     throw new BootstrapRequestConflict("Previous coordinator configuration no longer matches");
   const devConfiguration =
-    candidate.container.persistentRegistration &&
+    candidate.container?.persistentRegistration &&
     candidate.container.supervisorMaintenance &&
-    !current.container.persistentRegistration
+    !current.container?.persistentRegistration
       ? inspectDevRegistrationConfiguration({
           plan: input.plan,
           currentFile: input.configurationFile,

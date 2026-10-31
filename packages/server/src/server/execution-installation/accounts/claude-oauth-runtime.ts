@@ -1,8 +1,12 @@
+import pino from "pino";
 import { isDeepStrictEqual } from "node:util";
 import { join } from "node:path";
 import { z } from "zod";
-import { ProviderLoginService } from "../../../services/provider-login/service.js";
-import type { InstallationConfig } from "../config.js";
+import {
+  CLAUDE_START_FAILURE,
+  ProviderLoginService,
+} from "../../../services/provider-login/service.js";
+import { requireEnvironmentDaemon, type InstallationConfig } from "../config.js";
 import { connectInstallationDaemon, createInstallationRegistrationAdmission } from "../daemon.js";
 import type { InstallationSettingsService } from "../settings/service.js";
 import { readClaudeSetupFile, writeClaudeSetupFile } from "./claude-setup-file.js";
@@ -18,6 +22,9 @@ import {
   type ClaudeHostCli,
 } from "./claude-oauth-host.js";
 import { ClaudeOAuthRefresher, type ClaudeOAuthPolicy } from "./claude-oauth-refresher.js";
+
+// Sign-in start failures surface a short message in the interface; the cause goes to the log.
+const logger = pino({ name: "vorteo-installation" });
 
 interface DaemonFeatures {
   installationSettingsAuthority?: boolean;
@@ -116,7 +123,7 @@ export function createClaudeOAuthRuntime(
 
   async function post(target: "host" | "container", route: string, body: unknown) {
     if (!isDeepStrictEqual(config, configuration)) throw new ClaudeOAuthDeliveryError();
-    const daemon = target === "host" ? config.host : config.container;
+    const daemon = requireEnvironmentDaemon(config, target);
     // Explicit loopback endpoints are validated by installation config, never supplied by clients.
     const response = await request(`http://${daemon.endpoint}${route}`, {
       method: "POST",
@@ -174,6 +181,8 @@ export function createClaudeOAuthRuntime(
   });
 
   const login = new ProviderLoginService({
+    startFailureMessage: () => CLAUDE_START_FAILURE,
+    logger,
     getClient: (definitionId) => ({
       openAccountLoginSession: async () => {
         const { selected } = fullDefinition(definitionId);

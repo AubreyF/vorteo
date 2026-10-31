@@ -1,22 +1,22 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import {
+  HostProjectionService,
+  ProjectionBindingRequestSchema,
+  ProjectionReceiptSchema,
+  projectionDeliverySchema,
+  type HostProjectionPorts,
+  type HostProjectionReceipt,
+} from "./host-owned-projection.js";
 
 /**
  * Host-owned Claude refresh: the Host account's own CLI store keeps the only grant and the
  * official Host CLI is the only refresh writer. Dev receives access-only projections, which
  * its CLI re-reads from `.credentials.json` before each request. A projection never carries a
  * refresh token: without one the Dev CLI never refreshes or persists tokens itself.
+ *
+ * Strict: a `refreshToken` field fails validation and the delivery is refused.
  */
-const ScopeSchema = z.strictObject({
-  installationId: z.string().uuid(),
-  serverId: z.string().min(1),
-  definitionId: z.string().min(1),
-  providerId: z.string().min(1),
-});
-const Counter = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-const Revision = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
-
-/** Strict: a `refreshToken` field fails validation and the delivery is refused. */
 export const ClaudeAccessProjectionSchema = z.strictObject({
   accessToken: z.string().min(1).max(8192),
   expiresAt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
@@ -26,7 +26,7 @@ export const ClaudeAccessProjectionSchema = z.strictObject({
 });
 export type ClaudeAccessProjection = z.infer<typeof ClaudeAccessProjectionSchema>;
 
-export const ClaudeOAuthBindingRequestSchema = ScopeSchema.extend({ policyRevision: Revision });
+export const ClaudeOAuthBindingRequestSchema = ProjectionBindingRequestSchema;
 export type ClaudeOAuthBindingRequest = z.infer<typeof ClaudeOAuthBindingRequestSchema>;
 /** The exact raw CLAUDE_CONFIG_DIR string: the CLI derives its macOS Keychain item from it. */
 export const ClaudeOAuthBindingResponseSchema = z.strictObject({
@@ -34,24 +34,12 @@ export const ClaudeOAuthBindingResponseSchema = z.strictObject({
   configDir: z.string().startsWith("/"),
 });
 
-export const ClaudeOAuthProjectionDeliverySchema = ScopeSchema.extend({
-  policyRevision: Revision,
-  /** Increments on each sign-in and sign-out. */
-  generation: Revision,
-  /** Increments on each new access token or withdrawal within a generation. */
-  rotation: Counter,
-  access: ClaudeAccessProjectionSchema.nullable(),
-});
+export const ClaudeOAuthProjectionDeliverySchema = projectionDeliverySchema(
+  ClaudeAccessProjectionSchema,
+);
 export type ClaudeOAuthProjectionDelivery = z.infer<typeof ClaudeOAuthProjectionDeliverySchema>;
-export const ClaudeOAuthProjectionReceiptSchema = ScopeSchema.extend({
-  policyRevision: Revision,
-  generation: Revision,
-  rotation: Counter,
-  digest: z.string().regex(/^[a-f0-9]{64}$/),
-  phase: z.enum(["pending", "applied"]),
-  active: z.boolean(),
-});
-export type ClaudeOAuthProjectionReceipt = z.infer<typeof ClaudeOAuthProjectionReceiptSchema>;
+export const ClaudeOAuthProjectionReceiptSchema = ProjectionReceiptSchema;
+export type ClaudeOAuthProjectionReceipt = HostProjectionReceipt;
 
 export class ClaudeOAuthDeliveryError extends Error {
   constructor() {
@@ -71,66 +59,15 @@ export function accessProjectionDigest(access: ClaudeAccessProjection | null): s
   return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
 }
 
-export interface ClaudeOAuthProjectionPorts {
-  /** Fresh authority policy must still target this binding and permit this operation. */
-  authorize(delivery: ClaudeOAuthProjectionDelivery): Promise<void>;
-  read(): ClaudeOAuthProjectionReceipt | null;
-  persist(receipt: ClaudeOAuthProjectionReceipt): void;
-  store(access: ClaudeAccessProjection | null): Promise<void>;
-}
+export type ClaudeOAuthProjectionPorts = HostProjectionPorts<ClaudeAccessProjection>;
 
 /** One serialized writer per Dev binding. Its journal holds digests, never tokens. */
-export class ClaudeOAuthProjectionService {
-  private queue: Promise<void> = Promise.resolve();
-  constructor(private readonly ports: ClaudeOAuthProjectionPorts) {}
-
-  apply(input: unknown): Promise<ClaudeOAuthProjectionReceipt> {
-    const parsed = ClaudeOAuthProjectionDeliverySchema.safeParse(input);
-    if (!parsed.success) return Promise.reject(new ClaudeOAuthDeliveryError());
-    const task = this.queue.then(() => this.deliver(parsed.data));
-    this.queue = task.then(
-      () => undefined,
-      () => undefined,
-    );
-    return task;
-  }
-
-  private async deliver(
-    delivery: ClaudeOAuthProjectionDelivery,
-  ): Promise<ClaudeOAuthProjectionReceipt> {
-    try {
-      await this.ports.authorize(delivery);
-      const { access, ...slot } = delivery;
-      const digest = accessProjectionDigest(access);
-      const previous = this.ports.read();
-      if (previous) {
-        for (const key of ScopeSchema.keyof().options)
-          if (previous[key] !== delivery[key]) throw new ClaudeOAuthDeliveryError();
-        const older =
-          delivery.generation < previous.generation ||
-          (delivery.generation === previous.generation && delivery.rotation < previous.rotation);
-        const conflicting =
-          delivery.generation === previous.generation &&
-          delivery.rotation === previous.rotation &&
-          digest !== previous.digest;
-        if (older || conflicting) throw new ClaudeOAuthDeliveryError();
-      }
-      const pending: ClaudeOAuthProjectionReceipt = {
-        ...slot,
-        digest,
-        phase: "pending",
-        active: access !== null,
-      };
-      this.ports.persist(pending);
-      // Rewriting an applied slot is idempotent and repairs a file removed by a local logout.
-      await this.ports.store(access);
-      // A newly excluded binding cannot receive a successful applied receipt.
-      await this.ports.authorize(delivery);
-      const applied: ClaudeOAuthProjectionReceipt = { ...pending, phase: "applied" };
-      this.ports.persist(applied);
-      return applied;
-    } catch {
-      throw new ClaudeOAuthDeliveryError();
-    }
+export class ClaudeOAuthProjectionService extends HostProjectionService<ClaudeAccessProjection> {
+  constructor(ports: ClaudeOAuthProjectionPorts) {
+    super(ports, {
+      schema: ClaudeOAuthProjectionDeliverySchema,
+      digest: accessProjectionDigest,
+      error: () => new ClaudeOAuthDeliveryError(),
+    });
   }
 }

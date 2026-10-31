@@ -610,7 +610,7 @@ export function buildProjectSettingsRoute(serverId: string, projectId: string) {
   return `/settings/hosts/${encodeSegment(serverId)}/projects/${encodeSegment(projectId)}` as const;
 }
 
-/** A provider's own page under Accounts & profiles. */
+/** Accounts & profiles with this provider expanded and in view. */
 export function buildProviderSettingsRoute(providerType: string) {
   if (!providerType.trim()) throw new Error("buildProviderSettingsRoute requires a providerType");
   return `/settings/accounts/${encodeSegment(providerType)}` as const;

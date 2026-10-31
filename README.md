@@ -1,19 +1,19 @@
 # <img src="packages/app/assets/brand/vorteo-color.png" width="48" height="48" alt="Vorteo icon" /> Vorteo (Vorton + Paseo)
 
-- [Vorton](https://github.com/AubreyF/vorton) is an elegant visual control plane for AI operating systems and software factories.
+- [Vorton](https://github.com/terran-labs/vorton) is an elegant visual control plane for AI operating systems and software factories.
 - Vorteo extends [Paseo](https://github.com/getpaseo/paseo) for seamless Vorton integration. It also adds multiple Codex accounts, usage visibility, reusable profiles, task goals, cross-device message queuing, and a smoother ux. I've used it to build massive open-source projects such as [Freed](https://freed.wtf). I'm sharing it as open source to empower other OS devs with max agentic leverage and efficiency. Let's steer the course of history, together.
 
 ## Intelligent Frontier Account Pooling
 
-Connect multiple Codex and Claude accounts and distribute tasks across them. See usage and reset windows beside reusable profiles that keep your model, reasoning, permissions and instructions together. When an account hits its limit, switch the thread to another account, even another provider, without leaving it; a marker shows where the model changed. See [profile switching](docs/plans/profile-switching.md).
+Connect multiple Codex and Claude accounts and distribute tasks across them. See usage and reset windows beside reusable profiles that keep your model, reasoning, permissions and instructions together. When an account hits its limit, switch the thread to another account, even another provider, without leaving it; a marker shows where the model changed. See [launch presets](docs/agent-presets.md#quota-stops-and-explicit-successors).
 
 <img width="800" alt="Vorteo environment and profile switcher" src="https://github.com/user-attachments/assets/b2489333-cb9a-4f2f-9d0b-8ee1c319923c" />
 
-For a configured Host and Dev installation, open its HTTPS address on your new device and enter the owner password on the welcome page. Vorteo connects both environments for you.
+To add a device, open your installation's address on it and enter the owner password on the welcome page. Vorteo connects every environment for you.
 
 ## Enhanced Security
 
-- **Give agents room to work without handing them your whole machine.** The installer automatically builds and starts a local dev container for Vorteo and your agents. This limits the damage an accidental destructive command can do to your host: agents can modify the container home and mounted projects, while unmounted personal files stay outside their filesystem access. Keep backups of mounted projects; the container does not protect those files from deletion. See the [security boundaries](docs/container-tailscale.md).
+- **Give agents room to work without handing them your whole machine.** The installer can build and start a local Dev container for your agents. This limits the damage an accidental destructive command can do to your host: agents can modify the container home and mounted projects, while unmounted personal files stay outside their filesystem access. Keep backups of mounted projects; the container does not protect those files from deletion. See the [security boundaries](docs/container-tailscale.md).
 
 <img width="400" alt="Vorteo host versus dev container permissions authorization." src="https://github.com/user-attachments/assets/2429afbe-65fb-41d5-9899-b7c7aea20d04" />
 
@@ -68,29 +68,26 @@ See the [Vorteo customizations](docs/vorteo-customizations.md) for the full feat
 
 ## Install
 
-Give your agent this command, or run it yourself:
+Run this on the Mac or Linux computer that will host Vorteo, or give it to your agent:
 
 ```sh
-git clone https://github.com/AubreyF/vorteo.git "$HOME/vorteo-source" &&
-  bash "$HOME/vorteo-source/docker/multiplex/install.sh" "$HOME/vorteo"
+curl -fsSL https://github.com/terran-labs/vorteo/releases/latest/download/install.sh | bash
 ```
+
+It creates:
+
+- `~/vorteo`, the installation folder. Your owner password is in `~/vorteo/host/owner-password`.
+- your Projects folder, `~/dev` by default.
+- an optional Dev container where agents work, which needs Docker.
+- optional Tailscale access from your other devices. Without it, open `http://localhost` on this computer.
+
+On Windows, the installer probably won't work yet, even inside WSL. Full WSL support is planned in [#35](https://github.com/terran-labs/vorteo/issues/35).
+
+Every later change happens in the interface, from connecting accounts to updating Vorteo. An older installation, including a container-only one, upgrades with the same command and keeps its Dev environment, agents and files. See [host and container execution](docs/execution-installation.md) for what it installs.
 
 ### Instructions for installation agents
 
-Your task is to get the user to a working web interface.
-
-1. Clone the repository and run the container installer above. Complete any required Tailscale login.
-2. Confirm the container is running, then open the installation’s HTTPS address and verify that the web interface loads. A running container alone does not establish success. If access fails, diagnose and fix it before handing over.
-3. As soon as access works, give the user the clickable HTTPS address and tell them where to find their login password. Keep the handoff short.
-
-Provider authentication happens afterward through the provider settings, which explain any required container CLI sign-in. Do not ask the user to authenticate Codex, Claude, or other providers during installation. Do not delay the browser handoff for provider setup, presets, or optional configuration.
-
-Keep progress messages brief. If verification requires access only the user has, request that specific check and state what remains unverified.
-
-The installer builds locally, creates private storage and starts the container. Complete the Tailscale login, open the printed HTTPS address, and use the password in `$HOME/vorteo/.env`. Connect your provider accounts in the web interface. Connect other devices through Tailscale using the environment address and existing application authentication. QR and pairing-link onboarding are retired.
-
-No registry account, host Node or separate host Tailscale installation is needed. Existing checkout? See [installation details](docker/multiplex/README.md).
-Keep personal files, Docker's socket and other users' homes outside the container mounts. See the [security boundaries](docs/container-tailscale.md).
+Run the command. If it exits with status 3, it has printed the questions it needs answered: ask the owner each one, then rerun it with the flags it printed. When it finishes, give the owner the address it printed. Leave provider sign-in for the interface.
 
 ## Optional: your own domain with private access
 

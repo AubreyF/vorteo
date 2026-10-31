@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { attentionCount, quotaAccounts, summaryLabel } from "./global-quota";
+import { attentionCount, quotaAccounts } from "./global-quota";
 import type { ProviderUsage, ProviderUsageView } from "./types";
 
 const now = Date.parse("2026-10-22T12:00:00.000Z");
@@ -178,14 +178,6 @@ it("derives capped balances and ranks balance-only accounts by them", () => {
   );
   expect(cursor?.balances[0]).toMatchObject({ remaining: 2, limit: 20, resetsAt: inHours(200) });
   expect(cursor).toMatchObject({ remaining: 10, attention: true });
-});
-
-it("shortens window names for the collapsed line", () => {
-  expect(summaryLabel({ label: "5-hour" })).toBe("5h");
-  expect(summaryLabel({ label: "Weekly" })).toBe("Week");
-  expect(summaryLabel({ label: "Weekly · Opus" })).toBe("Opus");
-  expect(summaryLabel({ label: "Session" })).toBe("Session");
-  expect(summaryLabel({ label: "Weekly", shortLabel: "wk" })).toBe("wk");
 });
 
 it("shows nothing until usage has loaded", () => {

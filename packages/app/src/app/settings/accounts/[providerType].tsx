@@ -4,10 +4,18 @@ import { HostRouteBootstrapBoundary } from "@/components/host-route-bootstrap-bo
 import SettingsScreen from "@/screens/settings-screen";
 import { normalizeProjectSettingsRouteId } from "@/utils/host-routes";
 
+/** A provider's address opens Accounts & profiles with that provider expanded. */
 export default function SettingsProviderDetailRoute() {
   const params = useLocalSearchParams<{ providerType?: string | string[] }>();
   const providerType = normalizeProjectSettingsRouteId(params.providerType);
-  const view = useMemo(() => ({ kind: "provider" as const, providerType }), [providerType]);
+  const view = useMemo(
+    () => ({
+      kind: "section" as const,
+      section: "providers" as const,
+      focus: { kind: "provider" as const, providerType },
+    }),
+    [providerType],
+  );
 
   return (
     <HostRouteBootstrapBoundary>

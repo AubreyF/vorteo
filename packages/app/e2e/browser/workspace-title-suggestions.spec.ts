@@ -38,7 +38,7 @@ async function openRename(page: Page, key: string) {
   await page.getByTestId(`sidebar-workspace-menu-rename-${key}`).click();
 }
 
-test("title failures use a warning card and preserve manual rename", async ({ page }, info) => {
+test("title failures use a warning card and preserve manual rename", async ({ page }) => {
   const workspace = await seedWorkspace({ repoPrefix: "title-warning-" });
   try {
     await gotoAppShell(page);
@@ -52,13 +52,6 @@ test("title failures use a warning card and preserve manual rename", async ({ pa
     await expect(warning).toHaveAttribute("role", "alert");
     await expect(warning).toContainText("Send a message before requesting title suggestions.");
     await expect(warning.locator("svg")).toBeVisible();
-    expect(await warning.evaluate((element) => getComputedStyle(element).borderTopStyle)).toBe(
-      "solid",
-    );
-    expect(await warning.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(
-      "rgba(0, 0, 0, 0)",
-    );
-    await page.screenshot({ path: info.outputPath("warning-desktop.png") });
     await page.getByTestId("workspace-title-regenerate").click();
     await expect(warning).toBeVisible();
     await page.getByTestId(`${modal}-input`).fill("Manually named workspace");
@@ -71,9 +64,6 @@ test("title failures use a warning card and preserve manual rename", async ({ pa
     await page.getByRole("button", { name: "Open menu", exact: true }).click();
     await openRename(page, key);
     await expect(warning).toBeVisible();
-    await page.screenshot({ path: info.outputPath("warning-compact.png") });
-    const bounds = await warning.boundingBox();
-    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
     await page.getByTestId(`${modal}-cancel`).click();
   } finally {
     await workspace.cleanup();

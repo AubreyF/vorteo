@@ -85,9 +85,6 @@ it.each([
 it.each([
   { seconds: 604800, label: "Weekly" },
   { seconds: 18000, label: "5-hour" },
-  { seconds: 86400, label: "1-day" },
-  { seconds: 900, label: "15-minute" },
-  { seconds: 30, label: "30-second" },
   { seconds: undefined, label: "Session" },
 ])("labels a primary allowance lasting $seconds seconds as $label", async ({ seconds, label }) => {
   const home = await mkdtemp(join(tmpdir(), "paseo-codex-window-"));

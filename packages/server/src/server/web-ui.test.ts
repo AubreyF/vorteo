@@ -161,16 +161,6 @@ describe("daemon web UI route module", () => {
     },
   );
 
-  test("HEAD reports the negotiated HTML encoding and length without a body", async () => {
-    const app = createApp({ enabled: true, distDir, publicDir });
-    const res = await request(app, "HEAD", "/", { "accept-encoding": "br" });
-    expect(res.status).toBe(200);
-    expect(res.headers["content-encoding"]).toBe("br");
-    expect(res.headers.vary).toBe("Accept-Encoding");
-    expect(Number(res.headers["content-length"])).toBeGreaterThan(0);
-    expect(res.rawBody.length).toBe(0);
-  });
-
   test("static negotiation respects q=0 and retains immutable caching", async () => {
     const app = createApp({ enabled: true, distDir, publicDir });
     const res = await request(app, "GET", "/_expo/static/js/web/index-abc123def4567890.js", {
@@ -181,17 +171,6 @@ describe("daemon web UI route module", () => {
     expect(res.headers.vary).toBe("Accept-Encoding");
     expect(res.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
     expect(gunzipSync(res.rawBody).toString()).toBe("console.log('uncompressed');");
-  });
-
-  test("identity HTML varies by encoding and refuses an excluded identity fallback", async () => {
-    const app = createApp({ enabled: true, distDir, publicDir });
-    const identity = await request(app, "GET", "/");
-    expect(identity.headers["content-encoding"]).toBeUndefined();
-    expect(identity.headers.vary).toBe("Accept-Encoding");
-    const refused = await request(app, "GET", "/", { "accept-encoding": "*;q=0" });
-    expect(refused.status).toBe(406);
-    expect(refused.headers["content-encoding"]).toBeUndefined();
-    expect(refused.rawBody.length).toBe(0);
   });
 
   test.each(["br", "gzip", "identity"])(

@@ -2254,6 +2254,7 @@ export const ja: TranslationResources = {
       theme: {
         title: "テーマ",
         accessibilityLabel: "テーマ: {{value}}",
+        pluginThemes: "プラグインのテーマ",
         options: {
           light: "ライト",
           dark: "ダーク",

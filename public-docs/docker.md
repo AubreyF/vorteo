@@ -8,13 +8,21 @@ category: Getting started
 
 # Docker
 
-This fork builds Vorteo, its web UI, provider tools and Tailscale into one container. From a checkout, run:
+Install Vorteo, including its optional Dev container, with one command on the computer that runs Docker:
+
+```sh
+curl -fsSL https://github.com/terran-labs/vorteo/releases/latest/download/install.sh | bash
+```
+
+It asks a few questions, then prints the address to open. Every later change, including updates, happens in the interface.
+
+To build a standalone container by hand, which bundles Vorteo, its web UI, provider tools and Tailscale, run this from a checkout:
 
 ```sh
 ./docker/multiplex/install.sh "$HOME/paseo-instance"
 ```
 
-Complete enrollment, open the printed HTTPS address and use the password in the private deployment's `.env`. Enable Vorteo from the sidebar. The host needs Docker with Compose; connecting devices need Tailscale.
+Complete enrollment, open the printed HTTPS address and use the password in the private deployment's `.env`. The host needs Docker with Compose; connecting devices need Tailscale.
 
 ```text
 http://localhost:6767

@@ -107,7 +107,7 @@ export async function prepareContainerSource({
     throw new Error("Dev source updates are not configured");
   const assertReady = createInstallationRegistrationAdmission(config, assertRegistrationReadiness);
   assertReady("container-daemon");
-  if (config.container.persistentRegistration)
+  if (config.container?.persistentRegistration)
     throw new Error("Dev source updates require independently verified transition-phase readiness");
   const update = SourceUpdateSchema.parse(job.update);
   const installed = SelectionSchema.parse(
@@ -241,7 +241,7 @@ export async function installContainerSource({
 }: ContainerInstallation): Promise<string> {
   const assertReady = createInstallationRegistrationAdmission(config, assertRegistrationReadiness);
   assertReady("container-daemon");
-  if (config.container.persistentRegistration)
+  if (config.container?.persistentRegistration)
     throw new Error("Dev source updates require independently verified transition-phase readiness");
   const settings = config.containerSourceUpdates;
   if (!settings || job.target !== "container-daemon")

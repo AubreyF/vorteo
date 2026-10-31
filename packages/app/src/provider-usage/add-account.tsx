@@ -1,6 +1,9 @@
 import { createSharedAccountDefinition } from "@/execution-installation/account-creation";
-import { requestInstallationSettings } from "@/execution-installation/settings";
-import { readExecutionInstallation } from "@/execution-installation/policy";
+import {
+  requestInstallationSettings,
+  useInstallationSettings,
+} from "@/execution-installation/settings";
+import { installationHasDev, readExecutionInstallation } from "@/execution-installation/policy";
 import {
   useCallback,
   useEffect,
@@ -22,13 +25,24 @@ import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-
 import { useHostFeature, useHostFeatureMap } from "@/runtime/host-features";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useSessionStore } from "@/stores/session-store";
-import { refreshAndApplyProvidersSnapshot } from "@/hooks/use-providers-snapshot";
+import {
+  refreshAndApplyProvidersSnapshot,
+  useProvidersSnapshot,
+} from "@/hooks/use-providers-snapshot";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { daemonConfigQueryKey } from "@/data/daemon-config";
 
 import { ProviderLoginPanel } from "./login-panel";
 import { claudeFullSignInAvailable } from "./claude-setup-login";
 import { openAccountForm, suggestedAccountName, type CreatedCodexAccount } from "./account-form";
+import { useSharedInstallationSignIn } from "./use-provider-login";
+import { useProviderUsage } from "./use-provider-usage";
+import {
+  ACCOUNT_PROVIDER_LABELS,
+  describeExistingConnection,
+  existingConnections,
+  type ExistingConnection,
+} from "./existing-connection";
 
 interface AddAccountProps {
   serverId: string;
@@ -37,6 +51,8 @@ interface AddAccountProps {
 }
 type AccountButtonProps = Omit<AddAccountProps, "provider"> & {
   catalog?: boolean;
+  /** Replaces the default button text, for example "Connect" on the accounts first screen. */
+  label?: string;
   style?: StyleProp<ViewStyle>;
 };
 export function AddCodexAccountButton(props: AccountButtonProps) {
@@ -48,9 +64,10 @@ export function AddClaudeAccountButton(props: AccountButtonProps) {
 
 function AddAccountButton({
   catalog = false,
+  label,
   style,
   ...props
-}: AddAccountProps & { catalog?: boolean; style?: StyleProp<ViewStyle> }) {
+}: AddAccountProps & Omit<AccountButtonProps, keyof AddAccountProps>) {
   const [open, setOpen] = useState(false);
   const show = useCallback(() => setOpen(true), []);
   const close = useCallback(() => setOpen(false), []);
@@ -64,7 +81,8 @@ function AddAccountButton({
         onPress={show}
         testID={`add-${props.provider}-account`}
       >
-        {catalog ? "Add" : `Add ${props.provider === "claude" ? "Claude" : "Codex"} account`}
+        {label ??
+          (catalog ? "Add" : `Add ${props.provider === "claude" ? "Claude" : "Codex"} account`)}
       </Button>
       {open ? <AccountSheet key={props.serverId} {...props} onClose={close} /> : null}
     </>
@@ -73,9 +91,13 @@ function AddAccountButton({
 
 function AccountSheet({ onClose, ...props }: AddAccountProps & { onClose: () => void }) {
   const { config } = useDaemonConfig(props.serverId);
+  const existing = useExistingConnections(props.serverId, props.provider);
+  const another = existing.connections.length > 0;
   const header = useMemo(
-    () => ({ title: `Add ${props.provider === "claude" ? "Claude" : "Codex"} account` }),
-    [props.provider],
+    () => ({
+      title: `Add ${another ? "another " : ""}${ACCOUNT_PROVIDER_LABELS[props.provider]} account`,
+    }),
+    [another, props.provider],
   );
   const supported = useHostFeature(
     props.serverId,
@@ -108,6 +130,7 @@ function AccountSheet({ onClose, ...props }: AddAccountProps & { onClose: () => 
     return (
       <AccountForm
         {...props}
+        existing={existing}
         initialName={suggestedAccountName(config.providers, props.provider)}
         onClose={onClose}
         renderSheet={renderSheet}
@@ -178,16 +201,19 @@ function useAccountForm({
 function AccountForm({
   onClose,
   renderSheet,
+  existing,
   ...props
 }: AddAccountProps & {
   onClose: () => void;
   initialName: string;
   renderSheet: (body: ReactNode, footer: ReactNode) => ReactNode;
+  existing: ExistingConnections;
 }) {
   const fullAvailable = useClaudeFullSignInAvailable(props.serverId, props.provider);
   const [signInChoice, setSignInChoice] = useState<"full" | "setup-token">("full");
   const signIn = fullAvailable && signInChoice === "full" ? "full" : undefined;
   const { model, state } = useAccountForm({ ...props, signIn });
+  const shared = useSharedInstallationSignIn(props.serverId, props.provider);
   const connected = useHostRuntimeIsConnected(props.serverId);
   const size = useIsCompactFormFactor() ? "md" : "sm";
   if (state.phase === "created")
@@ -196,9 +222,9 @@ function AccountForm({
         <Text style={styles.text}>{state.account.name} added.</Text>
         {readExecutionInstallation() ? (
           <Text style={styles.text}>
-            {props.provider === "claude"
-              ? "Sign in once below. This Claude connection is shared by Host and Dev, unless you exclude an environment."
-              : "Shared across environments. Sign in below for this environment; other environments show their own sign-in status."}
+            {shared
+              ? `Sign in once below. This ${props.provider === "claude" ? "Claude" : "Codex"} connection is shared by Host and Dev, unless you exclude an environment.`
+              : createdAccountHint(props.provider)}
           </Text>
         ) : null}
         <ProviderLoginPanel
@@ -213,9 +239,11 @@ function AccountForm({
       </Button>,
     );
   const creating = state.phase === "creating";
+  const another = existing.connections.length > 0;
   return renderSheet(
     <>
-      <Field label="Account name">
+      {another ? <ExistingConnectionNotice provider={props.provider} existing={existing} /> : null}
+      <Field label={another ? "Additional account name" : "Account name"}>
         <FormTextInput
           initialValue={state.name}
           onChangeText={model.setName}
@@ -238,7 +266,7 @@ function AccountForm({
           />
           <Text style={styles.muted}>
             {signInChoice === "full"
-              ? "Shows usage, and the Host keeps the sign-in fresh for Host and Dev. The type can't be changed later."
+              ? `Shows usage, and the Host keeps the sign-in fresh${installationHasDev(readExecutionInstallation()) ? " for Host and Dev" : ""}. The type can't be changed later.`
               : "Uses a long-lived token without usage readings. The type can't be changed later."}
           </Text>
         </Field>
@@ -258,8 +286,69 @@ function AccountForm({
       loading={creating}
       testID={`${props.provider}-account-create`}
     >
-      Create account
+      {another ? "Create additional account" : "Create account"}
     </Button>,
+  );
+}
+
+interface ExistingConnections {
+  connections: ExistingConnection[];
+  where: "Host" | "host";
+}
+
+/**
+ * Connections the owner already has for this provider, read where sign-ins run: the Host in an
+ * installation, otherwise this host. Shown before the form so a second account is a choice.
+ */
+function useExistingConnections(
+  serverId: string,
+  provider: "codex" | "claude",
+): ExistingConnections {
+  const installation = readExecutionInstallation();
+  const inInstallation = Boolean(
+    installation?.environments.some((environment) => environment.serverId === serverId),
+  );
+  const host = inInstallation
+    ? (installation?.environments.find((environment) => environment.kind === "host")?.serverId ??
+      serverId)
+    : serverId;
+  const settings = useInstallationSettings(inInstallation);
+  const { view } = useProviderUsage(host);
+  const { entries } = useProvidersSnapshot(host);
+  const definitions = settings.data?.settings?.providerDefinitions;
+  const usage = view.kind === "ready" ? view.payload.providers : undefined;
+  const connections = useMemo(
+    () =>
+      existingConnections({
+        provider,
+        definitions: inInstallation ? (definitions ?? []) : undefined,
+        serverId: host,
+        usage,
+        entries,
+      }),
+    [provider, inInstallation, definitions, host, usage, entries],
+  );
+  return { connections, where: inInstallation ? "Host" : "host" };
+}
+
+function ExistingConnectionNotice({
+  provider,
+  existing,
+}: {
+  provider: "codex" | "claude";
+  existing: ExistingConnections;
+}) {
+  const label = ACCOUNT_PROVIDER_LABELS[provider];
+  const names = existing.connections
+    .map((connection) => describeExistingConnection(connection, existing.where))
+    .join(", ");
+  return (
+    <View style={styles.notice} testID={`${provider}-existing-connection`}>
+      <Text style={styles.text}>{`${label} is already connected: ${names}.`}</Text>
+      <Text style={styles.muted}>
+        {`This adds a second, separate ${label} account with its own sign-in. Close this if you meant to use the existing connection.`}
+      </Text>
+    </View>
   );
 }
 
@@ -268,6 +357,14 @@ const styles = StyleSheet.create((theme) => ({
   text: { color: theme.colors.foreground, fontSize: theme.fontSize.base },
   error: { color: theme.colors.destructive, fontSize: theme.fontSize.base },
   muted: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.base },
+  notice: {
+    gap: theme.spacing[1],
+    padding: theme.spacing[3],
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface2,
+  },
 }));
 
 /**
@@ -295,4 +392,12 @@ function useClaudeFullSignInAvailable(serverId: string, provider: "codex" | "cla
     retry: false,
   });
   return sharedClaude && daemonsReady && coordinator.data === true;
+}
+
+function createdAccountHint(provider: string): string {
+  if (provider !== "claude")
+    return "Shared across environments. Sign in below for this environment; other environments show their own sign-in status.";
+  return installationHasDev(readExecutionInstallation())
+    ? "Sign in once below. This Claude connection is shared by Host and Dev, unless you exclude an environment."
+    : "Sign in once below. The Host keeps this Claude connection signed in.";
 }

@@ -9,6 +9,9 @@ import {
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { useHosts } from "@/runtime/host-runtime";
 import { useVortonUpdate } from "@/vorton-updates/use-update";
+import { useInstallationSettings } from "@/execution-installation/settings";
+import { providersNeedingAttention } from "../shared-providers-model";
+import { useProviderDetection } from "../use-provider-detection";
 
 interface AttentionItem {
   id: string;
@@ -17,16 +20,36 @@ interface AttentionItem {
   pane: string;
 }
 
+const NO_ENVIRONMENTS: never[] = [];
+
 function pluralize(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/** Failing providers that are on. One the owner never enabled and the Host cannot use is off. */
+function useProviderAttentionItems(): AttentionItem[] {
+  const hosts = useHosts();
+  const serverId = installationDefaultServerId(readExecutionInstallation()) ?? hosts[0]?.serverId;
+  const { entries } = useProvidersSnapshot(serverId ?? null);
+  const shared = useInstallationSettings();
+  const detection = useProviderDetection(shared.installation?.environments ?? NO_ENVIRONMENTS);
+  return providersNeedingAttention({
+    entries: entries ?? [],
+    serverId: serverId ?? "",
+    definitions: shared.data?.settings?.providerDefinitions,
+    sources: detection,
+  }).map((entry) => ({
+    id: `account:${entry.provider}`,
+    label: `${entry.label ?? entry.provider} needs attention`,
+    hint: entry.error ?? "This account cannot start agents.",
+    pane: "accounts.providers",
+  }));
 }
 
 function useAttentionItems(): AttentionItem[] {
   const restarts = useRestartsAwaitingApproval();
   const update = useVortonUpdate();
-  const hosts = useHosts();
-  const serverId = installationDefaultServerId(readExecutionInstallation()) ?? hosts[0]?.serverId;
-  const { entries } = useProvidersSnapshot(serverId ?? null);
+  const providerItems = useProviderAttentionItems();
   const items: AttentionItem[] = [];
   if (restarts > 0) {
     items.push({
@@ -41,20 +64,11 @@ function useAttentionItems(): AttentionItem[] {
     items.push({
       id: "update",
       label: "Vorteo update available",
-      hint: `${pluralize(update.data?.incomingCommits ?? 0, "new commit")} on main.`,
+      hint: `${pluralize(update.data?.incomingCommits ?? 0, "new commit")} in ${update.data?.latestRelease ?? "main"}.`,
       pane: "maintenance.updates",
     });
   }
-  for (const entry of entries ?? []) {
-    if (!entry.enabled || entry.status !== "error") continue;
-    items.push({
-      id: `account:${entry.provider}`,
-      label: `${entry.label ?? entry.provider} needs attention`,
-      hint: entry.error ?? "This account cannot start agents.",
-      pane: "accounts.providers",
-    });
-  }
-  return items;
+  return [...items, ...providerItems];
 }
 
 function AttentionRow({

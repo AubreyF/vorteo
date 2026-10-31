@@ -16,10 +16,6 @@ import { expectComposerVisible } from "../support/helpers/composer";
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
 
 test("shared choices survive account changes and protect an open editor", async ({ page }) => {
-  // Each layout switch blocks setViewportSize while unistyles rebuilds its whole web stylesheet
-  // per mounted style: 8 to 14s locally. The test takes 31 to 50s locally and timed out at the
-  // 60s default in its second resize on CI run 40250589484 (about 1.6 times slower).
-  test.setTimeout(120_000);
   const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "shared-preferences" });
   const previous = (await client.getDaemonConfig()).config;
   const initial = previous.sharedProviderPreferences!;
@@ -131,19 +127,6 @@ test("shared choices survive account changes and protect an open editor", async 
     await page.screenshot({ path: test.info().outputPath("shared-preferences-conflict.png") });
     await page.getByTestId("agent-profile-cancel-button").click();
     await page.keyboard.press("Escape");
-    await page.setViewportSize({ width: 390, height: 844 });
-    // Since 58a0cbbc9 the compact picker uses collapsible sections instead of an accounts page
-    // with a back button; account-profile-picker.spec.ts covers their geometry.
-    await page.getByTestId("agent-preset-selector").click();
-    await page.getByTestId("preset-section-account").click();
-    await page.getByTestId("preset-account-shared-two").click();
-    await expect(page.getByTestId("preset-choices-shared-two")).toBeVisible();
-    await page.screenshot({ path: test.info().outputPath("shared-preferences-mobile.png") });
-    await page.mouse.click(195, 150);
-    await expect(page.getByTestId("preset-manage-profiles")).toHaveCount(0);
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await expect(page.getByTestId("sidebar-footer-overflow")).toBeVisible();
-    await expect(page.getByTestId("agent-preset-selector")).toBeVisible();
   } finally {
     await workspace.cleanup();
     const current = (await client.getDaemonConfig()).config.sharedProviderPreferences!;

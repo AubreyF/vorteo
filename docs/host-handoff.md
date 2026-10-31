@@ -22,7 +22,13 @@ A handoff is required only when the remaining work has no supported tool route o
 
 ## Install or operate
 
-For a new instance, follow the [container installer](../docker/multiplex/README.md). It builds locally on AMD64 or ARM64 and enrolls Tailscale inside the container. Connect provider accounts after installation. Optional macOS preview and recovery tools are separate from the standard installation.
+Install and upgrade with the one-command installer, run on the computer that hosts the installation:
+
+```sh
+curl -fsSL https://github.com/terran-labs/vorteo/releases/latest/download/install.sh | bash
+```
+
+It creates a new installation, or wraps an existing one, including a container-only deployment, into the Host architecture while keeping Dev's identity, home, workspace and agents. Connect provider accounts in the interface afterward. An agent inside a container cannot run it for its own installation; hand the command to the owner instead of preparing a host continuity prompt. Optional macOS preview and recovery tools are separate from the standard installation.
 
 For an existing instance, read its private handoff, [preset instructions](../skills/paseo/SKILL.md) and [development continuity](instance-continuity.md). Inspect the actual daemon and mounts before acting. For replacement or migration, follow [container operations](docker.md#existing-installations). An agent receiving only the repository needs the administrator's private handoff to operate an installed instance.
 

@@ -1134,15 +1134,16 @@ test("new plugin providers enroll once with only locally observed bindings and r
     id: "plugin/agents/plugin-agent",
     providerType: "plugin-agent",
     bindings: { host: "plugin-agent" },
-    policy: { label: "Plugin agent", enabled: true },
+    // Enrollment leaves `enabled` unset, so Host detection decides until the owner chooses.
+    policy: { label: "Plugin agent" },
   });
   expect(journal.backups.some((backup) => backup.reason === "plugin-provider-enrollment")).toBe(
     true,
   );
   expect(host.config.providers["plugin-agent"]).toMatchObject({
-    enabled: true,
     env: { PRIVATE: "host-secret" },
   });
+  expect(host.config.providers["plugin-agent"]?.enabled).toBeUndefined();
   enrolled.settings!.providerDefinitions!.find((entry) => entry.id === definition.id)!.policy = {
     label: "Owner name",
     enabled: false,
@@ -1303,4 +1304,26 @@ test("project policies must leave the project available in at least one environm
   // Only a daemon that keeps a copy receives one; older daemons are left alone.
   expect(host.config.installationProjectPolicies).toEqual(policies);
   expect(container.config.installationProjectPolicies).toBeUndefined();
+});
+
+test("a Host-only installation imports, edits and projects settings with one environment", async () => {
+  const host = new SettingsEnvironmentFake("host");
+  const journal = new SettingsJournalFake();
+  const service = new InstallationSettingsService(journal, [host]);
+  const initial = await service.reconcile();
+  expect(initial.conflicts).toBeUndefined();
+  expect(Object.keys(initial.sources)).toEqual(["host"]);
+  await service.update({
+    expectedRevision: initial.revision,
+    settings: { appendSystemPrompt: "Host only" },
+  });
+  const projected = await service.reconcile();
+  expect(host.config.appendSystemPrompt).toBe("Host only");
+  expect(projected.sources.host).toMatchObject({ pendingRevision: null, error: null });
+  // A Dev container added later changes the environment set; the stored journal
+  // refuses it until an explicit migration adds Dev's source.
+  expect(
+    () =>
+      new InstallationSettingsService(journal, [host, new SettingsEnvironmentFake("container")]),
+  ).toThrow(InstallationSettingsInvalidUpdate);
 });

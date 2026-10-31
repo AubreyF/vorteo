@@ -8,6 +8,18 @@ if [[ -z "${PASEO_PASSWORD:-}" || "$PASEO_PASSWORD" == replace-* ]]; then
   exit 1
 fi
 install -d -m 0700 /var/lib/tailscale /run/tailscale /run/personal-tailscale
+# Gate mode: the installation gate is this environment's only network path,
+# so no Tailscale node runs here and SSH tunnels through the gate.
+case "${PASEO_NETWORK_MODE:-tailscale}" in
+  tailscale) export PASEO_TAILSCALE_AUTOSTART=true ;;
+  gate)
+    export PASEO_TAILSCALE_AUTOSTART=false
+    # The agent user must read this; the entrypoint's umask is 077.
+    printf 'Host *\n  ProxyCommand /usr/local/bin/gate-connect %%h %%p\n' > /etc/ssh/ssh_config.d/gate.conf
+    chmod 0644 /etc/ssh/ssh_config.d/gate.conf
+    ;;
+  *) echo 'PASEO_NETWORK_MODE must be tailscale or gate.' >&2; exit 1 ;;
+esac
 # Initialize only an empty disposable home. Never recursively change owner data.
 if ! /usr/bin/setpriv --reuid=paseo --regid=paseo --clear-groups \
   --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \

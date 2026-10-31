@@ -22,9 +22,14 @@ import { loadCoordinatorStartupFence } from "./coordinator-bootstrap-startup.js"
 import { createClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import { createClaudeOAuthRuntime } from "./accounts/claude-oauth-runtime.js";
 import { createProviderSecretsRuntime } from "./accounts/provider-secrets-runtime.js";
+import { createCodexSignInRuntime } from "./accounts/codex-signin-runtime.js";
 import { createInstallationProfiles, startProfileSynchronization } from "./profiles/runtime.js";
 import pino from "pino";
-import { claudeHostRefreshEnabled, readInstallationConfig } from "./config.js";
+import {
+  claudeHostRefreshEnabled,
+  codexHostRefreshEnabled,
+  readInstallationConfig,
+} from "./config.js";
 import { createInstallationServer } from "./server.js";
 import { connectInstallationDaemon, createInstallationRestartExecutor } from "./daemon.js";
 import { createInstallationDaemonConnections } from "./daemon-connections.js";
@@ -167,7 +172,7 @@ const providerSecretsTimer = setInterval(() => {
     .catch(() => logger.warn("Provider key synchronization is pending"));
 }, 5000);
 providerSecretsTimer.unref();
-// On by default: Host-owned refresh for full sign-in Claude accounts. `false` opts out.
+// Opt-in: Host-owned refresh for full sign-in Claude accounts (`claudeHostRefresh: true`).
 const claudeOAuth = claudeHostRefreshEnabled(config)
   ? createClaudeOAuthRuntime(config, settings, assertRegistrationReadiness)
   : undefined;
@@ -178,6 +183,17 @@ const claudeOAuthTimer = claudeOAuth
     }, 30_000)
   : undefined;
 claudeOAuthTimer?.unref();
+// Opt-in: shared Codex accounts sign in once on the Host (`codexHostRefresh: true`).
+const codexSignIn = codexHostRefreshEnabled(config)
+  ? createCodexSignInRuntime(config, settings, assertRegistrationReadiness)
+  : undefined;
+const codexSignInTimer = codexSignIn
+  ? setInterval(() => {
+      if (!synchronizing) return;
+      void codexSignIn.reconcile().catch(() => logger.warn("Codex sign-in refresh is pending"));
+    }, 30_000)
+  : undefined;
+codexSignInTimer?.unref();
 const app = createInstallationServer(
   config,
   executor,
@@ -190,6 +206,8 @@ const app = createInstallationServer(
   coordinatorRequests,
   claudeOAuth,
   providerSecrets,
+  { configFile: realpathSync(configFile) },
+  codexSignIn,
 );
 const telemetry = createOperationalTelemetry({
   enabled: config.operationalTelemetryEnabled === true,
@@ -238,6 +256,18 @@ server.on("error", (error) => {
   logger.error({ err: error }, "Installation listener failed");
   process.exitCode = 1;
 });
+// Linux Docker bridges cannot reach Host loopback; the gate route then needs this listener.
+// The server admits only the gate authority's agent routes on it, as on loopback.
+const gateListenAddress = config.container ? config.access?.gateRoute?.listenAddress : undefined;
+const gateServer = gateListenAddress
+  ? app.listen(config.listenPort, gateListenAddress, () =>
+      logger.info("Installation gate route listener ready"),
+    )
+  : undefined;
+gateServer?.on("error", (error) => {
+  logger.error({ err: error }, "Installation gate route listener failed");
+  process.exitCode = 1;
+});
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => {
     telemetry.stop();
@@ -245,10 +275,13 @@ for (const signal of ["SIGINT", "SIGTERM"] as const)
     clearInterval(claudeSetupTimer);
     clearInterval(providerSecretsTimer);
     if (claudeOAuthTimer) clearInterval(claudeOAuthTimer);
+    if (codexSignInTimer) clearInterval(codexSignInTimer);
     void claudeSetup.dispose();
     void claudeOAuth?.dispose();
+    void codexSignIn?.dispose();
     stopProfileSynchronization?.();
     stopSettingsReconciliation?.();
     daemonConnections.close();
     server.close();
+    gateServer?.close();
   });

@@ -984,3 +984,9 @@ export function restartRequestSummary(job: RestartJob): string {
 function failureMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? toErrorMessage(error) : fallback;
 }
+
+// Hosts are macOS (LaunchAgents), so pbcopy is always present. The path comes
+// from the coordinator; single-quote it so spaces or quotes cannot break out.
+export function passwordCopyCommand(passwordFile: string): string {
+  return `pbcopy < '${passwordFile.replaceAll("'", `'\\''`)}'`;
+}

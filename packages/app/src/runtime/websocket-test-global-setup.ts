@@ -10,11 +10,6 @@ interface VitestProject {
 
 export default async function setup(project: VitestProject): Promise<() => Promise<void>> {
   const startupHtml = readFileSync(new URL("../../public/index.html", import.meta.url), "utf8");
-  const originalMark =
-    "data:image/png;base64," +
-    readFileSync(new URL("../../assets/brand/vorteo-white.png", import.meta.url)).toString(
-      "base64",
-    );
   let startupHealthMode = "normal";
   let interruptedScriptRequests = 0;
   let startupHealthRequests = 0;
@@ -22,9 +17,7 @@ export default async function setup(project: VitestProject): Promise<() => Promi
   let optionalFontRequests = 0;
   const heldResponses = new Set<ServerResponse>();
   function handleHeldScriptRequest(request: IncomingMessage, response: ServerResponse): boolean {
-    if (request.url === "/startup-original-mark") {
-      response.end(JSON.stringify({ dataUrl: originalMark }));
-    } else if (request.url === "/startup-font-stats") {
+    if (request.url === "/startup-font-stats") {
       response.end(JSON.stringify({ requests: optionalFontRequests }));
     } else if (request.url === "/appearance-fonts/vorton-fonts-6e84901.css") {
       optionalFontRequests++;

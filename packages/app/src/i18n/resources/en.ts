@@ -2401,12 +2401,12 @@ export const en = {
         confirmedCurrent: "You're up to date",
         checkComplete: "Check complete",
         title: "Vorteo updates",
-        idle: "Check for new commits on main.",
-        current: "This interface is up to date with main.",
-        ahead: "This interface was built ahead of main.",
-        available: "{{count}} new commits are available on main.",
+        idle: "Check for a newer Vorteo release.",
+        current: "This interface is up to date with {{release}}.",
+        ahead: "This interface was built after {{release}}.",
+        available: "{{release}} is available with {{count}} new commits.",
         diverged:
-          "{{count}} incoming commits. This build has changes outside main; an agent can help merge them.",
+          "{{release}} has {{count}} incoming commits. This build has changes outside it; an agent can help merge them.",
         unpublished:
           "This build's commit is not available on GitHub. An agent can check your local checkout.",
         unknown: "This build has no source commit recorded. An agent can check your checkout.",
@@ -2414,7 +2414,7 @@ export const en = {
         failed: "Could not check for updates. {{error}}",
         commit: "Interface commit {{commit}}.",
         interval:
-          "Checks public main every 30 minutes while the app is open. Commits may not be tested releases.",
+          "Checks the latest GitHub release every 30 minutes while the app is open. Releases are published after end-to-end tests pass.",
         check: "Check now",
         changes: "View changes",
         help: "Help me update",
@@ -2455,6 +2455,7 @@ export const en = {
       theme: {
         title: "Theme",
         accessibilityLabel: "Theme: {{value}}",
+        pluginThemes: "Plugin themes",
         options: {
           light: "Light",
           dark: "Dark",

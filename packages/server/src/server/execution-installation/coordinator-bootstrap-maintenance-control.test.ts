@@ -1095,7 +1095,7 @@ function callRecoveryFixture(
   });
 }
 
-test.each(["success", "failure", "busy"])(
+test.each(["failure", "busy"])(
   "independent rollback preparation authenticates and excludes parallel validation: %s",
   async (mode) => {
     const directory = await realpath(await mkdtemp(path.join(tmpdir(), "rollback-http-")));

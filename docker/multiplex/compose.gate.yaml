@@ -1,0 +1,92 @@
+# Dev in gate mode: Dev sits on an internal network whose only neighbor is the
+# gate. No Tailscale, NET_ADMIN, tun device or host.docker.internal for Dev.
+# The gate relays inbound daemon traffic from Host loopback and proxies every
+# outbound connection with policy and an audit log. See
+# docs/plans/execution-environments/network-gate.md.
+# common.sh selects this file instead of compose.yaml when .gate-mode exists.
+name: ${PASEO_INSTANCE:?Run install.sh first}
+
+services:
+  paseo:
+    image: ${PASEO_IMAGE:?Run install.sh first}
+    restart: unless-stopped
+    init: false
+    user: 0:0
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, SETPCAP, CHOWN]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 90s
+    pids_limit: 4096
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_limit: ${PASEO_MEMORY_LIMIT:-16g}
+    # Docker counts RAM plus swap here, preserving a 4 GiB swap allowance.
+    memswap_limit: ${PASEO_MEMORY_SWAP_LIMIT:-20g}
+    cpus: ${PASEO_CPU_LIMIT:-4}
+    depends_on: [gate]
+    environment:
+      PASEO_INSTANCE: ${PASEO_INSTANCE:?Run install.sh first}
+      PASEO_PASSWORD: ${PASEO_PASSWORD:?Set PASEO_PASSWORD in .env}
+      MTPLX_API_KEY: ${MTPLX_API_KEY:-}
+      PASEO_NETWORK_MODE: gate
+      # Created by an installation: never seed standalone state; seed once bound.
+      PASEO_INSTALLATION_PENDING: ${PASEO_INSTALLATION_PENDING:-1}
+      PASEO_LISTEN: 0.0.0.0:6767
+      PASEO_HOSTNAMES: ${PASEO_PUBLIC_HOSTNAME:?Set PASEO_PUBLIC_HOSTNAME}
+      PASEO_CORS_ORIGINS: ${PASEO_CORS_ORIGINS:-https://${PASEO_PUBLIC_HOSTNAME}}
+      PASEO_PROJECTS_ROOT: ${PASEO_PROJECTS_FOLDER:?Set PASEO_PROJECTS_FOLDER}
+      HTTP_PROXY: http://gate:3128
+      HTTPS_PROXY: http://gate:3128
+      http_proxy: http://gate:3128
+      https_proxy: http://gate:3128
+      NO_PROXY: localhost,127.0.0.1,::1
+      no_proxy: localhost,127.0.0.1,::1
+      NODE_USE_ENV_PROXY: "1"
+      # Node prints an experimental-feature warning for every process that
+      # uses the environment proxy; it is noise for agents and tools.
+      NODE_OPTIONS: --disable-warning=UNDICI-EHPA
+    volumes:
+      - ${PASEO_DATA_ROOT:-./data}/home:/home/paseo
+      - ${PASEO_WORKSPACE_ROOT:-./workspace}:/workspace
+      # The Projects folder at its own path, so the Host and Dev name every
+      # project the same way. See docs/execution-installation.md#projects-folder.
+      - type: bind
+        source: ${PASEO_PROJECTS_FOLDER:?Set PASEO_PROJECTS_FOLDER}
+        target: ${PASEO_PROJECTS_FOLDER:?Set PASEO_PROJECTS_FOLDER}
+        bind: { create_host_path: false }
+    networks: [environment]
+
+  gate:
+    image: ${PASEO_GATE_IMAGE:?Set PASEO_GATE_IMAGE}
+    restart: unless-stopped
+    read_only: true
+    # Linux bind mounts keep host ownership, so install.sh runs the gate as the
+    # deployment owner there to let it write its log folder.
+    user: ${PASEO_GATE_USER:-65534:65534}
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command: ["-config", "/etc/gate/config.json"]
+    # Only the gate learns the Host's name. Its policy still refuses the Host
+    # gateway address except for routes listed in gate/config.json.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./gate/config.json:/etc/gate/config.json:ro
+      - ./gate/logs:/var/log/gate
+    ports:
+      - "127.0.0.1:${PASEO_GATE_RELAY_PORT:-6768}:6768"
+    networks:
+      environment:
+        ipv4_address: ${PASEO_GATE_ADDRESS:-172.31.250.2}
+      egress: {}
+
+networks:
+  environment:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${PASEO_GATE_SUBNET:-172.31.250.0/24}
+  egress: {}

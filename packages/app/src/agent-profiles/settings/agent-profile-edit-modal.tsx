@@ -155,7 +155,7 @@ function toSelectOptions(options: AgentProfileFormOption[]): SelectFieldOption<s
 }
 
 import { EnvironmentAvailabilityField } from "@/execution-installation/environment-availability-field";
-import { readExecutionInstallation } from "@/execution-installation/policy";
+import { installationHasDev, readExecutionInstallation } from "@/execution-installation/policy";
 
 interface ProfileLaunchFieldsProps {
   serverId: string;
@@ -859,7 +859,7 @@ function OpenAgentProfileEditModal({
           </EditorStage>
         ) : null}
 
-        {sharedScope?.kind === "workflow" && readExecutionInstallation() ? (
+        {sharedScope?.kind === "workflow" && installationHasDev(readExecutionInstallation()) ? (
           <EditorStage title="Availability">
             <EnvironmentAvailabilityField
               excludedEnvironments={state.excludedEnvironments}

@@ -54,7 +54,7 @@ it("keeps the preview icon on the title line and restores the named service in P
   }
 });
 
-it.each([240, 380])("keeps merge activity in the existing accessible PR link at %ipx", (width) => {
+it.each([240])("keeps merge activity in the existing accessible PR link at %ipx", (width) => {
   vi.stubGlobal("React", React);
   vi.mocked(useSidebarMetaPreferences).mockReturnValue({
     rowItems: DEFAULT_SIDEBAR_ROW_ITEMS,

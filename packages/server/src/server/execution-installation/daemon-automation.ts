@@ -108,6 +108,11 @@ export class DaemonAutomation {
     private readonly stateDir: string,
     private readonly legacyHostOnly: boolean,
     private readonly legacyActivatedAt?: string,
+    /** Daemon services that exist; a Host-only installation has no Dev daemon to enable. */
+    private readonly targets: readonly ("host" | "container-daemon")[] = [
+      "host",
+      "container-daemon",
+    ],
   ) {
     this.file = path.join(stateDir, "daemon-automation.json");
   }
@@ -127,7 +132,7 @@ export class DaemonAutomation {
             : null,
         ]),
       ) as NonNullable<DaemonAutomationPreference["services"]>;
-      const enabled = Boolean(services.host && services["container-daemon"]);
+      const enabled = this.targets.every((target) => Boolean(services[target]));
       return {
         revision: grant.revision,
         enabled,
@@ -200,9 +205,7 @@ export class DaemonAutomation {
       const { grant } = enrollment;
       if (change.expectedRevision !== grant.revision || grant.revokedAt)
         throw new RestartRequestError("Maintenance grant changed. Refresh before saving.");
-      const targets: MaintenanceService[] = change.service
-        ? [change.service]
-        : ["host", "container-daemon"];
+      const targets: MaintenanceService[] = change.service ? [change.service] : [...this.targets];
       const disabled = new Set(grant.disabledTargets);
       for (const service of targets) {
         if (change.enabled && !grant.manifest.targets.some((target) => target.target === service))
@@ -224,9 +227,7 @@ export class DaemonAutomation {
       throw new RestartRequestError("Daemon automation preference changed. Refresh before saving.");
     }
     const services = this.servicePermissions();
-    const targets: MaintenanceService[] = change.service
-      ? [change.service]
-      : ["host", "container-daemon"];
+    const targets: MaintenanceService[] = change.service ? [change.service] : [...this.targets];
     if (
       current.revision !== null &&
       targets.every((service) => Boolean(services[service]) === change.enabled)
@@ -242,11 +243,12 @@ export class DaemonAutomation {
     const changedAt = new Date(Math.max(Date.now(), lastChange + 1)).toISOString();
     const activatedAt = change.enabled ? changedAt : null;
     for (const service of targets) services[service] = activatedAt;
-    const enabled = Boolean(services.host && services["container-daemon"]);
+    const activations = this.targets.map((target) => services[target]);
+    const enabled = activations.every(Boolean);
     const next: DaemonAutomationPreference = {
       revision: randomUUID(),
       enabled,
-      enabledAfter: enabled ? [services.host!, services["container-daemon"]!].sort()[0] : null,
+      enabledAfter: enabled ? (activations as string[]).sort()[0] : null,
       legacyHostOnly: false,
       services,
     };

@@ -7,6 +7,8 @@ import { ProfileSelectorTile, ProfileLoading } from "./profile-selector-tile";
 import { profileCatalogState, sharedChoiceState, type LaunchChoices } from "./shared-choices";
 import { useCallback, useMemo, useReducer, useState, type ReactNode } from "react";
 import { Keyboard, ScrollView, Text, View, type LayoutChangeEvent } from "react-native";
+import { useRouter } from "expo-router";
+import { buildSettingsSectionRoute } from "@/utils/host-routes";
 import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { ChevronDown, ChevronUp } from "lucide-react-native";
@@ -288,7 +290,20 @@ function AccountList({
           {toErrorMessage(error)}
         </Text>
       ) : null}
-      {empty ? <Text style={styles.empty}>No matching accounts</Text> : null}
+      {empty ? <ManageAccountsButton /> : null}
+    </View>
+  );
+}
+
+// With no account to choose, the useful next step is connecting one.
+function ManageAccountsButton() {
+  const router = useRouter();
+  const open = useCallback(() => router.push(buildSettingsSectionRoute("accounts")), [router]);
+  return (
+    <View style={styles.manageAccounts}>
+      <Button variant="outline" onPress={open} testID="preset-manage-accounts">
+        Manage accounts
+      </Button>
     </View>
   );
 }
@@ -869,6 +884,10 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
   },
   summary: { fontSize: theme.fontSize.sm, color: theme.colors.foregroundMuted },
+  manageAccounts: {
+    padding: theme.spacing[4],
+    alignItems: "flex-start",
+  },
   empty: {
     padding: theme.spacing[4],
     color: theme.colors.foregroundMuted,

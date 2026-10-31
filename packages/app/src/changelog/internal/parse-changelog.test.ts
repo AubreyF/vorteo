@@ -44,8 +44,9 @@ describe("parseChangelog", () => {
       "utf8",
     );
     const releases = parseChangelog(source);
-    expect(releases[0].version).toMatch(/\.vorteo\.\d+$/);
-    // Parallel task branches can each prepare the same next version, so headings may repeat.
+    // Commits add Unreleased entries; release preparations add calendar versions.
+    expect(releases[0].version).toMatch(/^(?:Unreleased|\d+\.\d+\.\d+)$/);
+    // Unreleased and legacy headings repeat.
     expect(releases.length).toBe(source.match(/^## /gm)?.length);
     expect(
       releases.find((release) => release.version === "0.9.0-beta.2.vorton.40")?.sections[0].body,

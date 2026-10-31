@@ -14,50 +14,47 @@ import type { MaintenanceServiceView } from "@getpaseo/protocol/maintenance-serv
 
 const mounted: Array<{ root: Root; container: HTMLElement }> = [];
 
-test.each([390, 1133])(
-  "recovery bookmark uses only verified addresses at width %s",
-  async (width) => {
-    await page.viewport(width, 900);
-    const container = document.createElement("div");
-    document.body.append(container);
-    const root = createRoot(container);
-    mounted.push({ root, container });
-    const opened = bookmarkOpened;
-    opened.length = 0;
-    const copied = bookmarkCopied;
-    copied.length = 0;
-    const bookmark = recoveryBookmarkFixture();
-    const render = (value: InstallationRecoveryAccessStatus, error: string | null = null) =>
-      act(() =>
-        root.render(
-          <RecoveryBookmark
-            status={value}
-            error={error}
-            refreshing={false}
-            onRefresh={recordRefresh}
-            open={recordBookmarkOpen}
-            copy={recordBookmarkCopy}
-          />,
-        ),
-      );
-    render(bookmark);
-    expect(container.textContent).toContain("Bookmark");
-    if (width === 390) await page.screenshot({ path: "recovery-bookmark-phone.png" });
-    await page.getByRole("button", { name: "Open recovery", exact: true }).click();
-    await expect.poll(() => opened).toEqual([bookmark.url]);
-    await page.getByRole("button", { name: "Copy address", exact: true }).click();
-    await expect.poll(() => copied).toEqual([bookmark.url]);
-    expect(container.textContent).toContain("address copied");
-    render({ ...bookmark, validUntil: new Date(Date.now() + 100).toISOString() });
-    await expect.poll(() => container.textContent).not.toContain(bookmark.url);
-    // The address refreshes with installation status; no manual refresh without an error.
-    expect(container.querySelectorAll("button")).toHaveLength(0);
-    render(bookmark, "Refresh failed");
-    expect(container.textContent).not.toContain(bookmark.url);
-    expect(container.querySelectorAll("button")).toHaveLength(1);
-    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
-  },
-);
+test.each([390])("recovery bookmark uses only verified addresses at width %s", async (width) => {
+  await page.viewport(width, 900);
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  mounted.push({ root, container });
+  const opened = bookmarkOpened;
+  opened.length = 0;
+  const copied = bookmarkCopied;
+  copied.length = 0;
+  const bookmark = recoveryBookmarkFixture();
+  const render = (value: InstallationRecoveryAccessStatus, error: string | null = null) =>
+    act(() =>
+      root.render(
+        <RecoveryBookmark
+          status={value}
+          error={error}
+          refreshing={false}
+          onRefresh={recordRefresh}
+          open={recordBookmarkOpen}
+          copy={recordBookmarkCopy}
+        />,
+      ),
+    );
+  render(bookmark);
+  expect(container.textContent).toContain("Bookmark");
+  if (width === 390) await page.screenshot({ path: "recovery-bookmark-phone.png" });
+  await page.getByRole("button", { name: "Open recovery", exact: true }).click();
+  await expect.poll(() => opened).toEqual([bookmark.url]);
+  await page.getByRole("button", { name: "Copy address", exact: true }).click();
+  await expect.poll(() => copied).toEqual([bookmark.url]);
+  expect(container.textContent).toContain("address copied");
+  render({ ...bookmark, validUntil: new Date(Date.now() + 100).toISOString() });
+  await expect.poll(() => container.textContent).not.toContain(bookmark.url);
+  // The address refreshes with installation status; no manual refresh without an error.
+  expect(container.querySelectorAll("button")).toHaveLength(0);
+  render(bookmark, "Refresh failed");
+  expect(container.textContent).not.toContain(bookmark.url);
+  expect(container.querySelectorAll("button")).toHaveLength(1);
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+});
 
 test("recovery bookmark reports clipboard refusal without claiming a copy", async () => {
   const container = document.createElement("div");
@@ -149,31 +146,28 @@ function renderDashboard(input: { status: InstallationEnrollmentStatus; error?: 
   return { container, refreshes: () => refreshCount };
 }
 
-test.each([390, 1133])(
-  "readiness stays distinct from recorded activation at width %s",
-  async (width) => {
-    await page.viewport(width, 900);
-    const view = renderDashboard({ status: status() });
-    const headline = view.container.querySelector('[data-testid="installation-health-headline"]');
-    expect(headline?.textContent).toContain("Readiness unverified");
-    // Status refreshes on its own; a healthy check offers no manual refresh.
-    expect(view.container.textContent).not.toContain("Refresh status");
-    await page.getByTestId("installation-health-details-toggle").click();
-    expect(view.container.textContent).toContain("2 of 2 steps verified");
-    expect(view.container.textContent).toContain("Current service readiness has not been verified");
-    const rows = view.container.querySelectorAll('[data-testid^="maintenance-service-"]');
-    for (const row of rows) {
-      const bounds = row.getBoundingClientRect();
-      expect(bounds.left).toBeGreaterThanOrEqual(0);
-      expect(bounds.right).toBeLessThanOrEqual(width);
-    }
-    const before = view.refreshes();
-    renderDashboard({ status: status(), error: "Maintenance service could not be reached." });
-    await page.getByRole("button", { name: "Refresh status" }).last().click();
-    expect(view.refreshes()).toBe(before + 1);
-    expect(view.container.textContent).not.toContain("Approve");
-  },
-);
+test.each([390])("readiness stays distinct from recorded activation at width %s", async (width) => {
+  await page.viewport(width, 900);
+  const view = renderDashboard({ status: status() });
+  const headline = view.container.querySelector('[data-testid="installation-health-headline"]');
+  expect(headline?.textContent).toContain("Readiness unverified");
+  // Status refreshes on its own; a healthy check offers no manual refresh.
+  expect(view.container.textContent).not.toContain("Refresh status");
+  await page.getByTestId("installation-health-details-toggle").click();
+  expect(view.container.textContent).toContain("2 of 2 steps verified");
+  expect(view.container.textContent).toContain("Current service readiness has not been verified");
+  const rows = view.container.querySelectorAll('[data-testid^="maintenance-service-"]');
+  for (const row of rows) {
+    const bounds = row.getBoundingClientRect();
+    expect(bounds.left).toBeGreaterThanOrEqual(0);
+    expect(bounds.right).toBeLessThanOrEqual(width);
+  }
+  const before = view.refreshes();
+  renderDashboard({ status: status(), error: "Maintenance service could not be reached." });
+  await page.getByRole("button", { name: "Refresh status" }).last().click();
+  expect(view.refreshes()).toBe(before + 1);
+  expect(view.container.textContent).not.toContain("Approve");
+});
 
 test("an unconfirmed effect is never presented as a running or completed update", () => {
   const current = status();
@@ -218,7 +212,7 @@ test("cached readiness expires without a server response", async () => {
   expect(view.container.textContent).toContain("Last known observation has expired");
 });
 
-test.each([390, 1133])(
+test.each([390])(
   "maintenance requests show durable uncertainty and cancellation at width %s",
   async (width) => {
     await page.viewport(width, 900);

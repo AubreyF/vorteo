@@ -7,7 +7,7 @@ import { seedMockAgentWorkspace, openAgentRoute } from "../support/helpers/mock-
 for (const width of [390, 680]) {
   test(`mobile workspace keeps Files inline and scripts in its menu at ${width}px`, async ({
     page,
-  }, info) => {
+  }) => {
     test.fixme(
       width === 680,
       "Product regression, reported to Builds on 2026-10-25: windows from 500px to 719px now get the desktop layout instead of the phone header and menu (94087127e moved useIsCompactFormFactor from the 720px breakpoint to the composer's 500px). Remove the fixme once phone navigation starts below 720px again.",
@@ -57,7 +57,6 @@ for (const width of [390, 680]) {
       await files.getByTestId("supporting-card-files-toggle").click();
       await expect(files.getByTestId("file-explorer-tree-scroll")).toBeVisible();
       await expect(queue).toBeAttached();
-      await page.screenshot({ path: info.outputPath("inline-files.png") });
       await header.getByTestId("workspace-header-menu-trigger").click();
       await expect(page.getByTestId("workspace-scripts-item-check")).toBeVisible();
       await page.getByTestId("workspace-scripts-start-check").click();

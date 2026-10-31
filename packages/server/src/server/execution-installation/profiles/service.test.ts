@@ -1345,3 +1345,19 @@ test("defaults reset survives save and synchronization while existing teams reta
       .every((w) => w.uncappedWorkers),
   ).toBe(true);
 });
+
+test("a Host-only installation shares profiles with its one environment", async () => {
+  const host = new Environment("host", "model-b");
+  const journal = new Journal();
+  const service = new InstallationProfiles(journal, [host], "00000000-0000-4000-8000-000000000001");
+  await service.synchronize();
+  const snapshot = service.snapshot();
+  if (!snapshot) throw new Error("missing snapshot");
+  expect(Object.keys(service.status()?.sources ?? {})).toEqual(["host"]);
+  expect(service.status()?.sources.host.error).toBeNull();
+  const providers = structuredClone(snapshot.providers);
+  providers.codex.workflows[0].instructions = "Host-only instructions";
+  await service.patch({ expectedRevision: snapshot.revision, providers });
+  await service.synchronize();
+  expect(host.config.sharedProviderPreferences?.providers).toEqual(providers);
+});

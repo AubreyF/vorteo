@@ -194,6 +194,41 @@ test("shared skill collection preserves both environments and reports conflictin
   }
 });
 
+test("one environment's different copies of a skill keep the shared library's copy", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "installation-skill-duplicates-"));
+  try {
+    const store = new InstallationSkillPackages(path.join(directory, "packages"));
+    const home = path.join(directory, "host");
+    // As on a real Mac: Claude Code holds the same copy as the shared library.
+    for (const [folder, body] of [
+      [".agents/skills", "shared library copy"],
+      [".claude/skills", "shared library copy"],
+      [".codex/skills", "Codex copy with extras"],
+    ]) {
+      const target = path.join(home, folder, "writing");
+      mkdirSync(target, { recursive: true });
+      writeFileSync(
+        path.join(target, "SKILL.md"),
+        `---\nname: writing\ndescription: writing\n---\n${body}\n`,
+      );
+    }
+    const library = new SkillLibrary(path.join(home, "state"), home);
+    const collected = await collectInstallationSkills(
+      { readSkillLibrary: (request) => library.read(request) },
+      store,
+    );
+    const kept = collected.filter((entry) => entry.name === "writing");
+    expect(kept).toHaveLength(1);
+    const instructions = store.read(kept[0]).files.find((file) => file.path === "SKILL.md");
+    expect(Buffer.from(instructions?.content ?? "", "base64").toString()).toContain(
+      "shared library copy",
+    );
+    expect(mergeInstallationSkills({ host: collected }).conflicts).toEqual([]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("shared skill projection installs verified content and provider discovery without repeated writes", async () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "installation-skill-projection-"));
   try {

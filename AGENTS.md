@@ -2,21 +2,33 @@
 
 Vorteo extends upstream Paseo with multi-account agent workflows. This npm monorepo runs agents in your environment and exposes web, mobile and desktop clients. `CLAUDE.md` links here; edit `AGENTS.md`.
 
+## Stop: updating from inside a Dev container
+
+If you were asked to update or upgrade a Vorteo installation, you are running inside a Vorteo Dev container (for example `/home/paseo` exists or `PASEO_NETWORK_MODE` is set), and no Host environment is connected (no installed `installation-maintenance` skill offers a Host target), stop. Do not clone, build, or run any installer or update script. A container cannot install its own Host.
+
+Tell the owner to run this on the computer that runs Docker:
+
+```sh
+curl -fsSL https://github.com/terran-labs/vorteo/releases/latest/download/install.sh | bash
+```
+
+It keeps this Dev environment, its agents and files, and adds the Host that installs later updates from Settings.
+
 ## Before editing
 
 1. Fetch `origin`. If your checkout is behind `origin/main`, read the current rules with `git show origin/main:AGENTS.md`. Check the working tree and preserve unrelated changes.
 2. Read the relevant rules below and the owning docs. “The docs” means `docs/`, not the web. Use the [docs index](docs/README.md) for other subjects; do not load the whole catalog.
 3. Verify behavior in code and tests before changing it or documenting it as shipped.
 
-| Task                           | Read first                                                                                                                       |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| App or interface work          | [App instructions](packages/app/AGENTS.md)                                                                                       |
-| Protocol or WebSocket changes  | [Compatibility](docs/protocol-compatibility.md), [RPC names](docs/rpc-namespacing.md), [validation](docs/protocol-validation.md) |
-| Implementation or tests        | [Coding standards](docs/coding-standards.md), [testing](docs/testing.md)                                                         |
-| README or other documentation  | [Writing rules](docs/writing.md)                                                                                                 |
-| Installation or deployment     | [Container installer](docker/multiplex/README.md), [instance continuity](docs/instance-continuity.md)                            |
-| Commit, publication or release | [Versioning](docs/release.md#vorton-commit-versions), [publication hygiene](docs/publication-hygiene.md)                         |
-| Worktrees, delivery or archive | [Task delivery](docs/task-delivery.md)                                                                                           |
+| Task                           | Read first                                                                                                                                 |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| App or interface work          | [App instructions](packages/app/AGENTS.md)                                                                                                 |
+| Protocol or WebSocket changes  | [Compatibility](docs/protocol-compatibility.md), [RPC names](docs/rpc-namespacing.md), [validation](docs/protocol-validation.md)           |
+| Implementation or tests        | [Coding standards](docs/coding-standards.md), [testing](docs/testing.md)                                                                   |
+| README or other documentation  | [Writing rules](docs/writing.md)                                                                                                           |
+| Installation or deployment     | [Install](README.md#install), [installation reference](docs/execution-installation.md), [instance continuity](docs/instance-continuity.md) |
+| Commit, publication or release | [Versioning](docs/release.md#vorteo-versions), [publication hygiene](docs/publication-hygiene.md)                                          |
+| Worktrees, delivery or archive | [Task delivery](docs/task-delivery.md)                                                                                                     |
 
 ## Authorization levels
 
@@ -101,7 +113,7 @@ Use a sealed production build when checking production behavior or when the owne
 - Treat the project's primary checkout as read-only. Many threads start there, new workspaces branch from it, and an hourly job fast-forwards its `main` to `origin/main`. Do not edit, commit, stash or switch branches in it; start a [task worktree](docs/task-delivery.md#start-in-a-task-worktree) first. Machine-local service settings belong in the untracked `paseo.local.json`, never in `paseo.json`.
 - Never restart the main daemon on port `6767` without explicit permission. It owns running agents. A timeout is not a reason to restart it.
 - Previews reuse the task workspace, service and HTTPS reservation. Never create a project or workspace solely to serve a preview or work around a broker rejection. Keep isolated code in its task worktree and follow the [preview workflow](docker/tailscale/AGENT-INSTRUCTIONS.md#preview-workspace-reuse).
-- Use the container installer by default. The explicitly owner-authorized macOS host extension follows [host and container execution](docs/execution-installation.md); it adds a trusted native daemon through the host handoff workflow. Never infer authorization for that topology from an ordinary container task. Keep the native runtime, interface, state and credentials outside guest-writable mounts. Never mount Docker's socket or place host control credentials in the guest. Host Docker administration belongs to the operator.
+- Install and upgrade with the one-command installer in the [README](README.md#install). It adds the trusted native Host daemon described in [host and container execution](docs/execution-installation.md). It runs on the Host computer, never inside a container. Never infer authorization for that topology from an ordinary container task. Keep the native runtime, interface, state and credentials outside guest-writable mounts. Never mount Docker's socket or place host control credentials in the guest. Host Docker administration belongs to the operator.
 - Keep credentials, deployment details, account inventories, backups and acceptance receipts outside Git.
 - Primary web publication requires clean, committed integration source and the guarded build/publish scripts in [instance continuity](docs/instance-continuity.md). Task worktrees produce previews. Never publish raw exports or reuse another build directory; integrate the currently deployed source before rebuilding a stale candidate.
 - Preserve wire compatibility: new fields are optional, existing fields are not removed or narrowed, and wire schemas stay pure. Gate new features on their advertised capability; tag compatibility shims as required by the compatibility doc.
@@ -137,7 +149,18 @@ Only [Builds](#builds-coordinator) submits and follows restart, source-update an
 
 ## Installation account connections
 
-Provider accounts connect to the installation and synchronize to Host and Dev by default. Do not add per-environment sign-in flows or another environment selector. Only an explicit post-connection environment exclusion may disable an account in one environment. Report synchronization pending until every non-excluded environment verifies the same account. Follow [installation account connections](docs/plans/execution-environments/provider-auth.md) for authentication, refresh and migration requirements; this is the required contract, not a claim that the current installation already implements it.
+Provider accounts connect to the installation and synchronize to Host and Dev by default. Do not add per-environment sign-in flows or another environment selector. Only an explicit post-connection environment exclusion may disable an account in one environment. Report synchronization pending until every non-excluded environment verifies the same account. Follow [installation account connections](docs/providers.md#installation-account-connections) for authentication, refresh and migration requirements; this is the required contract, not a claim that every installation already implements it.
+
+## Testing budget
+
+Every test costs CI time on every push and maintenance on every change. This budget overrides any broader coverage advice in [testing](docs/testing.md).
+
+- Add a test only for behavior that broke before or carries real risk: security boundaries (network gate, owner authorization, credential handling), data migrations, wire compatibility, and installer, upgrade and recovery paths. Shipping a feature does not by itself earn a test.
+- Extend an existing test or case table before creating a new file. Cover each risk with one representative case, not every permutation.
+- Never assert screenshots, copy, colors, CSS or pixel geometry. Assert what the user or caller can do.
+- End-to-end coverage is one smoke per platform at release time, not on every push. Add a Playwright spec only when a unit test with a fake adapter cannot catch the failure.
+- Delete tests that your change makes obsolete in the same commit. Do not skip them or keep tests for removed behavior.
+- Do not delete or rewrite upstream Paseo tests to slim the suite; every upstream merge would conflict. Change CI routing instead.
 
 ## Check your work
 
@@ -147,7 +170,7 @@ Provider accounts connect to the installation and synchronize to Host and Dev by
 - Add tests to existing suites and reuse their npm scripts and CI jobs instead of creating feature-specific runners.
 - Reuse passing test evidence from another agent for unchanged code. Do not add provider-auth checks or auth-dependent skips to tests.
 - Before diagnosing cross-package type errors, rebuild declarations with `npm run build:client` or `npm run build:server` as appropriate. Do not patch types to hide stale declarations. See [development](docs/development.md).
-- Update and stage `VORTEO_CHANGELOG.md` in every commit, including documentation, tests, tooling and upstream merges. Describe the complete commit at the prepared version, following [release notes](docs/release.md#vorteo-release-notes).
+- Update and stage `VORTEO_CHANGELOG.md` in every commit, including documentation, tests, tooling and upstream merges. Head the entry `## Unreleased - YYYY-MM-DD`, or with the new version for a release preparation, following [release notes](docs/release.md#vorteo-release-notes).
 - Every commit increments the Vorteo version through the installed hook. Stage intended manifest changes first; never bypass hooks or use upstream release commands for routine commits.
 - Update [Vorteo customizations](docs/vorteo-customizations.md) in every commit, including documentation, tooling and upstream merges. Maintain the affected feature or limitation; when functionality is unchanged, update the maintenance review with the commit's scope and result. Follow [inventory maintenance](docs/writing.md#maintain-the-vorteo-customizations-inventory).
 - For every Paseo upstream merge, compare incoming implementation and tests with the customizations inventory. Record full or partial overlap and the remaining Vorteo difference, credit upstream, and revise the roadmap in the same change. Do not claim parity from a release-note title alone or remove custom behavior without verifying compatibility.

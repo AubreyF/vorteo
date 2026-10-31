@@ -4,11 +4,12 @@ import type { InstallationEnvironment } from "@getpaseo/protocol/execution-insta
 import { Field } from "@/components/ui/form-field";
 import { Switch } from "@/components/ui/switch";
 import { settingsStyles } from "@/styles/settings";
+import { installationEnvironmentKinds, readExecutionInstallation } from "./policy";
 
-const ENVIRONMENTS = [
-  { kind: "host", label: "Host" },
-  { kind: "container", label: "Dev container" },
-] as const;
+const ENVIRONMENT_LABELS: Record<InstallationEnvironment["kind"], string> = {
+  host: "Host",
+  container: "Dev container",
+};
 
 interface EnvironmentAvailabilityFieldProps {
   excludedEnvironments: readonly InstallationEnvironment["kind"][];
@@ -21,13 +22,16 @@ export function EnvironmentAvailabilityField({
   onChange,
   disabled = false,
 }: EnvironmentAvailabilityFieldProps) {
+  const kinds = installationEnvironmentKinds(readExecutionInstallation());
+  // A Host-only installation has nothing to choose: everything runs on the Host.
+  if (kinds.length < 2) return null;
   return (
     <Field label="Available in" testID="environment-availability-field">
       <View style={settingsStyles.card}>
-        {ENVIRONMENTS.map((environment) => (
+        {kinds.map((kind) => (
           <EnvironmentAvailabilityRow
-            key={environment.kind}
-            environment={environment}
+            key={kind}
+            kind={kind}
             excludedEnvironments={excludedEnvironments}
             onChange={onChange}
             disabled={disabled}
@@ -39,27 +43,28 @@ export function EnvironmentAvailabilityField({
 }
 
 function EnvironmentAvailabilityRow({
-  environment,
+  kind,
   excludedEnvironments,
   onChange,
   disabled,
-}: EnvironmentAvailabilityFieldProps & { environment: (typeof ENVIRONMENTS)[number] }) {
+}: EnvironmentAvailabilityFieldProps & { kind: InstallationEnvironment["kind"] }) {
   const change = useCallback(
     (included: boolean) => {
-      const remaining = excludedEnvironments.filter((kind) => kind !== environment.kind);
-      onChange(included ? remaining : [...remaining, environment.kind]);
+      const remaining = excludedEnvironments.filter((excluded) => excluded !== kind);
+      onChange(included ? remaining : [...remaining, kind]);
     },
-    [excludedEnvironments, environment.kind, onChange],
+    [excludedEnvironments, kind, onChange],
   );
+  const label = ENVIRONMENT_LABELS[kind];
   return (
     <View style={settingsStyles.row}>
-      <Text style={settingsStyles.rowTitle}>{environment.label}</Text>
+      <Text style={settingsStyles.rowTitle}>{label}</Text>
       <Switch
-        value={!excludedEnvironments.includes(environment.kind)}
+        value={!excludedEnvironments.includes(kind)}
         disabled={disabled}
         onValueChange={change}
-        accessibilityLabel={`Available in ${environment.label}`}
-        testID={`environment-availability-${environment.kind}`}
+        accessibilityLabel={`Available in ${label}`}
+        testID={`environment-availability-${kind}`}
       />
     </View>
   );

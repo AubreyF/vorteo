@@ -2246,6 +2246,7 @@ export const ko: TranslationResources = {
       theme: {
         title: "테마",
         accessibilityLabel: "테마: {{value}}",
+        pluginThemes: "플러그인 테마",
         options: {
           light: "라이트",
           dark: "다크",

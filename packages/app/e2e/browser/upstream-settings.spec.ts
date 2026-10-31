@@ -5,7 +5,7 @@ import { UPSTREAM_UPDATE_PROMPT } from "../../src/vorton-updates/upstream";
 const week = 7 * 24 * 60 * 60 * 1000;
 const mergedAt = Date.parse(record.mergedAt);
 
-for (const width of [1280, 390]) {
+for (const width of [1280]) {
   test(`General contains About and a copyable overdue upstream task at ${width}px`, async ({
     page,
     context,

@@ -166,7 +166,7 @@ export async function connectInstallationDaemon(
 ): Promise<DaemonClient> {
   const target = config[kind];
   const descriptor = config.public.environments.find((environment) => environment.kind === kind);
-  if (!descriptor) throw new Error("Installation environment is missing");
+  if (!target || !descriptor) throw new Error("Installation environment is missing");
   const client = new DaemonClient({
     url: `ws://${target.endpoint}/ws`,
     password: target.password,
@@ -243,10 +243,10 @@ export function createInstallationRegistrationAdmission(
   assertRegistrationReadiness?: (target: RestartJob["target"]) => void,
 ): (target: RestartJob["target"]) => void {
   const configuration = structuredClone(config);
-  const registrationRequired = configuration.container.persistentRegistration !== undefined;
+  const registrationRequired = configuration.container?.persistentRegistration !== undefined;
   return function assertReady(target: RestartJob["target"]): void {
     if (target !== "container-daemon") return;
-    if (!registrationRequired && config.container.persistentRegistration === undefined) return;
+    if (!registrationRequired && config.container?.persistentRegistration === undefined) return;
     if (!registrationRequired || !isDeepStrictEqual(config, configuration))
       throw new Error("Dev registration configuration changed");
     if (
@@ -441,9 +441,17 @@ export function createInstallationRestartExecutor(
         await client.close();
       }
     } else if (target === "host") {
-      await execFileAsync("/bin/launchctl", ["kickstart", "-k", hostLaunchdService(config)], {
-        timeout: 15_000,
-      });
+      // Restart the installation's own Host service: launchd on macOS, a systemd user unit on Linux.
+      if ("launchdService" in config.host)
+        await execFileAsync("/bin/launchctl", ["kickstart", "-k", hostLaunchdService(config)], {
+          timeout: 15_000,
+        });
+      else
+        await execFileAsync(
+          "/usr/bin/systemctl",
+          ["--user", "restart", config.host.systemdService.unit],
+          { timeout: 15_000 },
+        );
     } else {
       const client = await connectInstallationDaemon(config, kind);
       try {
@@ -468,14 +476,14 @@ export function createInstallationRestartExecutor(
   }
   return {
     restartHeld,
-    factoryRuntimePlan: () => factoryRuntimePlanDigest(config.container.factoryRuntimeAdoption),
+    factoryRuntimePlan: () => factoryRuntimePlanDigest(config.container?.factoryRuntimeAdoption),
     async adoptFactoryRuntime(job) {
       assertReady("container-daemon");
-      if (config.container.persistentRegistration)
+      if (config.container?.persistentRegistration)
         throw new Error(
           "Dev Factory adoption requires independently verified transition-phase readiness",
         );
-      const plan = config.container.factoryRuntimeAdoption;
+      const plan = config.container?.factoryRuntimeAdoption;
       const environment = config.public.environments.find((entry) => entry.kind === "container");
       if (!plan || !environment || job.factoryRuntimePlanSha256 !== factoryRuntimePlanDigest(plan))
         throw new Error("Factory adoption plan is unavailable or changed");
@@ -526,16 +534,16 @@ export function createInstallationRestartExecutor(
         },
       );
     },
-    engineRestartPlan: () => engineRestartPlanDigest(config.container.engineRestart),
+    engineRestartPlan: () => engineRestartPlanDigest(config.container?.engineRestart),
     engineRecoveryPlan: () =>
-      config.container.persistentRegistration
+      config.container?.persistentRegistration
         ? undefined
-        : engineRecoveryPlanDigest(config.container.engineRecovery),
+        : engineRecoveryPlanDigest(config.container?.engineRecovery),
     async recoverEngine(job) {
-      const plan = config.container.engineRecovery;
+      const plan = config.container?.engineRecovery;
       if (
         !plan ||
-        config.container.persistentRegistration ||
+        config.container?.persistentRegistration ||
         job.target !== "container-daemon" ||
         !job.engineRecoveryPlanSha256 ||
         job.engineRecoveryPlanSha256 !== engineRecoveryPlanDigest(plan)
@@ -562,9 +570,9 @@ export function createInstallationRestartExecutor(
     },
     async restartEngine(job) {
       assertReady("container-daemon");
-      if (config.container.persistentRegistration)
+      if (config.container?.persistentRegistration)
         throw new Error("Docker restart requires an independently bound Dev operation");
-      const plan = config.container.engineRestart;
+      const plan = config.container?.engineRestart;
       if (
         !plan ||
         job.target !== "container-daemon" ||
@@ -585,12 +593,12 @@ export function createInstallationRestartExecutor(
         replacement,
       ].join(" ");
     },
-    supervisorPlan: () => supervisorPlanDigest(config.container.supervisorMaintenance),
+    supervisorPlan: () => supervisorPlanDigest(config.container?.supervisorMaintenance),
     async restartSupervisor(job) {
       assertReady("container-daemon");
-      if (config.container.persistentRegistration)
+      if (config.container?.persistentRegistration)
         throw new Error("Dev supervisor maintenance requires an independently bound operation");
-      const plan = config.container.supervisorMaintenance;
+      const plan = config.container?.supervisorMaintenance;
       if (!plan || job.target !== "container-daemon" || job.supervisorPlanSha256 !== plan.sha256)
         throw new Error("Supervisor maintenance plan is unavailable or changed");
       const before = await connectInstallationDaemon(config, "container");

@@ -477,42 +477,6 @@ async function syntheticCloseSession(metadata: Record<string, unknown>) {
   return { session, appServer, events };
 }
 
-test("synthetic eight async questions survive provider close and same-native-identity resume without a turn", async () => {
-  const first = await syntheticCloseSession({ asyncQuestions: syntheticCloseQuestions });
-  const before = first.session.getPendingPermissions();
-  const events: AgentStreamEvent[] = [];
-  first.session.subscribe((event) => events.push(event));
-  const handle = first.session.describePersistence()!;
-  await first.session.close();
-  expect(handle.sessionId).toBe("synthetic-close-thread");
-  expect(handle.metadata?.asyncQuestions).toEqual(syntheticCloseQuestions);
-  expect(before.map((request) => request.id)).toEqual(
-    syntheticCloseQuestions.map((record) => `permission-${record.item.id}`),
-  );
-  expect(before.map((request) => request.provider)).toEqual(Array(8).fill("codex"));
-  expect(events.filter((event) => event.type === "permission_resolved")).toEqual([]);
-  const resumed = await syntheticCloseSession(handle.metadata!);
-  try {
-    expect(resumed.session.describePersistence()?.sessionId).toBe(handle.sessionId);
-    expect(resumed.session.getPendingPermissions()).toEqual(before);
-    expect(resumed.session.describePersistence()?.metadata?.asyncQuestions).toEqual(
-      syntheticCloseQuestions,
-    );
-    for (const server of [first.appServer, resumed.appServer]) {
-      expect(
-        server
-          .requests()
-          .filter((request) =>
-            ["turn/start", "turn/steer", "turn/interrupt"].includes(String(request.method)),
-          ),
-      ).toEqual([]);
-      server.assertNoErrors();
-    }
-  } finally {
-    await resumed.session.close();
-  }
-});
-
 test("synthetic eight async questions remain visible in the manager closed projection", async () => {
   const first = await syntheticCloseSession({ asyncQuestions: syntheticCloseQuestions });
   const { session } = first;

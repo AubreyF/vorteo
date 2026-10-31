@@ -118,7 +118,16 @@ html = html.replace(
   /(<link rel="icon"[^>]*>)/,
   `$1\n    <link rel="mask-icon" href="/vorteo-pinned-tab-${hash}.svg" color="#3b82f6" />`,
 );
+html = html.replace(/\/vorteo-logo-white-[^"]+\.png/g, `/vorteo-logo-white-${hash}.png`);
 fs.writeFileSync(`${publicDir}/index.html`, html);
+// The app reuses the boot loader's copy of the master on web.
+const masterModule = "packages/app/src/components/icons/vorteo-master.ts";
+fs.writeFileSync(
+  masterModule,
+  fs
+    .readFileSync(masterModule, "utf8")
+    .replace(/\/vorteo-logo-white-[^"]+\.png/, `/vorteo-logo-white-${hash}.png`),
+);
 const desktop = "packages/desktop/assets";
 const desktopTile = path.join(brand, "vorteo-desktop.png");
 magick(

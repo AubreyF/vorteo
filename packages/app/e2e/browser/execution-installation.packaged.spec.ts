@@ -403,7 +403,7 @@ test.afterAll(async () => {
   if (root) await rm(root, { recursive: true, force: true });
 });
 
-/** Opens a provider's own page from the Accounts & profiles list. */
+/** Expands a provider's details in place in the Accounts & profiles list. */
 async function openProviderPage(page: Page, providerType: string) {
   await page.getByTestId(`provider-family-open-${providerType}`).click();
   await expect(page.getByTestId("provider-detail-connections")).toBeVisible();
@@ -522,14 +522,19 @@ test("welcome signs in with the owner password and restores both environments", 
     path: testInfo.outputPath("welcome-without-notices.png"),
     fullPage: true,
   });
-  await page.getByTestId("welcome-create-installation").click();
-  await expect(page.getByTestId("installation-command")).toContainText(
-    "docker/multiplex/install.sh",
-  );
-  await page.getByRole("button", { name: "Close", exact: true }).click();
-  await page.getByTestId("welcome-direct-connection").click();
+  // The page belongs to a running installation: owner sign-in is inline, with no
+  // dialog, and it never offers to create another installation.
+  await expect(page.getByTestId("welcome-create-installation")).toHaveCount(0);
+  await expect(page.getByTestId("welcome-direct-connection")).toHaveCount(0);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   const form = page.getByTestId("installation-welcome");
   await expect(form).toBeVisible();
+  await expect(form.getByTestId("installation-password-file")).toHaveText(
+    path.join(root, "owner-password"),
+  );
+  await expect(form.getByTestId("installation-password-command")).toHaveText(
+    `pbcopy < '${path.join(root, "owner-password")}'`,
+  );
   await expect(page.getByTestId("direct-host-input")).toHaveCount(0);
   await expect(page.getByTestId("welcome-remote-ssh")).toHaveCount(0);
   const password = page.getByRole("textbox", { name: "Owner password" });
@@ -549,12 +554,6 @@ test("welcome signs in with the owner password and restores both environments", 
     path: testInfo.outputPath("owner-welcome.png"),
     fullPage: true,
   });
-  await password.fill("discard-on-cancel");
-  await page.getByRole("button", { name: "Close", exact: true }).click();
-  await expect(form).not.toBeVisible();
-  await page.getByTestId("welcome-direct-connection").click();
-  await expect(password).toHaveValue("");
-  await expect(connect).toBeDisabled();
   await password.fill("container-test-password");
   await connect.click();
   await expect(form.getByRole("alert")).toContainText("Incorrect owner password");
@@ -692,11 +691,10 @@ test("owner connects two environments, prepares host drafts, and approves a veri
       );
   });
   await page.goto(origin);
-  await page.getByTestId("welcome-direct-connection").click();
   await expect(page.getByTestId("installation-welcome")).toBeVisible();
   await expect(page).toHaveURL(/welcome/);
   await expect(page.getByTestId("direct-host-input")).toHaveCount(0);
-  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.screenshot({
     path: testInfo.outputPath("installation-owner-access.png"),
     fullPage: true,
@@ -3430,7 +3428,7 @@ for (const width of [1280, 390]) {
           .getByTestId("provider-detail-connections")
           .getByText("Renamed fixture account", { exact: true }),
       ).toBeVisible();
-      // Removing the provider is a quiet row at the bottom of its page and returns to the list.
+      // Removing the provider is a quiet row at the bottom of its details; the row leaves the list.
       const dialog = page.waitForEvent("dialog");
       const click = page.getByTestId("provider-detail-remove-mock").click();
       await (await dialog).accept();
@@ -4522,7 +4520,6 @@ test("automatic maintenance shows readiness and preserves owner opt-in across re
   page,
 }, testInfo) => {
   await page.goto(origin);
-  await page.getByTestId("welcome-direct-connection").click();
   await page.getByTestId("installation-password").fill(ownerPassword);
   await page.getByTestId("installation-unlock").click();
   await expect(page.getByTestId("installation-password")).not.toBeVisible();

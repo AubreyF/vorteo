@@ -18,16 +18,15 @@ import { buildOpenProjectRoute } from "@/utils/host-routes";
 import { VorteoLogo } from "@/components/icons/paseo-logo";
 import { openExternalUrl } from "@/utils/open-external-url";
 import { InstallationWelcome } from "@/execution-installation/panel";
+import { InstallCommand } from "@/execution-installation/install-command";
 import { readExecutionInstallation } from "@/execution-installation/policy";
+import { useInstallationName } from "@/execution-installation/installation-name";
 import { isNative } from "@/constants/platform";
 import { toErrorMessage } from "@/utils/error-messages";
-const CONNECT_HEADER = { title: "Connect to Host" };
 const SETUP_HEADER = { title: "Create New installation" };
-const INSTALL_COMMAND =
-  'git clone https://github.com/AubreyF/vorteo.git "$HOME/vorteo-source" &&\n  bash "$HOME/vorteo-source/docker/multiplex/install.sh" "$HOME/vorteo"';
 
 interface WelcomeAction {
-  key: "new-installation" | "direct-connection" | "demo";
+  key: "new-installation" | "direct-connection";
   label: string;
   testID: string;
   primary: boolean;
@@ -117,9 +116,16 @@ const styles = StyleSheet.create((theme) => ({
     textAlign: "center",
     marginTop: theme.spacing[6],
   },
-  settingsButton: {
+  footerActions: {
+    flexDirection: "row",
+    alignItems: "center",
     alignSelf: "center",
+    gap: theme.spacing[1],
     marginTop: theme.spacing[6],
+  },
+  footerSeparator: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
   },
 }));
 
@@ -177,6 +183,7 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
   const [isSetupOpen, setIsSetupOpen] = useState(false);
   const [demoError, setDemoError] = useState<string | null>(null);
   const installation = readExecutionInstallation();
+  const installationName = useInstallationName();
   const hosts = useHosts();
   const anyOnlineServerId = useAnyHostOnline(hosts.map((h) => h.serverId));
 
@@ -217,6 +224,8 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
     [onHostAdded, finishOnboarding],
   );
 
+  // A page served by a running installation shows its owner sign-in inline
+  // instead (below): offering to create an installation there is a dead end.
   const actions: WelcomeAction[] = [
     {
       key: "new-installation",
@@ -233,14 +242,6 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
       primary: false,
       icon: Link2,
       onPress: handleOpenDirect,
-    },
-    {
-      key: "demo",
-      label: "Demo",
-      testID: "welcome-demo",
-      primary: false,
-      icon: Play,
-      onPress: handleDemo,
     },
   ];
 
@@ -263,10 +264,7 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
           <VorteoLogo size={96} />
           <View style={styles.copyBlock}>
             <Text style={styles.title}>
-              {installation ? "Welcome to Vorteo" : t("onboarding.title")}
-            </Text>
-            <Text style={styles.subtitle}>
-              Create an installation, connect to your Host, or explore the demo.
+              {installation ? `Welcome to ${installationName}` : t("onboarding.title")}
             </Text>
             {isNative ? (
               <Pressable style={styles.setupLink} onPress={handleOpenPaseoSite}>
@@ -277,9 +275,11 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
           </View>
 
           <View style={styles.actions}>
-            {actions.map((action) => (
-              <WelcomeActionButton key={action.key} action={action} />
-            ))}
+            {installation ? (
+              <InstallationWelcome />
+            ) : (
+              actions.map((action) => <WelcomeActionButton key={action.key} action={action} />)
+            )}
             {demoError ? (
               <Text accessibilityRole="alert" style={styles.subtitle}>
                 {demoError}
@@ -287,29 +287,33 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
             ) : null}
           </View>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            leftIcon={Settings}
-            onPress={handleOpenSettings}
-            style={styles.settingsButton}
-            testID="welcome-open-settings"
-          >
-            {t("onboarding.actions.settings")}
-          </Button>
+          <View style={styles.footerActions}>
+            <Button
+              variant="ghost"
+              size="sm"
+              leftIcon={Play}
+              onPress={handleDemo}
+              testID="welcome-demo"
+            >
+              Demo
+            </Button>
+            <Text style={styles.footerSeparator} aria-hidden>
+              |
+            </Text>
+            <Button
+              variant="ghost"
+              size="sm"
+              leftIcon={Settings}
+              onPress={handleOpenSettings}
+              testID="welcome-open-settings"
+            >
+              {t("onboarding.actions.settings")}
+            </Button>
+          </View>
         </View>
         <Text style={styles.versionLabel}>{appVersionText}</Text>
 
-        {installation ? (
-          <AdaptiveModalSheet
-            visible={isDirectOpen}
-            onClose={handleCloseDirect}
-            header={CONNECT_HEADER}
-            testID="installation-connect-modal"
-          >
-            {isDirectOpen ? <InstallationWelcome /> : null}
-          </AdaptiveModalSheet>
-        ) : (
+        {installation ? null : (
           <AddHostModal
             visible={isDirectOpen}
             onClose={handleCloseDirect}
@@ -323,15 +327,14 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
           testID="create-installation-modal"
         >
           <Text style={styles.subtitle}>
-            Run this command on the computer that will host your installation, or give it to your
-            agent. The installer prepares the Dev container and prints your private address and
-            password location.
+            Run this command on the Mac or Linux computer that will host your installation, or give
+            it to your agent. It asks a few questions, then sets up the Host, an optional Dev
+            container and optional Tailscale.
           </Text>
-          <Text selectable style={styles.subtitle} testID="installation-command">
-            {INSTALL_COMMAND}
-          </Text>
+          <InstallCommand testID="installation-command" />
           <Text style={styles.subtitle}>
-            When setup finishes, open the printed address and choose Connect to Host.
+            When it finishes, open the address it prints and sign in with the owner password it
+            copies to your clipboard. Every later change happens in the interface.
           </Text>
         </AdaptiveModalSheet>
       </ScrollView>

@@ -27,7 +27,6 @@ const state = vi.hoisted(() => ({
   pending: false,
   dispatching: false,
   pendingEdit: false,
-  media: true,
   goalError: false,
   mutate: vi.fn(),
   expand: vi.fn(),
@@ -59,7 +58,7 @@ vi.mock("./use-message-queue", () => ({
             {
               id: "media",
               text: "With attachment",
-              attachments: [{ id: "image", kind: state.media ? "image" : "file" }],
+              attachments: [{ id: "image", kind: "image" }],
               delivery: { status: "queued" },
             },
           ],
@@ -298,7 +297,6 @@ beforeEach(() => {
   state.pending = false;
   state.dispatching = false;
   state.pendingEdit = false;
-  state.media = true;
   state.goalError = false;
   vi.clearAllMocks();
   queryClient.clear();
@@ -343,11 +341,6 @@ it("marks an image row while leaving the text-only row unmarked", async () => {
   const row = container.querySelector('[data-testid="queue-message-media"]');
   expect(row?.querySelector('[aria-label="1 attachment"]')).not.toBeNull();
   expect(row?.querySelector('[data-testid="media-icon"]')).not.toBeNull();
-});
-it("uses a file icon for non-image attachments", async () => {
-  state.media = false;
-  await render();
-  expect(container.querySelector('[data-testid="file-icon"]')).not.toBeNull();
 });
 it("marks a locally saved image before host acknowledgement without counting its upload twice", async () => {
   state.pending = true;

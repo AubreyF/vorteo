@@ -98,7 +98,8 @@ import {
   type AgentProfileSeed,
   type DraftAgentProfileControls,
 } from "@/agent-profiles";
-import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
+import { buildSettingsHostSectionRoute, buildSettingsSectionRoute } from "@/utils/host-routes";
+import { readExecutionInstallation } from "@/execution-installation/policy";
 import { PresetControls, activePresetPicker } from "@/agent-profiles/preset-controls";
 import {
   clearProfilePickerRequest,
@@ -289,7 +290,12 @@ function useEditAgentProfilesNavigation(
 ): (() => void) | undefined {
   const handleEdit = useCallback(() => {
     if (!serverId) return;
-    router.push(buildSettingsHostSectionRoute(serverId, "providers"));
+    // On an installation, profiles live on the shared Accounts page, not a host's.
+    router.push(
+      readExecutionInstallation()
+        ? buildSettingsSectionRoute("accounts")
+        : buildSettingsHostSectionRoute(serverId, "providers"),
+    );
   }, [serverId]);
   return serverId && isSupported ? handleEdit : undefined;
 }

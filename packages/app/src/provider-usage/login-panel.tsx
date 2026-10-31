@@ -1,9 +1,8 @@
-import { claudeConnectionStatus } from "./claude-connection-status";
-import { readExecutionInstallation } from "@/execution-installation/policy";
+import { installationConnectionStatus } from "./claude-connection-status";
 import { useCallback, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
-import { useProviderLogin } from "./use-provider-login";
+import { useProviderLogin, useSharedInstallationSignIn } from "./use-provider-login";
 import type { ProviderLoginState } from "@getpaseo/protocol/provider-login";
 import type { EditingTextInputHandle } from "@/components/ui/text-input";
 import { Field, FormTextInput } from "@/components/ui/form-field";
@@ -33,12 +32,11 @@ export function ProviderLoginPanel({
     (state) => state.sessions[serverId ?? ""]?.serverInfo?.permissions,
   );
   const canManage = permissions?.includes("daemon.manage") !== false;
-  const sharedClaude =
-    provider === "claude" &&
-    Boolean(readExecutionInstallation()?.environments.some((entry) => entry.serverId === serverId));
-  if (!sharedClaude && (!supported || (provider === "claude" && !claudeSupported)))
+  // Installation accounts sign in through the coordinator, whichever environment opened this.
+  const shared = useSharedInstallationSignIn(serverId, provider);
+  if (!shared && (!supported || (provider === "claude" && !claudeSupported)))
     return <Text style={styles.text}>Update this host to connect accounts here.</Text>;
-  if (!sharedClaude && !canManage)
+  if (!shared && !canManage)
     return (
       <Text style={styles.text}>
         This connection needs permission to manage the host before it can connect an account.
@@ -68,14 +66,13 @@ function LoginPanelContent({
   const login = useProviderLogin(serverId, providerId, provider);
   const { state, connected } = login;
   const showRefresh = login.readFailed || login.actionFailed;
-  const showResumeHint = login.sharedClaude
-    ? state?.status === "waiting"
-    : state?.status !== "succeeded";
+  const label = provider === "claude" ? "Claude" : "Codex";
+  const showResumeHint = login.shared ? state?.status === "waiting" : state?.status !== "succeeded";
   return (
     <View style={styles.body} testID="provider-login-panel">
-      {login.sharedClaude ? (
+      {login.shared ? (
         <Text style={styles.text}>
-          Connect Claude once. Your connection synchronizes automatically.
+          Connect {label} once. Your connection synchronizes automatically.
         </Text>
       ) : (
         <Text style={styles.text}>
@@ -104,17 +101,17 @@ function LoginPanelContent({
         </>
       ) : null}
       {state ? (
-        <LoginProgress state={state} login={login} />
+        <LoginProgress state={state} login={login} label={label} />
       ) : (
         <Text style={styles.text}>Loading sign-in status…</Text>
       )}
-      {login.sharedClaude ? (
+      {login.shared ? (
         <Text accessibilityLiveRegion="polite" style={styles.text}>
-          {claudeConnectionStatus(login.synchronization)}
+          {installationConnectionStatus(login.synchronization, label)}
         </Text>
       ) : null}
-      <LoginAction login={login} />
-      {login.sharedClaude && login.synchronization?.connected ? (
+      <LoginAction login={login} label={label} />
+      {login.shared && login.synchronization?.connected ? (
         <Button variant="outline" onPress={login.signOut} disabled={login.busy}>
           Disconnect subscription from this installation
         </Button>
@@ -129,20 +126,26 @@ function LoginPanelContent({
   );
 }
 
-function loginActionLabel(login: ReturnType<typeof useProviderLogin>): string {
-  if (login.state?.status === "succeeded") return "Reconnect Claude subscription";
+function loginActionLabel(login: ReturnType<typeof useProviderLogin>, provider: string): string {
+  if (login.state?.status === "succeeded") return `Reconnect ${provider} subscription`;
   if (login.state?.status === "failed" || login.state?.status === "cancelled")
     return "Try sign-in again";
-  return login.sharedClaude ? "Connect Claude" : "Start sign-in";
+  return login.shared ? `Connect ${provider}` : "Start sign-in";
 }
 
-function LoginAction({ login }: { login: ReturnType<typeof useProviderLogin> }) {
+function LoginAction({
+  login,
+  label: provider,
+}: {
+  login: ReturnType<typeof useProviderLogin>;
+  label: string;
+}) {
   const { state, connected, busy } = login;
-  if (state?.status === "succeeded" && !login.sharedClaude) return null;
+  if (state?.status === "succeeded" && !login.shared) return null;
   const active =
     state?.status === "starting" || state?.status === "waiting" || state?.status === "verifying";
   const canStart = Boolean(state && !login.readFailed);
-  const label = loginActionLabel(login);
+  const label = loginActionLabel(login, provider);
   return active ? (
     <Button
       variant="outline"
@@ -166,11 +169,13 @@ function LoginAction({ login }: { login: ReturnType<typeof useProviderLogin> }) 
 function LoginProgress({
   state,
   login,
+  label,
 }: {
   state: ProviderLoginState;
   login: ReturnType<typeof useProviderLogin>;
+  label: string;
 }) {
-  if (login.sharedClaude && (state.status === "idle" || state.status === "succeeded")) return null;
+  if (login.shared && (state.status === "idle" || state.status === "succeeded")) return null;
   if (state.status === "waiting" && state.inputRequired)
     return <BrowserCodeChallenge key={state.attemptId} state={state} login={login} />;
   if (state.status === "waiting")
@@ -181,9 +186,8 @@ function LoginProgress({
   if (state.status === "cancelled")
     message = "Sign-in cancelled. Your saved account credentials were not removed.";
   if (state.status === "failed") message = state.message;
-  if (state.status === "succeeded" && login.sharedClaude)
-    message =
-      "Claude subscription connected. Credentials are saved for this installation; offline environments will synchronize when they reconnect.";
+  if (state.status === "succeeded" && login.shared)
+    message = `${label} subscription connected. Credentials are saved for this installation; offline environments will synchronize when they reconnect.`;
   else if (state.status === "succeeded")
     message = state.accountLabel
       ? `Signed in as ${state.accountLabel}. Your account credentials are saved. You can close this panel and use this account.`

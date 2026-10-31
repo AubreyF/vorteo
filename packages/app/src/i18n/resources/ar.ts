@@ -2235,6 +2235,7 @@ export const ar: TranslationResources = {
       theme: {
         title: "سمة",
         accessibilityLabel: "الموضوع:{{value}}",
+        pluginThemes: "سمات الإضافات",
         options: {
           light: "ضوء",
           dark: "مظلم",

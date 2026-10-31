@@ -25,7 +25,8 @@ export const UPSTREAM_UPDATE_PROMPT = `Perform the weekly upstream synchronizati
 Objective
 Integrate the latest upstream Paseo main into my Vorteo fork, preserve Vorteo functionality, validate and publish the result, and prepare the installed application update.
 
-Expected fork: https://github.com/AubreyF/paseo.git
+Expected fork: https://github.com/terran-labs/vorteo.git
+Older checkouts may name github.com/AubreyF/paseo, AubreyF/vorteo or vortelligence/vorteo; GitHub redirects those here. Set origin to the expected fork before fetching.
 Expected upstream: https://github.com/getpaseo/paseo.git
 Find and verify this installation's actual source checkout and deployment on the host. Do not assume the current directory is the correct repository.
 

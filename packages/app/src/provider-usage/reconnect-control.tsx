@@ -1,5 +1,5 @@
-import { readExecutionInstallation } from "@/execution-installation/policy";
 import { ProviderLoginPanel } from "./login-panel";
+import { useSharedInstallationSignIn } from "./use-provider-login";
 import { useCallback, useMemo, useState } from "react";
 import { Text, View, type GestureResponderEvent } from "react-native";
 import { AlertTriangle } from "lucide-react-native";
@@ -42,7 +42,8 @@ export function ProviderReconnectControl({
   const { config } = useDaemonConfig(serverId);
   const { entries } = useProvidersSnapshot(serverId);
   const claude = accountProviderKind(providerId, config?.providers) === "claude";
-  const sharedClaude = isSharedClaude(claude, serverId);
+  // Installation accounts always offer their connection panel, which shows Dev synchronization.
+  const shared = useSharedInstallationSignIn(serverId, claude ? "claude" : "codex");
   const action = providerConnectionAction({
     providerId,
     providers: config?.providers,
@@ -102,7 +103,7 @@ export function ProviderReconnectControl({
     <>
       <ConnectionButton
         action={action}
-        sharedClaude={sharedClaude}
+        shared={shared}
         name={name}
         providerId={providerId}
         onPress={open}
@@ -117,7 +118,7 @@ export function ProviderReconnectControl({
           footer={modalFooter1}
         >
           <View style={styles.body}>
-            {recovery.method === "device_code" || claude ? (
+            {recovery.method === "device_code" || claude || shared ? (
               <ProviderLoginPanel
                 serverId={serverId}
                 providerId={providerId}
@@ -158,29 +159,20 @@ export function ProviderReconnectControl({
     </>
   );
 }
-function isSharedClaude(claude: boolean, serverId: string | null): boolean {
-  if (!claude) return false;
-  return Boolean(
-    readExecutionInstallation()?.environments.some(
-      (environment) => environment.serverId === serverId,
-    ),
-  );
-}
-
 function ConnectionButton({
   action,
-  sharedClaude,
+  shared,
   name,
   providerId,
   onPress,
 }: {
   action: "Connect" | "Reconnect" | null;
-  sharedClaude: boolean;
+  shared: boolean;
   name: string;
   providerId: string;
   onPress(event: GestureResponderEvent): void;
 }) {
-  if (!action && !sharedClaude) return null;
+  if (!action && !shared) return null;
   const label = action ?? "Connection";
   return (
     <CompactAccountButton

@@ -69,7 +69,8 @@ test("applies a contributed theme and falls back when its plugin is gone", async
     await openSettingsSection(page, "appearance");
 
     const sectionTitle = page.getByText("Theme", { exact: true }).first();
-    await page.getByLabel("Theme: Dark Star", { exact: true }).click();
+    const picker = page.getByLabel("Plugin themes", { exact: true });
+    await picker.click();
     const mochaItem = page.getByText("Catppuccin Mocha", { exact: true });
     await expect(mochaItem).toBeVisible({ timeout: 30_000 });
     await page.screenshot({
@@ -80,13 +81,13 @@ test("applies a contributed theme and falls back when its plugin is gone", async
 
     await test.step("a contributed light theme uses the light palette", async () => {
       await page.getByText("Catppuccin Latte", { exact: true }).click();
-      await expect(page.getByLabel("Theme: Catppuccin Latte", { exact: true })).toBeVisible();
+      await expect(picker).toContainText("Catppuccin Latte");
       await expect(sectionTitle).toHaveCSS("color", LATTE_MUTED_FOREGROUND);
-      await page.getByLabel("Theme: Catppuccin Latte", { exact: true }).click();
+      await picker.click();
     });
 
     await mochaItem.click();
-    await expect(page.getByLabel("Theme: Catppuccin Mocha", { exact: true })).toBeVisible();
+    await expect(picker).toContainText("Catppuccin Mocha");
     await expect(sectionTitle).toHaveCSS("color", MOCHA_MUTED_FOREGROUND);
     await page.screenshot({
       path: testInfo.outputPath("plugin-theme-applied.png"),
@@ -95,15 +96,16 @@ test("applies a contributed theme and falls back when its plugin is gone", async
 
     await test.step("the selection survives a reload", async () => {
       await page.reload();
-      await expect(page.getByLabel("Theme: Catppuccin Mocha", { exact: true })).toBeVisible({
-        timeout: 30_000,
-      });
+      await expect(page.getByLabel("Plugin themes", { exact: true })).toContainText(
+        "Catppuccin Mocha",
+        { timeout: 30_000 },
+      );
       await expect(sectionTitle).toHaveCSS("color", MOCHA_MUTED_FOREGROUND);
     });
 
     await test.step("removing the plugin falls back to the default theme", async () => {
       await client.removePlugin(PLUGIN_ID);
-      await expect(page.getByLabel("Theme: Dark Star", { exact: true })).toBeVisible({
+      await expect(page.getByLabel("Plugin themes", { exact: true })).toHaveCount(0, {
         timeout: 30_000,
       });
       await expect(sectionTitle).not.toHaveCSS("color", MOCHA_MUTED_FOREGROUND);
@@ -175,7 +177,7 @@ test("scrolls to the last theme when a plugin contributes more themes than fit",
     await expect(page.getByTestId("settings-sidebar")).toBeVisible();
     await openSettingsSection(page, "appearance");
 
-    await page.getByLabel("Theme: Dark Star", { exact: true }).click();
+    await page.getByLabel("Plugin themes", { exact: true }).click();
     await scrollThemeMenuToLastTheme(page);
     await page.screenshot({
       path: testInfo.outputPath("plugin-theme-picker-scrolled.png"),
@@ -183,7 +185,7 @@ test("scrolls to the last theme when a plugin contributes more themes than fit",
     });
 
     await page.getByText(LAST_THEME_NAME, { exact: true }).click();
-    await expect(page.getByLabel(`Theme: ${LAST_THEME_NAME}`, { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Plugin themes", { exact: true })).toContainText(LAST_THEME_NAME);
   } finally {
     await client.removePlugin(MANY_THEMES_PLUGIN_ID).catch(() => undefined);
     await client

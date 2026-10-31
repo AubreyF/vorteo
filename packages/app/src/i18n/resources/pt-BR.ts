@@ -2270,6 +2270,7 @@ export const ptBR: TranslationResources = {
       theme: {
         title: "Tema",
         accessibilityLabel: "Tema: {{value}}",
+        pluginThemes: "Temas de plugins",
         options: {
           light: "Claro",
           dark: "Escuro",

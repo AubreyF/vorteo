@@ -45,6 +45,16 @@ test("only explicit exclusions or disabled accounts waive a required account bin
   const plugin = { ...definition, accountId: undefined, providerType: "plugin-agent" };
   expect(installationAccountBindingsComplete([plugin], "dev")).toBe(true);
 });
+test("an environment's own Claude or Codex provider never blocks another environment", () => {
+  // Each daemon reports its built-in providers as environment-scoped definitions.
+  const definitions = [
+    ...readInstallationProviders("host", { claude: {}, codex: {} }),
+    ...readInstallationProviders("dev", { claude: {}, codex: {} }),
+  ];
+  expect(definitions.map((definition) => definition.id)).toContain("environment/host/claude");
+  expect(installationAccountBindingsComplete(definitions, "host")).toBe(true);
+  expect(installationAccountBindingsComplete(definitions, "dev")).toBe(true);
+});
 test("verified accounts share one portable definition while credentials and runtime state remain local", () => {
   const observed = {
     host: readInstallationProviders("host", host),
@@ -367,7 +377,9 @@ test("plugin enrollment requires an approved running source and rejects local ac
     plugins: [plugin],
     providers: { "plugin-runtime": {} },
   };
-  expect(enrollInstallationPluginProviders(input)).toHaveLength(1);
+  const [enrolled] = enrollInstallationPluginProviders(input);
+  // Enrollment is not an owner choice, so the provider stays on the detection default.
+  expect(enrolled?.policy).toEqual({ label: "Runtime" });
   expect(
     enrollInstallationPluginProviders({ ...input, plugins: [{ ...plugin, id: "unapproved" }] }),
   ).toEqual([]);

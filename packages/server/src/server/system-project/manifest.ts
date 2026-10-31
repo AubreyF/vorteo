@@ -16,13 +16,16 @@ export interface SystemRole {
   environments: readonly SystemEnvironment[];
 }
 
+/** The role whose workspace holds the Optimizer agent the daemon creates. */
+export const OPTIMIZER_ROLE = "optimization-runner";
+
 /**
  * System-managed workspaces each daemon keeps in its Vorteo System project.
  * The Host runner also covers the Dev container, so the container has none
  * until monitoring ships its collector.
  */
 export const SYSTEM_ROLES: readonly SystemRole[] = [
-  { role: "optimization-runner", title: "Vorteo :: Optimizer", environments: ["host", "single"] },
+  { role: OPTIMIZER_ROLE, title: "Vorteo :: Optimizer", environments: ["host", "single"] },
 ];
 
 export function rolesForEnvironment(environment: SystemEnvironment): SystemRole[] {
@@ -38,6 +41,8 @@ export function systemPaths(paseoHome: string) {
     source: path.join(root, "vorteo"),
     /** Install-local settings. Kept out of config.json so older daemons still start. */
     config: path.join(root, "system.json"),
+    /** Daemon-owned records, such as the Optimizer agent it created. Never edited by hand. */
+    state: path.join(root, "state.json"),
     runner: (role: string) => path.join(root, "runners", role),
   };
 }

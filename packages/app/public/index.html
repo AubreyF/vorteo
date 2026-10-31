@@ -208,13 +208,8 @@
       <div id="boot-status" hidden>
         <div class="boot-emblem" role="progressbar" aria-label="Loading Vorteo">
           <div class="boot-spinner" aria-hidden="true"></div>
-          <!-- Keep a lightweight white silhouette available before external assets load. -->
-          <img
-            class="boot-mark"
-            src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NDAgNjQwIj48ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwLjAwMDAwMCw2NDAuMDAwMDAwKSBzY2FsZSgwLjEwMDAwMCwtMC4xMDAwMDApIgpmaWxsPSIjZmZmZmZmIiBzdHJva2U9Im5vbmUiPgo8cGF0aCBkPSJNNDc0MSA1MDQwIGMtMTYxIC00MyAtMzMwIC0xNTcgLTUyMSAtMzQ5IC0zODIgLTM4MyAtNzAzIC05OTIgLTExMzYKLTIxNTUgbC04OSAtMjQwIC03IDE1NSBjLTEzIDMwNyAtNDAgNjAzIC03OSA4ODkgLTc4IDU2OSAtMjU4IDk0MiAtNTQ3IDExMzQKLTE1MCA5OSAtMjg4IDEzOSAtNDc3IDEzOCAtMTk1IC0xIC0zNTYgLTU0IC01MDUgLTE2NiAtMTYzIC0xMjMgLTI1MCAtMjg5Ci0yNTAgLTQ3NyAxIC0zNDMgMzAyIC02NjcgNzMyIC03ODggMTUzIC00MyAyNTAgLTU1IDM5OSAtNDkgbDEyNyA2IDEyIC0xMDIKYzQ4IC00MTggMTE1IC05MzEgMTQwIC0xMDgxIDYxIC0zNjUgMTI0IC01MDQgMjYyIC01ODEgNDUgLTI1IDY0IC0yOSAxMjggLTI5CjY0IDAgODIgNCAxMjIgMjggNTcgMzMgMTExIDg3IDE0NSAxNDQgMzAgNTIgOTYgMjE2IDE1OCAzOTMgMzQ2IDk5NCA0ODUgMTMxNgo2OTMgMTYwNSAxODYgMjU4IDMyNCAzOTEgNzIxIDY5MCAxMDIgNzcgMjE0IDE2NiAyNDkgMTk5IDIwNiAxOTMgMjQ5IDM5NyAxMTYKNTQ1IC05MSAxMDEgLTIzNSAxMzQgLTM5MyA5MXogbS0yNzM3IC05MzkgYzExNiAtNTcgMTkxIC0xNjUgMjYyIC0zNzYgMTkgLTU2CjM0IC0xMDggMzQgLTExNSAwIC0xNyAtMTgyIC03IC0yNTkgMTQgLTIwNiA1NiAtMzcyIDE3NSAtNDE4IDI5OSAtNiAxOCAtMTIKNTMgLTEyIDc4IC0xIDUxIDkgNjQgNzYgOTggMTAyIDUxIDIxNiA1MiAzMTcgMnoiLz4KPC9nPjwvc3ZnPg=="
-            alt=""
-            aria-hidden="true"
-          />
+          <!-- The one approved master, tinted per theme. Its luminance keeps the loop shaded. -->
+          <div class="boot-mark" id="boot-tinted-mark" aria-hidden="true"></div>
         </div>
         <div id="boot-help" hidden role="status">
           <h1>Let’s get you connected</h1>
@@ -422,6 +417,15 @@
         inset: 8px;
         width: 144px;
         height: 144px;
+        /* Multiply the tint by the master's shading, then mask its silhouette. */
+        background-image:
+          url("/vorteo-logo-white-fa002b83cde0.png"),
+          linear-gradient(135deg, var(--boot-mark-start, #ffffff), var(--boot-mark-end, #c7c7cc));
+        background-size: contain;
+        background-repeat: no-repeat;
+        background-blend-mode: multiply;
+        -webkit-mask: url("/vorteo-logo-white-fa002b83cde0.png") center / contain no-repeat;
+        mask: url("/vorteo-logo-white-fa002b83cde0.png") center / contain no-repeat;
       }
       .boot-emblem::before {
         content: "";
@@ -474,36 +478,9 @@
           })
         )
           return;
-        var mark = document.querySelector(".boot-mark");
-        if (!mark) return;
-        var white = mark.dataset.whiteSrc || mark.src;
-        mark.dataset.whiteSrc = white;
-        mark.src =
-          brand.mode === "rainbow" && document.documentElement.dataset.vorteoDataSaver !== "true"
-            ? "/vorteo-logo-color-a9e1bd827ba3.png"
-            : white;
-        var tint = document.getElementById("boot-tinted-mark");
-        if (!tint) {
-          tint = document.createElement("div");
-          tint.id = "boot-tinted-mark";
-          tint.className = "boot-mark";
-          tint.setAttribute("aria-hidden", "true");
-          mark.parentElement.appendChild(tint);
-        }
-        // Multiply the palette by the approved master's shading before masking its silhouette.
-        tint.style.backgroundImage =
-          'url("/vorteo-logo-white-fa002b83cde0.png"), linear-gradient(135deg, ' +
-          brand.start +
-          ", " +
-          brand.end +
-          ")";
-        tint.style.backgroundSize = "contain";
-        tint.style.backgroundRepeat = "no-repeat";
-        tint.style.backgroundBlendMode = "multiply";
-        tint.style.webkitMask = 'url("' + white + '") center / contain no-repeat';
-        tint.style.mask = 'url("' + white + '") center / contain no-repeat';
-        tint.hidden = brand.mode !== "gradient";
-        mark.hidden = brand.mode === "gradient";
+        var root = document.documentElement.style;
+        root.setProperty("--boot-mark-start", brand.start);
+        root.setProperty("--boot-mark-end", brand.end);
         document.documentElement.style.setProperty("--boot-ring-color", brand.foreground);
       };
       try {

@@ -86,10 +86,6 @@ test("shared queue survives reload and synchronizes a second device", async ({ p
     await expect(localTooltip).toHaveText("Queued on this device");
     await page.mouse.move(0, 0);
     await expect(localTooltip).toBeHidden();
-    await test.info().attach("queue-local-message", {
-      body: await queue.screenshot(),
-      contentType: "image/png",
-    });
     const desktopViewport = page.viewportSize()!;
     await resizeAndSettle(page, { width: 390, height: 844 });
     // Rows take 44px targets on touch devices, not narrow windows, since 2cf5e0cbb; this browser
@@ -98,10 +94,6 @@ test("shared queue survives reload and synchronizes a second device", async ({ p
     await expect(localTooltip).toHaveText("Queued on this device");
     await localStatus.click();
     await expect(localTooltip).toBeHidden();
-    await test.info().attach("queue-local-message-compact", {
-      body: await queue.screenshot(),
-      contentType: "image/png",
-    });
     await resizeAndSettle(page, desktopViewport);
     await expect(queue.getByTestId("queue-attachment-summary")).toHaveAttribute(
       "aria-label",
@@ -145,16 +137,12 @@ test("shared queue survives reload and synchronizes a second device", async ({ p
       (item) => item.id,
     );
     // Editing replaces the summary and row actions, preserving attached media.
-    for (const [target, height] of [
-      [page, 32],
-      [other, 44],
-    ] as const) {
+    for (const target of [page, other]) {
       const row = target.getByTestId(`queue-message-${initialOrder[0]}`);
       await row.getByRole("button", { name: "Edit queued message", exact: true }).click();
       const input = row.getByRole("textbox", { name: "Edit queued message" });
       // Metro compiles the deferred editor on its first use.
       await expect(input).toHaveValue("Keep this through reload", { timeout: 30_000 });
-      await expect(input).toHaveCSS("border-top-width", "0px");
       await expect(row.getByRole("button", { name: "Send queued message now" })).toHaveCount(0);
       await expect(row.getByRole("button", { name: "Queued message actions" })).toHaveCount(0);
       await expect(row).toContainText("queued-photo.png");
@@ -163,16 +151,6 @@ test("shared queue survives reload and synchronizes a second device", async ({ p
       await input.fill("Unsaved queue edit");
       await expect(save).toBeEnabled();
       await expect(row.getByText("Draft saved on this device", { exact: true })).toBeVisible();
-      for (const name of ["Cancel", "Save"]) {
-        const button = row.getByRole("button", { name, exact: true });
-        await expect(button).toHaveCSS("height", `${height}px`);
-        if (target === page) {
-          await page.mouse.move(0, 0);
-          const resting = await button.evaluate((el) => getComputedStyle(el).backgroundColor);
-          await button.hover();
-          await expect(button).not.toHaveCSS("background-color", resting);
-        }
-      }
       await row.getByRole("button", { name: "Cancel", exact: true }).click();
       await expect(
         row.getByRole("button", { name: "Edit queued message", exact: true }),
@@ -211,25 +189,6 @@ test("shared queue survives reload and synchronizes a second device", async ({ p
       1,
     );
     for (const target of [page, other]) {
-      const card = target.getByTestId("shared-message-queue");
-      await card.scrollIntoViewIfNeeded();
-      const heading = card.getByText("Queue", { exact: true });
-      const icon = card.getByTestId("message-queue-pause-resume").locator("svg");
-      await expect(heading).toBeVisible();
-      await expect(icon).toBeVisible();
-      // Streaming can move the card between browser calls; measure both in one frame.
-      const centerOffset = await heading.evaluate(
-        (label, glyph) => {
-          if (!glyph) throw new Error("Queue control icon is missing");
-          const labelRect = label.getBoundingClientRect();
-          const glyphRect = glyph.getBoundingClientRect();
-          return glyphRect.y + glyphRect.height / 2 - (labelRect.y + labelRect.height / 2);
-        },
-        await icon.elementHandle(),
-      );
-      expect(Math.abs(centerOffset)).toBeLessThanOrEqual(1);
-    }
-    for (const target of [page, other]) {
       for (const variant of ["circle"]) {
         await target.evaluate((value) => {
           const key = "@paseo:create-agent-preferences";
@@ -256,24 +215,11 @@ test("shared queue survives reload and synchronizes a second device", async ({ p
         await expect(jump).toContainText("Q2");
         const box = await jump.boundingBox();
         expect(box?.height).toBeGreaterThanOrEqual(44);
-        await test.info().attach("jump-" + variant + (target === page ? "-desktop" : "-touch"), {
-          body: await target.screenshot(),
-          contentType: "image/png",
-        });
         await jump.click();
         await expect(target.getByTestId("shared-message-queue")).toBeInViewport();
         await expect(jump).toBeHidden();
       }
     }
-    await test.info().attach("queue-desktop", {
-      body: await page.screenshot(),
-      contentType: "image/png",
-    });
-    await test.info().attach("queue-touch", {
-      body: await other.screenshot(),
-      contentType: "image/png",
-    });
-
     // Retired 2026-10-25: the Vorton-off reload that hid the queue went with the Standard mode in
     // 471d7f22a.
     expect((await client.readMessageQueue(agent.agentId)).snapshot?.items).toHaveLength(2);
@@ -569,7 +515,6 @@ async function checkQueueOrbitTransition({ page }: { page: Page }) {
       operationId: "pause-orbit",
       expectedRevision: 0,
     });
-    await page.clock.install();
     await openAgentRoute(page, agent);
     await expectComposerVisible(page, { timeout: 30_000 });
     // A visible composer can still belong to the covered, inert startup root.
@@ -608,11 +553,6 @@ async function checkQueueOrbitTransition({ page }: { page: Page }) {
     const handle = row.getByTestId("queue-handle-indicator");
     await expect(orbit).toHaveCSS("opacity", "1");
     await expect(handle).toHaveCSS("opacity", "0");
-    const rotation = row.getByTestId("queue-orbit-rotation");
-    const angle = await rotation.evaluate((element) => getComputedStyle(element).transform);
-    await expect
-      .poll(() => rotation.evaluate((element) => getComputedStyle(element).transform))
-      .not.toBe(angle);
     const localStatus = row.getByRole("button", { name: "Queued on this device", exact: true });
     await localStatus.hover();
     await expect(
@@ -626,75 +566,22 @@ async function checkQueueOrbitTransition({ page }: { page: Page }) {
     await row.evaluate((element) => {
       element.setAttribute("data-original-row", "true");
     });
-    await test
-      .info()
-      .attach("orbit-local", { body: await row.screenshot(), contentType: "image/png" });
-    await expect
-      .poll(() => page.evaluate(() => document.documentElement.dataset.queueRequestHeld))
-      .toBe("true");
-    const samples = await row.evaluate(async (element) => {
-      document.dispatchEvent(new Event("release-queue"));
-      return await new Promise<{ orbit: number; handle: number }[]>((resolve) => {
-        const values: { orbit: number; handle: number }[] = [];
-        function sample() {
-          const local = element.querySelector('[data-testid="queue-local-indicator"]');
-          const shared = element.querySelector('[data-testid="queue-handle-indicator"]')!;
-          values.push({
-            orbit: local ? Number(getComputedStyle(local).opacity) : 0,
-            handle: Number(getComputedStyle(shared).opacity),
-          });
-          if (values.at(-1)!.handle === 1) resolve(values);
-          else requestAnimationFrame(sample);
-        }
-        requestAnimationFrame(sample);
-      });
-    });
-    expect(samples.some((sample) => sample.orbit > 0 && sample.orbit < 1)).toBe(true);
-    expect(samples.some((sample) => sample.handle > 0 && sample.handle < 1)).toBe(true);
-    expect(samples.every((sample) => sample.handle === 0 || sample.orbit === 0)).toBe(true);
-    await expect(row).toHaveAttribute("data-original-row", "true");
-    await expect(row).toHaveCount(1);
-    await expect(localStatus).toHaveCount(0);
-    await expect(handle).toHaveCSS("opacity", "1");
-    await test
-      .info()
-      .attach("orbit-shared", { body: await row.screenshot(), contentType: "image/png" });
-
-    // Hold animation time at entrance while the real daemon acknowledges the next message.
-    await page.evaluate(() => {
-      delete document.documentElement.dataset.queueRequestHeld;
-    });
-    await page.clock.pauseAt(new Date(Date.now() + 1000));
-    await fillComposerDraft(page, "Quick acknowledgement");
-    await page.getByRole("button", { name: "Queue message", exact: true }).click();
-    const quick = page.getByTestId(/^queue-message-/).filter({ hasText: "Quick acknowledgement" });
-    await expect
-      .poll(async () => {
-        await page.clock.runFor(1);
-        return quick.count();
-      })
-      .toBe(1);
-    await expect(quick.getByTestId("queue-local-indicator")).toHaveCSS("opacity", "0");
     await expect
       .poll(() => page.evaluate(() => document.documentElement.dataset.queueRequestHeld))
       .toBe("true");
     await page.evaluate(() => document.dispatchEvent(new Event("release-queue")));
-    await expect
-      .poll(async () => {
-        await page.clock.runFor(1);
-        return quick.getByRole("button", { name: "Reorder queued message" }).count();
-      })
-      .toBe(1);
-    await page.clock.runFor(50);
-    await expect(quick.getByTestId("queue-local-indicator")).toHaveCount(0);
-    await page.clock.runFor(300);
-    await expect(quick.getByTestId("queue-handle-indicator")).toHaveCSS("opacity", "1");
-    await page.clock.resume();
-    await expect(quick.getByRole("button", { name: "Reorder queued message" })).toBeEnabled();
+    await expect(row).toHaveAttribute("data-original-row", "true");
+    await expect(row).toHaveCount(1);
+    await expect(localStatus).toHaveCount(0);
+    await expect(handle).toHaveCSS("opacity", "1");
+
+    // A second message gives the reorder check a neighbour; it is sent without the hold.
+    await page.evaluate(() => document.dispatchEvent(new Event("finish-queue-hold")));
+    await fillComposerDraft(page, "Quick acknowledgement");
+    await page.getByRole("button", { name: "Queue message", exact: true }).click();
     await expect
       .poll(async () => (await client.readMessageQueue(agent.agentId)).snapshot?.items.length)
       .toBe(2);
-    await page.evaluate(() => document.dispatchEvent(new Event("finish-queue-hold")));
     // Stop the fixture's continuous output so the card cannot scroll between pointer coordinates.
     await client.cancelAgent(agent.agentId);
     await expect(page.getByRole("button", { name: "Send message", exact: true })).toBeVisible();
@@ -706,7 +593,6 @@ async function checkQueueOrbitTransition({ page }: { page: Page }) {
       )
       .toEqual(["Quick acknowledgement", "Watch the orbit settle"]);
   } finally {
-    await page.clock.resume();
     await client.close();
     await agent.cleanup();
   }

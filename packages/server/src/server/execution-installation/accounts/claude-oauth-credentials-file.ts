@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { ClaudeOAuthDeliveryError, type ClaudeAccessProjection } from "./claude-oauth-delivery.js";
 
@@ -112,8 +112,9 @@ function readCredentials(file: string): Record<string, unknown> {
   }
 }
 
-function replaceAtomically(home: string, file: string, contents: string): void {
-  const staged = join(home, `.credentials.json.vorteo-${randomUUID()}`);
+/** Replace `file` inside the owned directory `home` with a synced 0600 copy of `contents`. */
+export function replaceAtomically(home: string, file: string, contents: string): void {
+  const staged = join(home, `${basename(file)}.vorteo-${randomUUID()}`);
   let pending = true;
   try {
     const descriptor = openSync(staged, "wx", 0o600);

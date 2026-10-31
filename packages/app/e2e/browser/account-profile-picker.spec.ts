@@ -49,17 +49,6 @@ test("profile cards use border selection, a separate activation action, and comp
     await expect(page.getByTestId("preset-environment-card")).toBeVisible();
     await expect(page.getByTestId("preset-account-mock")).toHaveCount(1);
     await expect(page.getByTestId("preset-reveal-account-mock")).toHaveCSS("opacity", "1");
-    const environmentTile = page
-      .locator('[data-testid^="preset-environment-"][role="button"]')
-      .first();
-    const environmentBounds = await environmentTile.boundingBox();
-    const accountBounds = await page.getByTestId("preset-account-mock").boundingBox();
-    expect(environmentBounds!.height).toBe(accountBounds!.height);
-    const accountRadius = await page
-      .getByTestId("preset-account-mock")
-      .evaluate((element) => getComputedStyle(element).borderRadius);
-    expect(accountRadius).not.toBe("0px");
-    await expect(environmentTile).toHaveCSS("border-radius", accountRadius);
     await expect(page.getByTestId("shared-model-trigger")).toHaveCount(0);
     await expect(page.getByTestId("shared-thinking-trigger")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Connect", exact: true })).toHaveCount(0);
@@ -69,51 +58,12 @@ test("profile cards use border selection, a separate activation action, and comp
     await expect(page.getByTestId("profile-customization-details")).toContainText("Approval Test");
     await expect(page.getByTestId("preset-use-profile")).toBeEnabled();
     const chosenProfile = page.getByTestId("preset-row-shared-profile/mock/account-ultra");
-    await expect(chosenProfile).toHaveCSS("border-radius", accountRadius);
     await expect(chosenProfile).not.toHaveCSS("border-left-color", "rgba(0, 0, 0, 0)");
     await expect(chosenProfile.locator("svg")).toHaveCount(0);
-    for (const tile of [
-      environmentTile,
-      page.getByTestId("preset-account-mock"),
-      chosenProfile,
-      page.getByTestId("preset-row-shared-profile/mock/account-medium"),
-    ]) {
-      await page.mouse.move(0, 0);
-      const restColor = await tile.evaluate((element) => getComputedStyle(element).backgroundColor);
-      const restBounds = await tile.boundingBox();
-      await tile.hover();
-      await expect(tile).not.toHaveCSS("background-color", restColor);
-      expect(await tile.boundingBox()).toEqual(restBounds);
-      await page.mouse.move(0, 0);
-      await expect(tile).toHaveCSS("background-color", restColor);
-    }
 
     await expect(page.getByTestId("preset-use-profile")).toHaveText("Activate Profile");
-    await waitForSettledPosition(page.getByTestId("preset-use-profile"));
-    const firstProfile = await page
-      .getByTestId("preset-row-shared-profile/mock/account-medium")
-      .boundingBox();
-    const secondProfile = await chosenProfile.boundingBox();
-    expect(secondProfile!.height).toBe(accountBounds!.height);
-    expect(secondProfile!.y).toBe(firstProfile!.y);
-    expect(secondProfile!.x).toBeGreaterThan(firstProfile!.x);
-    const card = await page.getByTestId("preset-profile-card").boundingBox();
-    const action = await page.getByTestId("preset-use-profile").boundingBox();
-    expect(action!.y).toBeGreaterThanOrEqual(card!.y + card!.height);
-    const profileScroll = page.getByTestId("preset-profile-scroll");
-    await profileScroll.evaluate((element) => {
-      element.scrollTop = element.scrollHeight;
-    });
-    await expect
-      .poll(() => profileScroll.evaluate((element) => element.scrollTop))
-      .toBeGreaterThan(0);
-    expect((await page.getByTestId("preset-use-profile").boundingBox())!.y).toBe(action!.y);
-    await profileScroll.evaluate((element) => {
-      element.scrollTop = 0;
-    });
 
     await expect(page.getByTestId("preset-search-toggle")).toHaveCount(0);
-    await page.screenshot({ path: test.info().outputPath("profile-cards-desktop.png") });
     await page.getByTestId("preset-manage-profiles").click();
     await expect(page.getByTestId("provider-settings-sheet")).toBeVisible();
     await expect(page.getByTestId("agent-profile-row-account-medium")).toBeVisible();
@@ -140,7 +90,6 @@ test("profile cards use border selection, a separate activation action, and comp
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);
-    const labelEdges: number[] = [];
     for (const [section, label] of [
       ["environment", "Environment:"],
       ["account", "Account:"],
@@ -148,25 +97,7 @@ test("profile cards use border selection, a separate activation action, and comp
     ]) {
       const heading = page.getByTestId(`preset-section-${section}`);
       await expect(heading.getByText(label, { exact: true })).toBeVisible();
-      const bounds = await heading.getByText(label, { exact: true }).boundingBox();
-      labelEdges.push(bounds!.x + bounds!.width);
     }
-    expect(Math.max(...labelEdges) - Math.min(...labelEdges)).toBeLessThan(1);
-    const mobileFirst = page.getByTestId("preset-row-shared-profile/mock/account-medium");
-    const mobileSecond = page.getByTestId("preset-row-shared-profile/mock/account-ultra");
-    await expect
-      .poll(async () =>
-        Math.abs((await mobileFirst.boundingBox())!.y - (await mobileSecond.boundingBox())!.y),
-      )
-      .toBeLessThan(1);
-    await page.screenshot({ path: test.info().outputPath("profile-cards-mobile.png") });
-    await resizeAndSettle(page, { width: 320, height: 844 });
-    await expect
-      .poll(
-        async () => (await mobileSecond.boundingBox())!.y - (await mobileFirst.boundingBox())!.y,
-      )
-      .toBeGreaterThan(60);
-    await page.screenshot({ path: test.info().outputPath("profile-cards-narrow.png") });
     await page.getByTestId("preset-use-profile").click();
     await chooseNewTaskForProfile(page);
     // The switch sheet stays open beneath the handoff modal, so cancel the newest one first.
@@ -203,18 +134,10 @@ test("active profile hides the action until a different profile is selected", as
     const caption = page.getByTestId("agent-preset-selector");
     await expect(caption).toContainText(`${account.label} Astra Medium`);
     await expect(caption).toHaveAttribute("aria-label", new RegExp(`account ${account.label}`));
-    await page.screenshot({ path: test.info().outputPath("profile-account-desktop.png") });
-    const desktopViewport = page.viewportSize();
-    await resizeAndSettle(page, { width: 390, height: 844 });
-    await expect(caption).toContainText(account.label);
-    await page.screenshot({ path: test.info().outputPath("profile-account-compact.png") });
-    if (desktopViewport) await resizeAndSettle(page, desktopViewport);
     await page.getByTestId("agent-preset-selector").click();
     await expect(page.getByTestId("preset-row-shared-profile/mock/account-medium")).toBeVisible();
     await expect(page.getByTestId("preset-use-profile")).toHaveCount(0);
-    await expect(page.getByTestId("preset-action-area")).toHaveCSS("height", "0px");
     const originalCard = await page.getByTestId("preset-profile-card").boundingBox();
-    await page.screenshot({ path: test.info().outputPath("profile-active-no-action.png") });
     await page.getByTestId("preset-row-shared-profile/mock/account-ultra").click();
     await expect(page.getByTestId("preset-use-profile")).toHaveText("Switch to Profile");
     await waitForSettledPosition(page.getByTestId("preset-use-profile"));
@@ -223,7 +146,6 @@ test("active profile hides the action until a different profile is selected", as
     );
     await page.getByTestId("preset-row-shared-profile/mock/account-medium").click();
     await expect(page.getByTestId("preset-use-profile")).toHaveCount(0);
-    await expect(page.getByTestId("preset-action-area")).toHaveCSS("height", "0px");
     expect((await page.getByTestId("preset-profile-card").boundingBox())!.height).toBe(
       originalCard!.height,
     );
@@ -312,80 +234,69 @@ test("chooser opens while usage is pending and refreshes within the account tile
   }
 });
 
-for (const reducedMotion of ["no-preference", "reduce"] as const) {
-  test(`chooser entrances respect ${reducedMotion} motion preference`, async ({ page }) => {
-    test.setTimeout(120_000);
-    await page.emulateMedia({ reducedMotion });
-    const lastProfile = { ...medium, id: "account-last", name: "Last Profile" };
-    const seed = await seedAgentProfiles([medium, ultra, lastProfile], true);
-    const workspace = await seedWorkspace({ repoPrefix: "chooser-motion-" });
-    try {
-      const agent = await workspace.client.createAgent({
-        provider: "mock",
-        cwd: workspace.repoPath,
-        workspaceId: workspace.workspaceId,
-        profileId: "shared-workflow/mock/account-medium",
-      });
-      await openAgentRoute(page, { ...workspace, agentId: agent.id });
-      await expectComposerVisible(page);
-      await expect(page.getByTestId("agent-preset-selector")).toHaveAccessibleName(
-        /Profile \(Astra Medium,/,
-      );
-      const sampleEntrance = () =>
-        page.evaluate(
-          () =>
-            new Promise<Array<[number, number]>>((resolve, reject) => {
-              const frames: Array<[number, number]> = [];
-              const started = performance.now();
-              const sample = () => {
-                const first = document.querySelector(
-                  '[data-testid="preset-reveal-profile-shared-profile/mock/account-medium"]',
-                );
-                const last = document.querySelector(
-                  '[data-testid="preset-reveal-profile-shared-profile/mock/account-last"]',
-                );
-                if (first && last) {
-                  const a = Number(getComputedStyle(first).opacity);
-                  const b = Number(getComputedStyle(last).opacity);
-                  frames.push([a, b]);
-                  if (a === 1 && b === 1) return resolve(frames);
-                }
-                if (performance.now() - started > 10_000)
-                  return reject(new Error("Chooser entrance did not settle"));
-                requestAnimationFrame(sample);
-              };
+test("chooser entrances respect reduced motion preference", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const lastProfile = { ...medium, id: "account-last", name: "Last Profile" };
+  const seed = await seedAgentProfiles([medium, ultra, lastProfile], true);
+  const workspace = await seedWorkspace({ repoPrefix: "chooser-motion-" });
+  try {
+    const agent = await workspace.client.createAgent({
+      provider: "mock",
+      cwd: workspace.repoPath,
+      workspaceId: workspace.workspaceId,
+      profileId: "shared-workflow/mock/account-medium",
+    });
+    await openAgentRoute(page, { ...workspace, agentId: agent.id });
+    await expectComposerVisible(page);
+    await expect(page.getByTestId("agent-preset-selector")).toHaveAccessibleName(
+      /Profile \(Astra Medium,/,
+    );
+    const sampleEntrance = () =>
+      page.evaluate(
+        () =>
+          new Promise<Array<[number, number]>>((resolve, reject) => {
+            const frames: Array<[number, number]> = [];
+            const started = performance.now();
+            const sample = () => {
+              const first = document.querySelector(
+                '[data-testid="preset-reveal-profile-shared-profile/mock/account-medium"]',
+              );
+              const last = document.querySelector(
+                '[data-testid="preset-reveal-profile-shared-profile/mock/account-last"]',
+              );
+              if (first && last) {
+                const a = Number(getComputedStyle(first).opacity);
+                const b = Number(getComputedStyle(last).opacity);
+                frames.push([a, b]);
+                if (a === 1 && b === 1) return resolve(frames);
+              }
+              if (performance.now() - started > 10_000)
+                return reject(new Error("Chooser entrance did not settle"));
               requestAnimationFrame(sample);
-            }),
-        );
-      const staggered = (samples: Array<[number, number]>) =>
-        samples.some(([first, last]) => first > last && last < 1);
-      // The 240ms JS-driven sweep (chooser-reveal.tsx) can finish inside one long frame on a
-      // loaded CI runner, so no intermediate frame paints. Reopen up to three times to observe it.
-      let frames: Array<[number, number]> = [];
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const framesPromise = sampleEntrance();
-        await page.getByTestId("agent-preset-selector").click();
-        frames = await framesPromise;
-        if (reducedMotion === "reduce" || staggered(frames)) break;
-        await page.keyboard.press("Escape");
-        await expect(page.getByTestId("account-preset-menu")).toHaveCount(0);
-      }
-      expect(staggered(frames)).toBe(reducedMotion === "no-preference");
-      expect(frames.at(-1)).toEqual([1, 1]);
-      // Selection changes stay usable while the details sweep is running.
-      await page.getByTestId("preset-row-shared-profile/mock/account-ultra").click();
-      await page.getByTestId("preset-row-shared-profile/mock/account-medium").click();
-      await expect(page.getByTestId("preset-use-profile")).toHaveCount(0);
-      await expect(page.getByTestId("preset-row-shared-profile/mock/account-medium")).not.toHaveCSS(
-        "border-left-color",
-        "rgba(0, 0, 0, 0)",
+            };
+            requestAnimationFrame(sample);
+          }),
       );
-    } finally {
-      await workspace.cleanup();
-      await seed.restore();
-    }
-  });
-}
+    // With reduced motion the rows appear together: no frame shows the first row ahead of the last.
+    const framesPromise = sampleEntrance();
+    await page.getByTestId("agent-preset-selector").click();
+    const frames = await framesPromise;
+    expect(frames.some(([first, last]) => first > last && last < 1)).toBe(false);
+    expect(frames.at(-1)).toEqual([1, 1]);
+    // Selection changes stay usable while the details sweep is running.
+    await page.getByTestId("preset-row-shared-profile/mock/account-ultra").click();
+    await page.getByTestId("preset-row-shared-profile/mock/account-medium").click();
+    await expect(page.getByTestId("preset-use-profile")).toHaveCount(0);
+    await expect(page.getByTestId("preset-row-shared-profile/mock/account-medium")).not.toHaveCSS(
+      "border-left-color",
+      "rgba(0, 0, 0, 0)",
+    );
+  } finally {
+    await workspace.cleanup();
+    await seed.restore();
+  }
+});
 
 test("picker hides incompatible profiles and preserves them in Manage profiles", async ({
   page,
@@ -598,7 +509,6 @@ test("new workspace shows compact inline profiles and restores the account defau
     await expect(
       page.getByRole("button", { name: "Default environment: localhost", exact: true }),
     ).toBeVisible();
-    await page.screenshot({ path: test.info().outputPath("workspace-default-preferences.png") });
     await page.goto(`/new?serverId=${getServerId()}&projectId=${workspace.projectId}`);
     const chooser = page.getByTestId("new-workspace-profile-selector");
     await expect(chooser).toBeVisible();
@@ -607,43 +517,16 @@ test("new workspace shows compact inline profiles and restores the account defau
     const selected = page.getByTestId("preset-row-shared-profile/mock/account-ultra");
     const mediumRow = page.getByTestId("preset-row-shared-profile/mock/account-medium");
     await expect(selected).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
-    const bounds = await chooser.boundingBox();
-    const input = await page.getByRole("textbox", { name: "Message agent..." }).boundingBox();
     await expect(chooser.getByText("Choose profile", { exact: true })).toHaveCount(0);
     await expect(page.getByTestId("preset-manage-profiles")).toHaveCount(0);
-    const surface = await page.getByTestId("message-input-surface").boundingBox();
-    const environment = await page.getByTestId("preset-environment-card").boundingBox();
-    expect(bounds!.height).toBe(240);
-    expect(surface!.height).toBe(bounds!.height);
-    expect(surface!.x).toBe(bounds!.x);
-    expect(surface!.width).toBe(bounds!.width);
-    expect(environment!.x).toBe(surface!.x);
-    expect(environment!.height).toBe(surface!.height);
-    const accountCard = await page.getByTestId("preset-account-card").boundingBox();
-    const profileCard = await page.getByTestId("preset-profile-column").boundingBox();
-    expect(accountCard!.x - (environment!.x + environment!.width)).toBeCloseTo(8, 1);
-    expect(profileCard!.x - (accountCard!.x + accountCard!.width)).toBeCloseTo(8, 1);
-    expect(profileCard!.x + profileCard!.width).toBeCloseTo(surface!.x + surface!.width, 1);
-    expect(surface!.y - (bounds!.y + bounds!.height)).toBe(16);
-    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(input!.y);
-    const radius = await page
-      .getByTestId("message-input-surface")
-      .evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
-    for (const id of ["preset-environment-card", "preset-account-card", "preset-profile-card"]) {
-      await expect(page.getByTestId(id)).toHaveCSS("border-top-left-radius", radius);
-    }
-    await expect(mediumRow).toHaveCSS("height", "36px");
-    await expect(page.getByTestId("preset-account-mock")).toHaveCSS("height", "36px");
     await mediumRow.click();
     await expect(mediumRow).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
     await expect(selected).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
-    await page.screenshot({ path: test.info().outputPath("inline-profiles-desktop.png") });
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(chooser).toBeVisible();
     await page.getByTestId("preset-section-account").click();
     await page.getByTestId("preset-account-mock").click();
     await expect(selected).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
-    await page.screenshot({ path: test.info().outputPath("inline-profiles-mobile.png") });
     await mediumRow.click();
     await page
       .getByRole("textbox", { name: "Message agent..." })

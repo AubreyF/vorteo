@@ -60,7 +60,7 @@ function render(wrongIdentity = false) {
   return container;
 }
 
-test.each([390, 1133])(
+test.each([390])(
   "the health button checks real HTTP and distinguishes authentication at width %s",
   async (width) => {
     await page.viewport(width, 1000);

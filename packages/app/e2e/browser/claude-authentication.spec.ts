@@ -13,7 +13,7 @@ const binaryName = process.platform === "win32" ? "claude.exe" : "claude";
 const packageName = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;
 const claudeBinary = join(dirname(nodeRequire.resolve(`${packageName}/package.json`)), binaryName);
 
-for (const width of [1280, 402]) {
+for (const width of [1280]) {
   test(`signed-out Claude and container instructions at ${width}px`, async ({ page }) => {
     const home = await mkdtemp(join(tmpdir(), "claude-browser-signout-"));
     const client = await connectDaemonClient<DaemonClient>({

@@ -1,13 +1,323 @@
 # Vorteo changelog
 
-Vorteo change history, covering features, fixes, documentation, tests, tooling and upstream integration. Update this file in every commit using the prepared version and a dated entry. See the [commit workflow](docs/release.md#vorteo-release-notes).
+Vorteo change history, covering features, fixes, documentation, tests, tooling and upstream integration. Every commit adds a dated entry headed Unreleased; a release preparation heads its entry with the new calendar version, and the Unreleased entries below it belong to that release. See the [commit workflow](docs/release.md#vorteo-release-notes).
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
+
+## Unreleased - 2026-10-30
+
+### Maintenance
+
+- The Appearance centering check measures each bubble inside its own card, so a scroll or layout shift during the check cannot skew it.
+
+## Unreleased - 2026-10-30
+
+### Fixed
+
+- Before the first stable release, Vorteo update status, the Needs attention hint and the update task prompt name main, which the check follows, instead of "the latest release".
+
+### Maintenance
+
+- The update browser tests answer the latest-release lookup with Not Found, as GitHub does before any release, and expect the add-a-Host card where the update task button used to be.
+
+## Unreleased - 2026-10-30
+
+### Maintenance
+
+- Browser tests follow the removed theme dropdown and the terran-labs repository, and take the first Unreleased What's new entry. The keyboard reorder test is marked fixme while #55 tracks its intermittent missing drop line, which also occurs on main.
+
+## Unreleased - 2026-10-30
+
+### Maintenance
+
+- Host snapshot and legacy upgrade tests skip on Windows CI, where their POSIX Host paths cannot exist; Windows Hosts remain planned in #35.
+
+## Unreleased - 2026-10-30
+
+### Added
+
+- The Vorteo :: Optimizer workspace now gets an Optimizer agent. Once a provider is usable on the Host or a single-daemon install, at startup or after you connect your first account, the daemon creates one agent there with standing instructions shipped in source and runs its first review. It reviews daemon health and logs, Vorteo disk use, stale and heavy archived workspaces, failing providers, quota pressure, updates and settings, and reports findings as checklist items, open questions and journal entries. It changes nothing without your approval.
+- A heartbeat named Optimizer review sends the agent a review daily at 09:00 in the daemon's time zone. It shows in Schedules, and each review's usage shows in the Optimizer thread.
+- The daemon records the agent in `system/state.json` and labels it, so restarts never create a second one and an agent you archive or delete is never recreated. Without a usable provider nothing happens and nothing asks for attention.
+
+### Known limitations
+
+- The agent starts in the provider's default permission mode, so commands that need approval wait for you, even during a scheduled review.
+- A ready provider the daemon reads no usage for, such as OpenCode, counts as usable without a confirmed sign in.
+- Verified only against isolated local daemons with the development mock provider; no real Claude or Codex review and no installed Host has run it yet.
+
+## Unreleased - 2026-10-30
+
+### Maintenance
+
+- Bring the date-based version scheme into the one-command installation branch.
+
+## 26.10.3000 - 2026-10-30
+
+### Changed
+
+- Vorteo versions are calendar versions after Freed's scheme, `YY.M.DDNN`: two-digit year, month, and day times 100 plus a build number from 0 through 99, such as `26.10.3001`. This is the first one. A version names a release, not a commit: only `node scripts/vorteo-release.mjs prepare --channel beta|stable` changes it, and the Git commit identifies a build.
+- Release tags are `release-<version>` for stable and `release-<version>-beta` for beta. They keep the `release-` prefix because upstream workflows publish on `v*` tags. Builds are numbered per day across both channels, and stable still goes on its beta's commit with the same version.
+- Commits add changelog entries headed `Unreleased`; a release preparation heads its entry with the new version. What's new and GitHub Release notes count each Unreleased entry toward the release prepared above it.
+- Installed versions from before the change, `0.11.0-beta.3.vorteo.<counter>`, sort below every calendar version, so the release lookup and `vorteo-release.mjs latest` offer them the first release. The coordinator keeps the newest calendar version when it combines contributions, and still advances counters for sources from before the change.
+- The root manifest records the adopted upstream Paseo release in `paseoVersion`. Native build numbers for calendar versions start above every earlier Vorteo build.
+
+### Maintenance
+
+- Release preparation needs owner-run steps: update the installation coordinator from this commit before it combines contributions on calendar-versioned source, since older coordinators refuse the new versions. Host restart checks that compare the daemon's version with the selected release's can no longer tell two commits between releases apart.
+
+## 0.11.0-beta.3.vorteo.964 - 2026-10-30
+
+### Fixed
+
+- Restart now works on a Linux Host: the coordinator restarts the Host daemon through its systemd user unit (`systemctl --user restart`) instead of launchd. Coordinator maintenance on a systemd Host says it is not available yet instead of asking for a coordinator update. Adapted from christiantwu's systemd Host coordinator work in #5.
+
+## 0.11.0-beta.3.vorteo.963 - 2026-10-30
+
+### Changed
+
+- Providers in Accounts & profiles expand in place: pressing a provider turns its chevron down and shows its connections, profiles, model defaults and Remove under the row, with the other providers still listed. One provider is open at a time. The separate provider page and its duplicate "Use provider" switch are gone; the row's switch stays.
+- Provider addresses (`/settings/accounts/<provider>`) open Accounts & profiles with that provider expanded and scrolled into view. Host overview addresses (`/settings/hosts/<id>/host`) open Environments with that environment's tab selected, instead of a separate page with no way back to its section on desktop.
+
+## 0.11.0-beta.3.vorteo.962 - 2026-10-30
+
+### Fixed
+
+- The accounts first screen keeps offering Claude and Codex while they are off only because they are not signed in yet; it skips a provider only when the owner turned it off.
+
+## 0.11.0-beta.3.vorteo.961 - 2026-10-30
+
+### Fixed
+
+- The accounts first screen shows each provider's real state. With one-time sign-in on for a provider, a default connection the Host CLI has signed in (it reports usage) counts as connected, and the row says so with its plan instead of offering Connect. The screen no longer appears when every enabled provider is connected, and disabled providers are not offered.
+- The Codex row says "Sign in once. Host and Dev share the connection." when one-time Codex sign-in is on. The per-environment wording remains only while it is off.
+- Add Claude account and Add Codex account name the connections that already exist, including a signed-in or detected default CLI connection, before the form. The sheet is then titled "Add another ... account" and its button reads "Create additional account".
+
+### Known limitations
+
+- Counting a default Host sign-in as connected does not deliver it to Dev. The coordinator shares only accounts created through Vorteo, so Dev agents on the default connection still use Dev's own CLI sign-in.
+
+## 0.11.0-beta.3.vorteo.960 - 2026-10-30
+
+### Changed
+
+- On an installation, a provider the owner has not turned on or off is on only while the Host reports it ready: its CLI is on the Host service PATH and it is configured and signed in. Every other provider is off and raises no Needs attention item. An owner choice always wins and detection never overwrites it. Accounts & profiles shows a provider installed nowhere as "Not installed" with its install hint instead of a switch. Plugin providers no longer enroll as explicitly enabled.
+
+### Fixed
+
+- A plugin provider whose CLI is missing, such as Antigravity without `agy` or Muse Code without `muse`, reports Not installed instead of an error, so it no longer appears under Needs attention.
+
+## 0.11.0-beta.3.vorteo.959 - 2026-10-30
+
+### Changed
+
+- Settings > Appearance shows the theme bubbles on their own, centered like the sidebar menu. The extra Theme title and the theme dropdown are gone; a Plugin themes menu appears only when a plugin contributes a theme.
+
+### Fixed
+
+- Theme bubbles sit on the vertical centerline of their row instead of at its top.
+
+## 0.11.0-beta.3.vorteo.958 - 2026-10-30
+
+### Fixed
+
+- The Host daemon and coordinator services now run with the owner's PATH, including `~/.local/bin`, so the Host finds provider CLIs such as Claude Code and account sign-in can start. Upgrading an older installation rewrites the PATH of services that already start through the release links.
+- A sign-in that cannot start names its own provider: Claude no longer shows ChatGPT device-code advice, and the cause is written to the log.
+
+## 0.11.0-beta.3.vorteo.957 - 2026-10-30
+
+### Changed
+
+- The official install command reads the installer straight from the repository's latest release, `https://github.com/terran-labs/vorteo/releases/latest/download/install.sh`, with no redirect through another domain.
+
+## 0.11.0-beta.3.vorteo.956 - 2026-10-30
+
+### Maintenance
+
+- Bring the one-command installation branch up to date with main, including reviewed Dev updater executable changes and bounded coordinator performance logging.
+
+## 0.11.0-beta.3.vorteo.955 - 2026-10-30
+
+### Maintenance
+
+- Service managers take the installer's clock, so tests of launchd restarts no longer wait in real time.
+
+## 0.11.0-beta.3.vorteo.954 - 2026-10-30
+
+### Fixed
+
+- Restarting a launchd service waits for the old job to unload and retries a refused bootstrap, instead of failing with "5: Input/output error" and leaving the Host unregistered.
+
+## 0.11.0-beta.3.vorteo.953 - 2026-10-30
+
+### Fixed
+
+- `gate.sh enable` also stops containers from an earlier setup of the same project, so a leftover gate no longer holds the relay port and gate network.
+
+## 0.11.0-beta.3.vorteo.952 - 2026-10-30
+
+### Fixed
+
+- The shared library copy of a duplicate skill is recognized when another tool's folder holds the same version, as on a real Mac with identical copies in `~/.agents/skills` and `~/.claude/skills`.
+
+## 0.11.0-beta.3.vorteo.951 - 2026-10-30
+
+### Added
+
+- With a non-default `--root`, `VORTEO_LEGACY_DEPLOYMENT=<path>` names the one old container deployment to wrap into the new installation.
+
+## 0.11.0-beta.3.vorteo.950 - 2026-10-30
+
+### Fixed
+
+- A new installation no longer asks the owner to resolve skills when one machine holds different copies of a skill in several tools' folders: the copy in `~/.agents/skills`, the shared library's folder, is kept (#52).
+
+## 0.11.0-beta.3.vorteo.949 - 2026-10-30
+
+### Fixed
+
+- Stopping the installer stops everything it started: `install.sh` stops its whole process tree, and the engine stops its builds and Docker steps before exiting. An adoption stopped during its release build previously kept running.
+- `gate.sh enable` removes the project's leftover gate networks before starting gate mode, so a deployment with a hand-built gate no longer fails on a reused subnet.
+
+## 0.11.0-beta.3.vorteo.948 - 2026-10-30
+
+### Fixed
+
+- The `vorteo` command finds the installation's source when it was installed from a checkout, not only from `~/vorteo/source`.
+- Uninstall progress names what it removes instead of reusing install step titles.
+
+## 0.11.0-beta.3.vorteo.947 - 2026-10-30
+
+### Fixed
+
+- An installer run with a non-default `--root` installs there instead of adopting an installation found elsewhere on the machine.
+- The installer engine prints its usage for `--help` instead of failing.
+
+## 0.11.0-beta.3.vorteo.946 - 2026-10-30
+
+### Changed
+
+- Pull request CI routes on substantive changes again. Every commit's version bump touched every manifest, which matched the `workspace` routing group and ran the full suite (about 4.5 runner-hours of CI) on every pull request. Manifests whose only change is the version are now ignored before path filtering.
+- The agent guide adds a testing budget: tests only for behavior that broke before or carries real risk, extend existing tests before adding files, no screenshot, copy or styling assertions, end-to-end smoke at release time, and delete obsolete tests in the same change. Upstream Paseo tests are left alone.
+
+### Maintenance
+
+- Removed about 5,400 lines of Vorteo-written tests that asserted styling, pixel geometry, animation or wording, repeated themes and viewport widths, duplicated other coverage, or never ran in CI. Security, coordinator, migration, wire-compatibility and installer coverage is kept; coordinator tables lost only duplicate rows. The largest trims are in the demo workspace, scrolling agent cards, theme picker and workspace standing browser specs, saving an estimated 15 to 20 Playwright minutes per full run.
+- Deleted ten orphaned dependency-boundary script tests and a system project end-to-end test that the registry tests already cover.
+
+## 0.11.0-beta.3.vorteo.945 - 2026-10-30
+
+### Added
+
+- Host installations made before the one-command installer reach its layout in place through their normal upgrade path: an upgrade from the interface, a Host source update, or `install.sh`, which offers to upgrade such an installation instead of creating a second one. The root, identity, owner password, credentials, homes, agents and data stay where they are.
+- Installer engine `adopt` and `plan --adopt`: detection of old Host roots in the lab layout, at `--root` or behind any `local.vorteo.*.installation` launchd agent or systemd unit; a journaled, resumable plan that adds the `source` checkout, the `host-current` and `coordinator-current` links, the `deployment` block and both connect-once account flags, moves Dev to gate mode with rollback behind a new Tailscale route, repoints its public endpoint and container ID pins, and restarts the services through their existing labels.
+
+### Changed
+
+- Installations without `deployment` but with the old installer's record now offer **Upgrade to `<tag>`**; the upgrade's snapshot step first runs the adoption detached and resumes after the coordinator restarts.
+
+### Maintenance
+
+- Not verified on a live installation; engine and coordinator paths are covered by fixtures with fake commands. Adoption rebuilds the Dev image once for gate mode and the upgrade builds it again for the release.
+
+## 0.11.0-beta.3.vorteo.944 - 2026-10-30
+
+### Maintenance
+
+- Remove `docs/plans`. Plans for unbuilt work now live in their GitHub issues (#18, #25, #28, #30, #32 expanded; #36 to #51 created), and still-true facts moved to reference docs: a Dev network gate section in the execution guide, the installation account connection contract in the provider guide, and profile switching details in launch presets. Links across the repository point to those sections or issues.
+
+## 0.11.0-beta.3.vorteo.943 - 2026-10-30
+
+### Maintenance
+
+- The README notes that the installer probably won't work on Windows yet, even inside WSL, and links the planned WSL support (#35).
+
+## 0.11.0-beta.3.vorteo.942 - 2026-10-30
+
+### Added
+
+- The installer offers to install missing prerequisites: Node.js 24 and Git before it fetches the release, then Docker when a Dev container is wanted and Tailscale when remote access uses it. Each install needs an explicit yes (`--install-node`, `--install-git`, `--install-docker`, `--start-docker`, `--install-tailscale`); `--yes` never answers them. `--skip-prerequisites` installs nothing and names each fix.
+
+### Maintenance
+
+- `scripts/installer/prerequisites.sh` is the source of the prerequisite functions; `install.sh` carries a copy between `prerequisites.sh` markers, refreshed by `bash scripts/installer/embed-prerequisites.sh`, and the install.sh tests fail when the copy drifts. CI runs the prerequisite library tests with the other installer tests.
+
+## 0.11.0-beta.3.vorteo.941 - 2026-10-30
+
+### Maintenance
+
+- Drop the separate fast-follow label; work planned right after a release is `priority:high`.
+
+## 0.11.0-beta.3.vorteo.940 - 2026-10-30
+
+### Maintenance
+
+- Track unfinished work as GitHub issues with priority, fast-follow and factory labels matching Freed; the roadmap becomes an index of the priority system and issue views. Plan gate credential attachment, where the Host holds each provider connection once and the network gate attaches it per request.
+
+## 0.11.0-beta.3.vorteo.939 - 2026-10-30
+
+### Added
+
+- Codex accounts connect once for an installation: the Host signs in through device code, is the only refresh writer, and delivers access-only sign-ins to Dev with per-environment sync status, behind `codexHostRefresh`. New installations turn on both `claudeHostRefresh` and `codexHostRefresh`.
+
+### Changed
+
+- Claude and Codex Host-owned refresh share one refresh state machine and Dev writer. Claude behavior is unchanged.
+
+### Fixed
+
+- Codex delivery no longer assumes a Dev container, so Host-only installations build and run.
 
 ## 0.11.0-beta.3.vorteo.938 - 2026-10-30
 
 ### Added
 
+- One-command installation: `curl -fsSL https://terranlabs.com/vorteo/install | bash` asks a few questions, shows the plan, installs from the newest stable release on macOS (launchd) or Linux (systemd user services), resumes when rerun, and wraps a legacy container-only deployment while keeping its Dev identity, home, workspace and agents. Under an agent it prints its questions and exits 3 so the agent can ask the owner.
+- Installer engine (`scripts/installer/main.mjs detect|plan|apply|status|repair|uninstall|host-release`) that creates the installation before any environment boots, Host-only or with Dev behind the network gate, with Tailscale or local-only access.
+- The `vorteo` command: `status`, `doctor`, `open`, `update`, `repair` and `uninstall`.
+- Host-only installations, without Docker, and local-only installations, at `http://localhost`, without Tailscale. In local mode Dev reaches the coordinator through the gate's named route; on Linux the coordinator also listens on the Docker bridge.
+- Interface upgrades to a tagged release cover the Host, the coordinator and the Dev image, after a safety snapshot. Snapshots can also be taken and restored from installation controls.
+- After the first sign-in, a new installation offers to connect Claude and Codex accounts once for the whole installation.
+- Container-only installations show the one install command on the Updates page instead of a dead-end error, and `AGENTS.md` tells agents inside such a container to point the owner at it.
+- A manual Install tests workflow runs a Linux install with Dev in gate mode plus a legacy wrap, and a macOS Host-only install, on the commit about to be tagged. Releases carry `install.sh`.
+
+### Changed
+
+- Dev deployments support gate mode with `compose.gate.yaml` and `gate.sh enable|rollback`; `update.sh` recreates the gate with Dev and restores the previous image when the new one is unhealthy.
+- In-app update checks follow the newest stable `release-<counter>` tag, and keep following `main` until one exists.
+- The README, installation docs and Dev container docs lead with the one command; the separate lab installation guide is retired.
+
+### Fixed
+
+- A Host-only named account no longer counts as connected in Dev; only each environment's built-in provider entry is local to it.
+
+## 0.11.0-beta.3.vorteo.937 - 2026-10-30
+
+### Added
+
+- Environment network gate (opt-in `PASEO_NETWORK_MODE=gate`): Dev sits on an internal Docker network whose only neighbor is a reviewed gate container. The gate proxies every outbound connection with resolve-then-check policy that refuses tailnet, Host, private and metadata ranges, relays inbound daemon traffic, supports exact named routes and writes one JSON line per connection. The gate image builds with Docker alone.
+- Installation name: owners name an installation in General settings. The tab title, welcome heading and both sidebar footers show it; the footers also show the version.
+- A field-by-field resolver for the first shared-settings migration, with a version choice for skills that share a name.
+- Plans: environment network gate and one-command installation.
+
+### Changed
+
+- The Vorteo and Vorton repositories moved to the Terran Labs organization. Update checks, repository links, the upstream-merge prompt and documentation use `terran-labs/vorteo`; earlier GitHub addresses redirect.
+- The welcome page on an installation shows owner sign-in inline, with the password file path and a copy command; it no longer offers to create an installation. Demo moves beside Settings.
+- One approved V master renders every brand mark, tinted per theme with loop shading, including the startup loader. The unused color copy and vector path are removed.
+- Setup providers and the profile editor open the installation's Accounts page instead of choosing a host. The home Import session tile is removed, and an empty account list offers Manage accounts.
+- The Host installer seeds MCP agent tools the same way as Dev, so a new installation starts without a settings conflict.
+- An installation-managed daemon without its binding seeds no standalone System project, and seeds as its assigned environment once bound.
+
+### Fixed
+
+- A paired Dev container archives the Optimizer it created while standalone instead of showing a duplicate Vorteo System project, and an empty System project no longer gets a sidebar row.
+- Shared settings could never finish applying because each environment's own Claude and Codex providers counted as missing accounts in the other.
+
+### Maintenance
+
+- Bring the environment network gate and one-command installation branch up to date with main 0.11.0-beta.3.vorteo.936.
+- Plan the one-command installation: one install command for macOS and Linux, Host-only and local-only installations, tested releases, interface upgrades with snapshots, and wrapping legacy installations.
 - Add opt-in private coordinator performance logging with minute samples, bounded hourly retention and fixed lifecycle labels. Records exclude prompts, accounts and endpoints; enabling logging requires a reviewed configuration change.
 
 ### Fixed

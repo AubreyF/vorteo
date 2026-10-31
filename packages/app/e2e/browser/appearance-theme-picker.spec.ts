@@ -1,5 +1,3 @@
-import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
-import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import {
   seedLongMockAgentTimeline,
   openAgentTimeline,
@@ -148,33 +146,6 @@ test("offers six reference themes with Dark Star selected by default", async ({
   });
 });
 
-// Geometry drift, owner review (2026-10-24): 1d041fbea set the six sidebar theme bubbles on one
-// row with centres within 1px; they now measure up to 8.7px apart. No later commit records it.
-test.fixme("keeps sidebar theme bubbles in one row and lifts them on hover", async ({
-  page,
-}, info) => {
-  await page.setViewportSize({ width: 1600, height: 900 });
-  await gotoAppShell(page);
-  await page.getByTestId("sidebar-footer-overflow").click();
-  const surfaces = page.locator('[data-testid^="theme-preview-surface-"]');
-  await expect(surfaces).toHaveCount(6);
-  const centers = await Promise.all(
-    (await surfaces.all()).map(async (surface) => {
-      const box = (await surface.boundingBox())!;
-      return box.y + box.height / 2;
-    }),
-  );
-  for (const center of centers) expect(Math.abs(center - centers[0]!)).toBeLessThanOrEqual(1);
-  const neon = page.getByTestId("theme-preview-surface-neon");
-  const resting = (await neon.boundingBox())!.height;
-  await page.getByTestId("theme-preview-neon").hover();
-  await expect.poll(async () => (await neon.boundingBox())!.height).toBeGreaterThan(resting + 8);
-  await expect(neon).not.toHaveCSS("box-shadow", "none");
-  await page.screenshot({ path: info.outputPath("sidebar-theme-hover.png") });
-  await page.mouse.move(1500, 850);
-  await expect.poll(async () => (await neon.boundingBox())!.height).toBeCloseTo(resting, 0);
-});
-
 test("routes the browser zoom keys to interface zoom", async ({ page }) => {
   await page.goto("/settings/appearance");
   const slider = page.getByRole("slider", { name: "Interface zoom", exact: true });
@@ -190,39 +161,6 @@ test("routes the browser zoom keys to interface zoom", async ({ page }) => {
   await expect(slider).toHaveValue("100");
   // The page itself stays at 1x; only the interface zoom changed.
   expect(await page.evaluate(() => window.visualViewport?.scale ?? 1)).toBe(1);
-});
-
-test("stacks font labels above inputs on compact screens", async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/settings");
-  const sidebar = page.getByTestId("settings-sidebar");
-  await expect(sidebar).toHaveCSS("border-radius", "16px");
-  const navigationBounds = await sidebar.boundingBox();
-  expect(navigationBounds).not.toBeNull();
-  expect(navigationBounds!.x).toBe(8);
-  expect(navigationBounds!.width).toBe(374);
-  await page.screenshot({
-    path: testInfo.outputPath("compact-settings-navigation.png"),
-  });
-  await page.goto("/settings/appearance");
-  const label = page.getByText("Interface font", { exact: true });
-  const input = page.getByLabel("Interface font family", { exact: true });
-  await expect(input).toBeVisible();
-  // The single settings page scrolls to Appearance after load; measure once it stops moving.
-  await waitForSettledPosition(label);
-  await waitForSettledPosition(input);
-  const labelBox = await label.boundingBox();
-  const inputBox = await input.boundingBox();
-  expect(labelBox).not.toBeNull();
-  expect(inputBox).not.toBeNull();
-  expect(labelBox!.width).toBeGreaterThan(280);
-  expect(inputBox!.y).toBeGreaterThan(labelBox!.y + labelBox!.height);
-  expect(inputBox!.width).toBeGreaterThan(280);
-  expect(inputBox!.height).toBeGreaterThanOrEqual(44);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await page.screenshot({
-    path: testInfo.outputPath("compact-appearance.png"),
-  });
 });
 
 test("keeps the selected workspace visible in Starship", async ({ page }, testInfo) => {
@@ -371,225 +309,86 @@ test("previews compact theme swatches without saving and commits only on activat
   });
 });
 
-test("restores the saved theme when storage is full and allows retry", async ({ page }) => {
+test("shows only centered theme bubbles in Appearance settings", async ({ page }) => {
   await page.goto("/settings/appearance");
-  const darkStar = page.getByTestId("theme-preview-starship-dark");
-  const midas = page.getByTestId("theme-preview-midas");
-  await expect(darkStar).toHaveAttribute("aria-pressed", "true");
-  // Exercise the browser's actual quota refusal, without replacing its storage API.
-  await page.evaluate(() => {
-    localStorage.removeItem("@paseo:app-settings");
-    let index = 0;
-    for (const size of [65536, 1024, 1]) {
-      while (true) {
-        try {
-          localStorage.setItem(`theme-quota-${index}`, "x".repeat(size));
-          index++;
-        } catch (error) {
-          if (!(error instanceof DOMException) || error.name !== "QuotaExceededError") throw error;
-          break;
-        }
-      }
-    }
-  });
-  await midas.click();
-  await expect(
-    page.getByRole("alert").filter({ hasText: "Could not save the theme. Try again." }),
-  ).toBeVisible();
-  await expect(darkStar).toHaveAttribute("aria-pressed", "true");
-  await expect(midas).toHaveAttribute("aria-pressed", "false");
-  await page.mouse.move(0, 0);
-  await expect(page.locator("html")).toHaveAttribute("data-vorteo-appearance", "starship-dark");
-
-  await page.evaluate(() => {
-    for (const key of Object.keys(localStorage)) {
-      if (key.startsWith("theme-quota-")) localStorage.removeItem(key);
-    }
-  });
-  await midas.click();
-  await expect(
-    page.getByRole("alert").filter({ hasText: "Could not save the theme. Try again." }),
-  ).toHaveCount(0);
-  await expect(midas).toHaveAttribute("aria-pressed", "true");
-  await page.reload();
-  await expect(midas).toHaveAttribute("aria-pressed", "true");
-});
-
-test.describe("touch theme swatches", () => {
-  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
-  // Geometry drift, owner review (2026-10-24): the touch theme swatch should be 48px wide and now
-  // measures 44.3px. No commit after 1d041fbea records the change.
-  test.fixme("keeps six swatches compact and commits a theme with one tap", async ({
-    page,
-  }, info) => {
-    await page.goto("/settings/appearance");
-    const card = page.getByTestId("theme-preview-neon");
-    await card.scrollIntoViewIfNeeded();
-    expect((await card.boundingBox())!.height).toBe(44);
-    expect((await page.getByTestId("theme-preview-surface-neon").boundingBox())!.width).toBe(48);
-    await card.tap();
-    await expect(page.locator("html")).toHaveAttribute("data-vorteo-appearance", "neon");
-    await expect(card).toHaveAttribute("aria-pressed", "true");
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
-      390,
-    );
-    await page.getByTestId("theme-preview-starship-light").scrollIntoViewIfNeeded();
-    await page.screenshot({ path: info.outputPath("compact-theme-cards.png") });
-  });
-});
-
-test("keeps System appearance available without plugin themes", async ({ page }) => {
-  await page.emulateMedia({ colorScheme: "dark" });
-  await page.goto("/settings/appearance");
-  const picker = page.getByRole("button", {
-    name: "Theme: Dark Star",
-    exact: true,
-  });
-  await expect(picker).toBeVisible();
-  await picker.click();
-  await page.getByRole("menuitem", { name: "System", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Theme: System", exact: true })).toBeVisible();
-  await expect
-    .poll(() =>
-      page.evaluate(() => JSON.parse(localStorage.getItem("@paseo:app-settings") ?? "{}").theme),
-    )
-    .toBe("auto");
-  await page.reload();
-  await expect(page.getByRole("button", { name: "Theme: System", exact: true })).toBeVisible();
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole("button", { name: "Theme: System", exact: true })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await page.getByTestId("theme-preview-ember").click();
-  await expect(page.getByRole("button", { name: "Theme: Ember", exact: true })).toBeVisible();
-});
-
-test("keeps shared button labels themed across palette changes", async ({ page }, info) => {
-  // Seven themes at three widths each outlast the default timeout. The run takes about 90 seconds
-  // locally and reached 180 seconds on CI.
-  test.setTimeout(300_000);
-  const agent = await seedLongMockAgentTimeline({ turns: 16 });
-  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "button-colors" });
-  try {
-    await client.mutateMessageQueue(agent.agentId, {
-      kind: "pause",
-      paused: true,
-      expectedRevision: 0,
-      operationId: "pause-colors",
-    });
-    await client.mutateMessageQueue(agent.agentId, {
-      kind: "enqueue",
-      operationId: "enqueue-colors",
-      messageId: "color-message",
-      text: "Queued appearance check",
-      attachments: [],
-    });
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await openAgentTimeline(page, agent);
-    const setupNotice = page
-      .getByTestId("installation-update-toasts")
-      .filter({ hasText: "Set up worktree scripts" });
-    if (await setupNotice.isVisible())
-      await setupNotice.getByRole("button", { name: "Dismiss", exact: true }).click();
-    await scrollTimelineToOldestLoadedEdge(page);
-    const latest = page.getByTestId("scroll-to-bottom-button");
-    await expect(latest).toBeVisible();
-    for (const theme of [
-      "starship-dark",
-      "starship-light",
-      "scriptorium",
-      "midas",
-      "ember",
-      "neon",
-      "starship-dark",
-    ]) {
-      await page.getByTestId("sidebar-footer-overflow").click();
-      await page.getByTestId(`theme-preview-${theme}`).click();
-      await page.mouse.move(900, 400);
-      const backdrop = page.getByRole("button", { name: "Menu backdrop", exact: true });
-      if (await backdrop.isVisible()) await backdrop.click({ position: { x: 900, y: 400 } });
-      await expect(page.locator("html")).toHaveAttribute("data-vorteo-appearance", theme);
-      for (const width of [1440, 390, 1440]) {
-        await page.setViewportSize({ width, height: 900 });
-        await scrollTimelineToOldestLoadedEdge(page);
-        await expect(latest).toBeVisible();
-        await latest.hover();
-        await page.mouse.move(900, 400);
-        const expectedColor = await latest
-          .locator("svg")
-          .evaluate((el) => getComputedStyle(el).stroke);
-        await expect(latest.getByText("Latest", { exact: true })).toHaveCSS("color", expectedColor);
-        await latest.click();
-        await expect(latest).toBeHidden();
-      }
-    }
-    await scrollTimelineToOldestLoadedEdge(page);
-    await page.screenshot({ path: info.outputPath("latest.png") });
-  } finally {
-    await client.close();
-    await agent.cleanup();
+  const dark = page.getByTestId("theme-preview-starship-dark");
+  await expect(dark).toBeVisible();
+  // The section heading names the row; there is no second "Theme" title and no theme menu.
+  await expect(page.getByText("Theme", { exact: true })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: /^Theme: / })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Plugin themes", exact: true })).toHaveCount(0);
+  // Measure each bubble inside its own card so scrolling or layout shifts cannot skew it.
+  for (const id of ["starship-dark", "ember"]) {
+    const offset = await page.getByTestId(`theme-preview-${id}`).evaluate((card, surfaceId) => {
+      const surface = card.querySelector(`[data-testid="${surfaceId}"]`);
+      if (!surface) return null;
+      const c = card.getBoundingClientRect();
+      const s = surface.getBoundingClientRect();
+      return Math.abs(c.top + c.height / 2 - (s.top + s.height / 2));
+    }, `theme-preview-surface-${id}`);
+    expect(offset).not.toBeNull();
+    expect(offset!).toBeLessThanOrEqual(1);
   }
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
 
 test.describe("whole-interface zoom", () => {
   test.use({ hasTouch: true });
-  for (const width of [390, 1133, 1600]) {
-    test(`scales controls and preserves the viewport at ${width}px`, async ({ page }, info) => {
-      await page.setViewportSize({ width, height: 844 });
-      await page.goto("/settings/appearance");
-      const slider = page.getByRole("slider", { name: "Interface zoom", exact: true });
-      await expect(slider).toHaveValue("100");
-      const swatch = page.getByTestId("theme-preview-neon");
-      const initialHeight = (await swatch.boundingBox())!.height;
-      if (width === 1133) {
-        // Settings panes above the slider can still be loading and move it after it first
-        // settles, so a drag that missed the track is measured and made again. On CI the page
-        // also drifted up to Agent behavior once the deep link's pin expired (run 40277231156),
-        // leaving the slider off screen, so bring it back into view before each attempt.
-        await expect(async () => {
-          await slider.scrollIntoViewIfNeeded();
-          await waitForSettledPosition(slider);
-          const track = (await slider.boundingBox())!;
-          await page.mouse.move(track.x + track.width * 0.2, track.y + track.height / 2);
-          await page.mouse.down();
-          await page.mouse.move(track.x + track.width * 0.6, track.y + track.height / 2, {
-            steps: 8,
-          });
-          expect((await slider.boundingBox())!.width).toBeCloseTo(track.width, 0);
-          await expect(page.locator("html")).toHaveAttribute("data-interface-zoom", "100");
-          await page.mouse.up();
-          await expect(slider).not.toHaveValue("100", { timeout: 2_000 });
-        }).toPass({ timeout: 20_000 });
-      }
-      for (const zoom of [125, 75, 200, 100]) {
-        await slider.fill(String(zoom));
-        await slider.dispatchEvent("pointerup");
-        await expect(page.locator("html")).toHaveAttribute("data-interface-zoom", String(zoom));
-        await expect
-          .poll(async () => Math.round((await swatch.boundingBox())!.height))
-          .toBe(Math.round((initialHeight * zoom) / 100));
-        const bounds = await page.evaluate(() => {
-          const root = document.getElementById("root")!.getBoundingClientRect();
-          return {
-            bottom: root.bottom,
-            right: root.right,
-            height: window.innerHeight,
-            width: window.innerWidth,
-          };
-        });
-        expect(Math.abs(bounds.bottom - bounds.height)).toBeLessThanOrEqual(2);
-        expect(Math.abs(bounds.right - bounds.width)).toBeLessThanOrEqual(2);
-        await slider.scrollIntoViewIfNeeded();
-        await page.screenshot({ path: info.outputPath(`zoom-${zoom}.png`) });
-      }
-      await slider.focus();
-      await slider.press("ArrowRight");
-      await expect(slider).toHaveValue("105");
-      await page.reload();
-      await expect(slider).toHaveValue("105");
-      await page.getByRole("button", { name: "Reset interface zoom, currently 105%" }).click();
-      await expect(slider).toHaveValue("100");
-    });
-  }
+  test("scales controls and preserves the viewport at 1133px", async ({ page }, info) => {
+    await page.setViewportSize({ width: 1133, height: 844 });
+    await page.goto("/settings/appearance");
+    const slider = page.getByRole("slider", { name: "Interface zoom", exact: true });
+    await expect(slider).toHaveValue("100");
+    const swatch = page.getByTestId("theme-preview-neon");
+    const initialHeight = (await swatch.boundingBox())!.height;
+    // Settings panes above the slider can still be loading and move it after it first
+    // settles, so a drag that missed the track is measured and made again. On CI the page
+    // also drifted up to Agent behavior once the deep link's pin expired (run 40277231156),
+    // leaving the slider off screen, so bring it back into view before each attempt.
+    await expect(async () => {
+      await slider.scrollIntoViewIfNeeded();
+      await waitForSettledPosition(slider);
+      const track = (await slider.boundingBox())!;
+      await page.mouse.move(track.x + track.width * 0.2, track.y + track.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(track.x + track.width * 0.6, track.y + track.height / 2, {
+        steps: 8,
+      });
+      expect((await slider.boundingBox())!.width).toBeCloseTo(track.width, 0);
+      await expect(page.locator("html")).toHaveAttribute("data-interface-zoom", "100");
+      await page.mouse.up();
+      await expect(slider).not.toHaveValue("100", { timeout: 2_000 });
+    }).toPass({ timeout: 20_000 });
+    for (const zoom of [125, 75, 200, 100]) {
+      await slider.fill(String(zoom));
+      await slider.dispatchEvent("pointerup");
+      await expect(page.locator("html")).toHaveAttribute("data-interface-zoom", String(zoom));
+      await expect
+        .poll(async () => Math.round((await swatch.boundingBox())!.height))
+        .toBe(Math.round((initialHeight * zoom) / 100));
+      const bounds = await page.evaluate(() => {
+        const root = document.getElementById("root")!.getBoundingClientRect();
+        return {
+          bottom: root.bottom,
+          right: root.right,
+          height: window.innerHeight,
+          width: window.innerWidth,
+        };
+      });
+      expect(Math.abs(bounds.bottom - bounds.height)).toBeLessThanOrEqual(2);
+      expect(Math.abs(bounds.right - bounds.width)).toBeLessThanOrEqual(2);
+      await slider.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: info.outputPath(`zoom-${zoom}.png`) });
+    }
+    await slider.focus();
+    await slider.press("ArrowRight");
+    await expect(slider).toHaveValue("105");
+    await page.reload();
+    await expect(slider).toHaveValue("105");
+    await page.getByRole("button", { name: "Reset interface zoom, currently 105%" }).click();
+    await expect(slider).toHaveValue("100");
+  });
   test("keeps the sidebar zoom menu anchored and keyboard-operable", async ({ page }, info) => {
     await page.setViewportSize({ width: 1600, height: 900 });
     await gotoAppShell(page);

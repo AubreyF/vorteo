@@ -45,13 +45,16 @@ export function useAgentProfileFormCatalog(input: {
     if (!entries) {
       return;
     }
-    if (hostId && devId && providerType) {
+    // A Host-only installation compares the Host alone; Dev joins when the installation has it.
+    if (hostId && providerType) {
       const hostSource = selectProfileCatalogSources([
         { serverId: hostId, entries: hostEntries, providers: hostConfig?.providers },
       ]).get(providerType);
-      const devSource = selectProfileCatalogSources([
-        { serverId: devId, entries: devEntries, providers: devConfig?.providers },
-      ]).get(providerType);
+      const devSource = devId
+        ? selectProfileCatalogSources([
+            { serverId: devId, entries: devEntries, providers: devConfig?.providers },
+          ]).get(providerType)
+        : undefined;
       input.model.applySharedProviderCatalog({
         entries,
         environments: [
@@ -60,11 +63,15 @@ export function useAgentProfileFormCatalog(input: {
             provider: hostSource?.provider,
             entries: hostConnected && hostConfig ? hostEntries : undefined,
           },
-          {
-            kind: "container",
-            provider: devSource?.provider,
-            entries: devConnected && devConfig ? devEntries : undefined,
-          },
+          ...(devId
+            ? [
+                {
+                  kind: "container" as const,
+                  provider: devSource?.provider,
+                  entries: devConnected && devConfig ? devEntries : undefined,
+                },
+              ]
+            : []),
         ],
       });
     } else {

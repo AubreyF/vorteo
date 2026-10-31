@@ -2,13 +2,25 @@
 # Sourced by the installer and deployed lifecycle commands.
 set -euo pipefail
 
+# A deployment in gate mode has a .gate-mode marker. Its compose.gate.yaml binds the
+# Projects folder and publishes the gate relay itself, so the Tailscale-mode overlays
+# for those do not apply.
+paseo_gate_mode() {
+  [[ -f "$deployment/.gate-mode" ]]
+}
+
 paseo_compose() {
-  local files=(-f "$deployment/compose.yaml")
-  if [[ -f "$deployment/projects-folder.compose.json" ]]; then
-    files+=(-f "$deployment/projects-folder.compose.json")
-  fi
-  if [[ -f "$deployment/host-loopback.compose.json" ]]; then
-    files+=(-f "$deployment/host-loopback.compose.json")
+  local files
+  if paseo_gate_mode; then
+    files=(-f "$deployment/compose.gate.yaml")
+  else
+    files=(-f "$deployment/compose.yaml")
+    if [[ -f "$deployment/projects-folder.compose.json" ]]; then
+      files+=(-f "$deployment/projects-folder.compose.json")
+    fi
+    if [[ -f "$deployment/host-loopback.compose.json" ]]; then
+      files+=(-f "$deployment/host-loopback.compose.json")
+    fi
   fi
   if [[ -f "$deployment/shared-folders.compose.json" ]]; then
     files+=(-f "$deployment/shared-folders.compose.json")
@@ -70,7 +82,10 @@ paseo_wait() {
   for attempt in $(seq 1 60); do
     health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container")"
     if [[ "$health" == healthy ]]; then
-      paseo_compose exec -T --user root paseo python3 -I /opt/personal-tailscale/network.py --url
+      # In gate mode the Host edge owns the public address; there is no node to ask.
+      if ! paseo_gate_mode; then
+        paseo_compose exec -T --user root paseo python3 -I /opt/personal-tailscale/network.py --url
+      fi
       return 0
     fi
     if [[ "$health" == exited || "$health" == dead ]]; then break; fi
@@ -78,4 +93,110 @@ paseo_wait() {
   done
   echo 'Vorteo is not ready. Inspect docker compose logs; HTTPS may need tailnet approval. No automatic restart was attempted.' >&2
   return 1
+}
+
+# Gate mode settings. Each value is validated before it reaches .env or gate/config.json.
+paseo_gate_hostname() {
+  if [[ ! "$1" =~ ^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$ ]]; then
+    echo 'Use a lowercase DNS name for PASEO_PUBLIC_HOSTNAME.' >&2
+    return 1
+  fi
+}
+
+paseo_gate_origins() {
+  local origin
+  local IFS=,
+  for origin in $1; do
+    if [[ ! "$origin" =~ ^https?://[a-z0-9.-]+(:[1-9][0-9]{0,4})?$ ]]; then
+      echo "PASEO_CORS_ORIGINS has an invalid origin: $origin" >&2
+      return 1
+    fi
+  done
+}
+
+# Prints the gate's address, .2 of a private /24 inside 172.16.0.0/12.
+paseo_gate_address() {
+  if [[ ! "$1" =~ ^172\.(1[6-9]|2[0-9]|3[01])\.([0-9]{1,3})\.0/24$ ]] || (( BASH_REMATCH[2] > 255 )); then
+    echo 'Use a /24 subnet inside 172.16.0.0/12 for PASEO_GATE_SUBNET, such as 172.31.250.0/24.' >&2
+    return 1
+  fi
+  printf '%s.2\n' "${1%.0/24}"
+}
+
+paseo_gate_port() {
+  if [[ ! "$1" =~ ^[1-9][0-9]{3,4}$ ]] || (( $1 < 1024 || $1 > 65535 )); then
+    echo 'Use an unprivileged gate relay port between 1024 and 65535.' >&2
+    return 1
+  fi
+}
+
+# Routes are exact host:port exceptions to the gate's refused ranges.
+paseo_gate_routes() {
+  local route
+  local IFS=,
+  for route in $1; do
+    if [[ ! "$route" =~ ^[a-z0-9.-]+:[1-9][0-9]{0,4}$ ]]; then
+      echo "PASEO_GATE_ROUTES has an invalid host:port route: $route" >&2
+      return 1
+    fi
+  done
+}
+
+# Prints gate/config.json: one Dev environment, its daemon relay and the routes.
+paseo_gate_config() {
+  local instance="$1" subnet="$2" routes="$3" route separator=""
+  if [[ ! "$instance" =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]]; then
+    echo 'The instance name is not a Compose project name.' >&2
+    return 1
+  fi
+  paseo_gate_address "$subnet" >/dev/null
+  paseo_gate_routes "$routes"
+  printf '{\n  "log": "/var/log/gate/connections.jsonl",\n  "proxy": ":3128",\n  "policy": "standard",\n'
+  printf '  "environments": [\n    { "name": "dev", "generation": "%s", "subnet": "%s" }\n  ],\n' "$instance" "$subnet"
+  printf '  "relays": [\n    { "listen": ":6768", "target": "paseo:6767", "environment": "dev" }\n  ],\n'
+  printf '  "routes": ['
+  local IFS=,
+  for route in $routes; do
+    printf '%s"%s"' "$separator" "$route"
+    separator=', '
+  done
+  printf ']\n}\n'
+}
+
+# Replaces KEY=value lines in an env file, keeping every other line and mode 600.
+paseo_env_set() {
+  local file="$1" next assignment pattern=""
+  shift
+  for assignment in "$@"; do
+    if [[ ! "$assignment" =~ ^[A-Z][A-Z0-9_]*= || "$assignment" == *$'\n'* ]]; then
+      echo "Invalid setting for ${assignment%%=*}." >&2
+      return 1
+    fi
+    pattern+="${pattern:+|}${assignment%%=*}"
+  done
+  next="$(mktemp "$file.XXXXXX")"
+  { grep -Ev "^($pattern)=" "$file" || true; printf '%s\n' "$@"; } > "$next"
+  chmod 600 "$next"
+  mv "$next" "$file"
+}
+
+paseo_gate_image() {
+  local requested="$1"
+  if [[ ! "$requested" =~ ^[a-zA-Z0-9][a-zA-Z0-9._/@:-]*$ ]]; then
+    echo 'Supply a gate image tag, digest, or local image ID.' >&2
+    return 1
+  fi
+  if [[ "$(docker image inspect --format '{{index .Config.Labels "sh.paseo.gate-contract"}}' "$requested")" != v1 ]]; then
+    echo 'This is not a gate image. Build one with docker/gate/build.sh.' >&2
+    return 1
+  fi
+  docker image inspect --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{else}}{{.Id}}{{end}}' "$requested"
+}
+
+# A Dev image runs in gate mode only if it has the SSH tunnel helper the gate needs.
+paseo_gate_capable() {
+  if ! docker run --rm --network none --entrypoint test "$1" -x /usr/local/bin/gate-connect >/dev/null; then
+    echo 'This Dev image predates gate mode. Build a new one from docker/base/Dockerfile.' >&2
+    return 1
+  fi
 }

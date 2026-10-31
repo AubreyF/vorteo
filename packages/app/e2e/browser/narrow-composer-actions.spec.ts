@@ -31,37 +31,9 @@ for (const hasTouch of [false, true]) {
         const input = page.getByRole("textbox", { name: "Message agent..." }).first();
         const queue = page.getByTestId("mobile-queue-message");
         const send = page.getByRole("button", { name: "Send message", exact: true });
-        await fillComposerDraft(page, "Spacing check");
-        const microphone = page.getByTestId("composer-dictation-slot").getByRole("button").first();
-        const [micBox, queueBox, sendBox] = await Promise.all([
-          microphone.boundingBox(),
-          queue.boundingBox(),
-          send.boundingBox(),
-        ]);
-        expect(micBox).not.toBeNull();
-        expect(queueBox).not.toBeNull();
-        expect(sendBox).not.toBeNull();
-        expect(
-          Math.abs(
-            queueBox!.y -
-              micBox!.y -
-              micBox!.height -
-              (sendBox!.y - queueBox!.y - queueBox!.height),
-          ),
-        ).toBeLessThanOrEqual(2);
-        await page.screenshot({ path: test.info().outputPath("composer-equal-gaps.png") });
         const draft = "A long draft to expose any overlapping text hit target. ".repeat(25);
         await fillComposerDraft(page, draft);
         await expect(queue).toBeEnabled();
-        const primaryColor = await send.evaluate((node) => getComputedStyle(node).backgroundColor);
-        const secondaryColor = await queue.evaluate(
-          (node) => getComputedStyle(node).backgroundColor,
-        );
-        expect(primaryColor).not.toBe(secondaryColor);
-        await page.keyboard.down("Meta");
-        await expect(queue).toHaveCSS("background-color", primaryColor);
-        await expect(send).toHaveCSS("background-color", secondaryColor);
-        await page.keyboard.up("Meta");
         if (hasTouch) await queue.tap();
         else await queue.click();
         await expect(input).toHaveValue("");

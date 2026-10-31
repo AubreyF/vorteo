@@ -57,18 +57,62 @@ export async function seedSystemProjectAtStartup(
   input: Omit<EnsureSystemProjectInput, "environment"> & {
     enabled: boolean | undefined;
     sharedProviderPreferences: { installation?: { environment: "host" | "container" } } | undefined;
+    /**
+     * Set when the daemon belongs to an installation that has not bound it yet. It then
+     * seeds nothing, so it never acts as a standalone install, and the caller seeds again
+     * once the binding arrives.
+     */
+    installationManaged?: boolean;
+    /** Called once the project and its workspaces exist, with the environment they serve. */
+    onSeeded?: (environment: SystemEnvironment) => void;
   },
-): Promise<void> {
-  if (input.enabled === false) return;
-  const { enabled: _enabled, sharedProviderPreferences, ...rest } = input;
+): Promise<"seeded" | "awaiting-binding" | "disabled"> {
+  if (input.enabled === false) return "disabled";
+  const {
+    enabled: _enabled,
+    sharedProviderPreferences,
+    installationManaged,
+    onSeeded,
+    ...rest
+  } = input;
+  if (installationManaged && !sharedProviderPreferences?.installation) {
+    input.logger.info("Vorteo System project waits for this daemon's installation binding");
+    return "awaiting-binding";
+  }
+  const environment = sharedProviderPreferences?.installation?.environment ?? "single";
   try {
-    await ensureSystemProject({
-      ...rest,
-      environment: sharedProviderPreferences?.installation?.environment ?? "single",
-    });
+    await ensureSystemProject({ ...rest, environment });
   } catch (error) {
     input.logger.error({ err: error }, "Vorteo System project setup failed");
+    return "seeded";
   }
+  onSeeded?.(environment);
+  return "seeded";
+}
+
+type SeedInput = Parameters<typeof seedSystemProjectAtStartup>[0];
+
+/** Seeds now, or once, as the assigned environment, when the installation binding arrives. */
+export async function startSystemProjectSeeding(
+  input: SeedInput & { onBindingChange: (handler: (value: unknown) => void) => () => void },
+): Promise<void> {
+  const { onBindingChange, ...seed } = input;
+  if ((await seedSystemProjectAtStartup(seed)) !== "awaiting-binding") return;
+  const stop = onBindingChange((value) => {
+    const preferences = value as SeedInput["sharedProviderPreferences"];
+    if (!preferences?.installation) return;
+    stop();
+    void seedSystemProjectAtStartup({ ...seed, sharedProviderPreferences: preferences });
+  });
+}
+
+/**
+ * An installation-managed daemon has no binding until the coordinator sends one, through
+ * `VORTEO_INSTALLATION_CLIENT_CONFIG` (paired) or `PASEO_INSTALLATION_PENDING` (created by
+ * the one-command installer before the Host exists).
+ */
+export function isInstallationManaged(env: Record<string, string | undefined>): boolean {
+  return Boolean(env.VORTEO_INSTALLATION_CLIENT_CONFIG) || env.PASEO_INSTALLATION_PENDING === "1";
 }
 
 // One daemon owns one PASEO_HOME; this only stops overlapping calls in-process
@@ -157,16 +201,23 @@ async function ensureUnlocked(input: EnsureSystemProjectInput): Promise<EnsureSy
   }
 
   // A role that leaves the manifest keeps its workspace and history, but the owner
-  // can now archive it like any other.
+  // can now archive it like any other. A container joins an installation after its
+  // standalone first start, and the Host's runner then covers it, so its retired
+  // runners are archived rather than left beside the Host's: still recoverable,
+  // never deleted.
   const activeRoles = new Set(roles.map((role) => role.role));
   for (const member of members) {
     if (activeRoles.has(member.systemMembership!.role)) continue;
     const { systemMembership: _retired, ...retained } = member;
+    const updatedAt = now();
     await input.workspaceRegistry.writeSystemWorkspace({
       ...retained,
       standing: false,
       protected: false,
-      updatedAt: now(),
+      updatedAt,
+      ...(input.environment === "container" && !retained.archivedAt
+        ? { archivedAt: updatedAt }
+        : {}),
     });
     result.retired.push(member.workspaceId);
   }

@@ -58,6 +58,33 @@ Exclusion, removal and sign-out withdraw Dev's token. Sign-out also runs the CLI
 
 Unverified until the owner's live sign-in check: that the Host grant lives in the per-directory Keychain item described above, the granted scopes, the access-token lifetime, and how quickly a running Dev CLI picks up a rewritten file. The refresh request's flags, the lock and file names, and the store order come from static analysis of Claude Code 2.1.284. Recheck them when upgrading Claude.
 
+### Host-owned Codex sign-in for installations
+
+A shared Codex account can connect once for the whole installation, the same way as a full sign-in Claude account. This is off by default. Turn it on with an owner-reviewed coordinator update whose plan lists `{ "setting": "codexHostRefresh", "value": true }` in `configurationChanges`, with a candidate configuration that differs only by `"codexHostRefresh": true`. `null` turns it off again. It has no legacy plan field. Every environment must run a daemon that advertises `codexInstallationSignIn`; the coordinator refuses to start sign-in until all of them do.
+
+With the setting on, the coordinator serves `/api/installation/owner/codex/signin/{read,start,cancel,sign-out}`. Its 409 for an unknown definition is how the app detects the feature. The Codex sign-in panel then uses these routes from any environment, with no environment choice, and shows Dev synchronization and the Host account's email. Without the setting, each environment keeps its own Codex sign-in as before. Only definitions created for the installation (`accountSetup.provider: "codex"`) qualify. A definition bound to a different provider ID in some environment is refused, because matching labels do not prove the same account. On `start`, the coordinator binds the account on every environment, asks the Host daemon for its exact `CODEX_HOME` and runs the device-code sign-in through `codex app-server` in that directory itself. The Host account's `auth.json` keeps the only grant, and Host agents use and refresh it natively.
+
+The coordinator reads the Host grant on the same cadence as Claude's and refreshes it, through `account/read` with `refreshToken: true` on the official Host Codex, when a reachable Dev holds the current token and either the access token expires within 30 minutes or `last_refresh` is seven days old. Codex refreshes on its own at eight days; the earlier Host refresh keeps Dev's copy ahead of that. Dev receives the access token, the ID token, the ChatGPT account ID, the access expiry and the Host's `last_refresh` through `/api/installation/codex/signin/projection`, and writes them into the account's `auth.json` with an empty refresh token. Codex reloads that file before it tries a refresh after a rejected request, so a running Dev agent picks up the next projection. The ordering journal lives in `.vorteo-signin/projection.json` inside the account home and holds digests only.
+
+A Dev `auth.json` that already holds a refresh token came from a sign-in made in Dev. Dev replaces it only when its ChatGPT account ID matches the Host's, and first keeps a copy in `.vorteo-signin/local-sign-in.json`. A different or missing account ID is refused and the delivery stays pending. A withdrawal removes only a projected file, never such a local sign-in. Exclusion, removal and sign-out withdraw Dev's projection; sign-out also runs `codex logout` in the Host account, and a failure there is returned as a warning.
+
+Unverified until the owner's live sign-in check: the lifetime and `exp` claim of ChatGPT access tokens (a token without a readable `exp` is not projected), whether `account/read` with `refreshToken: true` always rotates the grant, and how Dev Codex behaves when its access token is rejected before a newer projection arrives. An account whose Codex config selects keyring storage has no `auth.json` on the Host and reports that it needs sign-in.
+
+## Default enablement on installations
+
+A shared provider definition stores `policy.enabled` only when the owner sets it. Without it, Accounts & profiles and Needs attention treat the provider as on only while the Host's provider snapshot reports it `ready`: the Host daemon found its CLI on the Host service PATH and the CLI is configured and signed in. Detection follows each daemon's pushed snapshot updates and is never written back as a choice. A provider whose CLI is found nowhere shows "Not installed" with an install hint and no switch. Daemons still probe these providers so a later install is detected; a provider that is not installed or not signed in cannot start agents either way. Oh My Pi stays off until the owner turns it on, because its manifest default keeps the daemon from probing it. Standalone daemons keep their previous defaults.
+
+## Installation account connections
+
+This is the required contract for provider accounts on an installation.
+
+- An account connects once to the installation. Host and Dev use that same verified provider account by default, and the connection flow has no environment choice. An explicit exclusion, set after connection, is the only reason to disable it in one environment. Keep the existing profile selector for environment, account and profile; never silently substitute another account.
+- A connection is ready only after every non-excluded environment verifies the account. An offline environment leaves synchronization pending and resumes when it returns, without a second sign-in or a duplicate account record.
+- Credential payloads stay out of shared settings, browser state, logs and source control. Only the selected account's authentication moves, through the installation's authenticated transport; daemon, coordinator, Docker and unrelated Host credentials never do.
+- One refresh writer per rotating credential: the Host. Copying an authentication file once is not lasting synchronization.
+- Reconnect, sign-out and recovery run as one durable operation. A retry keeps the same account identity, and a stale result never restores a signed-out credential or undoes a later exclusion.
+- Existing unlinked accounts need identity verification before consolidation; matching labels do not prove two accounts are the same.
+
 ## Shared provider keys for installations
 
 The installation coordinator keeps static provider secrets for each shared provider definition: API keys and tokens whose environment variable name ends in `_KEY`, `_TOKEN`, `_SECRET` or `_PASSWORD`. `CLAUDE_CODE_OAUTH_TOKEN` is excluded because Claude subscription sync owns it. Runtime locations such as `CODEX_HOME`, `CLAUDE_CONFIG_DIR` and base URLs stay local. The canonical values live in the coordinator's private `provider-secrets/state.json`, mode 0600 in a 0700 directory, and are never logged.

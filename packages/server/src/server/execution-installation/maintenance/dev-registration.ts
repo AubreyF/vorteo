@@ -5,7 +5,7 @@ import { selectMaintenanceFiles } from "../coordinator-bootstrap-maintenance-fil
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { DaemonMaintenanceProcessSchema } from "@getpaseo/protocol/maintenance-interruption";
-import type { InstallationConfig } from "../config.js";
+import { requireContainer, type InstallationConfig } from "../config.js";
 import type { EnrollmentNativeIdentity } from "./native-identity.js";
 
 const absolutePath = z
@@ -91,7 +91,7 @@ export function readDevRegistrationBinding(input: RegistrationBinding): DevRegis
   if (receipt.launcherPath !== receipt.files.entrySelection.path)
     throw new Error("Dev stable launcher identity must name the protected entry pointer");
   const settings = input.config.containerSourceUpdates;
-  const plan = input.config.container.supervisorMaintenance;
+  const plan = requireContainer(input.config).supervisorMaintenance;
   const expected = input.expected;
   if (!settings || !plan)
     throw new Error("Dev registration requires a configured supervisor maintenance plan");
@@ -407,27 +407,30 @@ function verifyC1ConfigurationProjection(result: C1RegistrationDocuments) {
   const rollback = result.rollback.parsed,
     selected = result.selected.parsed;
   const receipt = DevRegistrationReceiptSchema.parse(result.preparedReceipt.parsed);
+  const originalDev = requireContainer(original),
+    replacementDev = requireContainer(replacement);
+  const rollbackDev = requireContainer(rollback),
+    selectedDev = requireContainer(selected);
+  const replacementPlan = replacementDev.supervisorMaintenance,
+    rollbackPlan = rollbackDev.supervisorMaintenance;
   if (
-    original.container.supervisorMaintenance ||
-    original.container.persistentRegistration ||
-    replacement.container.persistentRegistration ||
-    rollback.container.persistentRegistration ||
-    !replacement.container.supervisorMaintenance ||
-    !rollback.container.supervisorMaintenance
+    originalDev.supervisorMaintenance ||
+    originalDev.persistentRegistration ||
+    replacementDev.persistentRegistration ||
+    rollbackDev.persistentRegistration ||
+    !replacementPlan ||
+    !rollbackPlan
   )
     throw new Error("C1 registration original or operation reference is unsupported");
   if (
-    replacement.container.supervisorMaintenance.node !==
-      rollback.container.supervisorMaintenance.node ||
-    replacement.container.supervisorMaintenance.sha256 ===
-      rollback.container.supervisorMaintenance.sha256 ||
-    replacement.container.supervisorMaintenance.script ===
-      rollback.container.supervisorMaintenance.script
+    replacementPlan.node !== rollbackPlan.node ||
+    replacementPlan.sha256 === rollbackPlan.sha256 ||
+    replacementPlan.script === rollbackPlan.script
   )
     throw new Error("C1 registration operation scripts must be independently bound");
   const common = (config: InstallationConfig) => {
     const copy = structuredClone(config);
-    delete copy.container.supervisorMaintenance;
+    delete requireContainer(copy).supervisorMaintenance;
     return copy;
   };
   if (
@@ -438,14 +441,15 @@ function verifyC1ConfigurationProjection(result: C1RegistrationDocuments) {
   const expected = structuredClone(replacement);
   if (!expected.containerSourceUpdates) throw new Error("C1 registration source updater is absent");
   expected.containerSourceUpdates.node = receipt.files.node.path;
-  expected.container.persistentRegistration = {
-    receiptFile: selected.container.persistentRegistration?.receiptFile ?? "",
+  const registration = {
+    receiptFile: selectedDev.persistentRegistration?.receiptFile ?? "",
     sha256: result.preparedReceipt.sha256,
   };
-  absolutePath.parse(expected.container.persistentRegistration.receiptFile);
+  requireContainer(expected).persistentRegistration = registration;
+  absolutePath.parse(registration.receiptFile);
   if (
     !isDeepStrictEqual(expected, selected) ||
-    receipt.supervisorPlanSha256 !== replacement.container.supervisorMaintenance.sha256
+    receipt.supervisorPlanSha256 !== replacementPlan.sha256
   )
     throw new Error("C1 registration selected configuration projection differs");
 }
@@ -555,7 +559,7 @@ export function prepareDevRegistrationPublication(
     throw new Error("Dev stable launcher identity must name the protected entry pointer");
   const ready = DevRegistrationReadinessSchema.parse(input.readiness);
   const settings = input.config.containerSourceUpdates;
-  const plan = input.config.container.supervisorMaintenance;
+  const plan = requireContainer(input.config).supervisorMaintenance;
   const environment = input.config.public.environments.find((item) => item.kind === "container");
   if (!settings || !plan || !environment)
     throw new Error("Dev publication settings are unavailable");
@@ -610,7 +614,7 @@ export function prepareDevRegistrationPublication(
   const configuration = structuredClone(input.config);
   if (!configuration.containerSourceUpdates) throw new Error("Dev source updater is unavailable");
   configuration.containerSourceUpdates.node = receipt.files.node.path;
-  configuration.container.persistentRegistration = reference;
+  requireContainer(configuration).persistentRegistration = reference;
   const c1 = prepareC1PublicationFields(input, configuration, receiptBytes, reference);
   if (c1) return c1;
   const configurationBytes = Buffer.from(JSON.stringify(configuration));
@@ -638,7 +642,7 @@ function prepareC1PublicationFields(
     !documents.replacement.bytes.equals(input.configurationBytes) ||
     !documents.preparedReceipt.bytes.equals(receiptBytes) ||
     !isDeepStrictEqual(documents.selected.parsed, configuration) ||
-    documents.selected.parsed.container.persistentRegistration?.receiptFile !==
+    requireContainer(documents.selected.parsed).persistentRegistration?.receiptFile !==
       reference.receiptFile
   )
     throw new Error("C1 publication differs from approved documents");

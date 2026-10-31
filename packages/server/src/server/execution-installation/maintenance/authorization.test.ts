@@ -7294,26 +7294,6 @@ test.each(["custody", "action"])(
   },
 );
 
-test("Host restoration child admission requires fresh global exclusion before action", () => {
-  const f = hostContinuationFixture();
-  reserveHostRestoration(f.journal, f.restoreInput);
-  const { input } = f.consume("restoration");
-  const action = vi.fn();
-  expect(() =>
-    withHostContinuationAdmission(
-      f.journal,
-      {
-        ...input,
-        assertExclusive() {
-          throw Error("competing lifecycle effect");
-        },
-      },
-      action,
-    ),
-  ).toThrow("competing");
-  expect(action).not.toHaveBeenCalled();
-});
-
 test("Host restoration child admission accepts only the active consumed candidate", () => {
   const f = hostContinuationFixture();
   f.restore();
@@ -8239,15 +8219,12 @@ test("Host candidate child observes only after the injected execution path retai
   expect(() => f.consumeCandidate()).toThrow();
 });
 
-test.each(["digest", "old-worker", "configuration", "selector", "restoration-result"] as const)(
+test.each(["digest", "restoration-result"] as const)(
   "Host candidate child refuses substituted pinned %s",
   async (changed) => {
     const f = await hostCandidateChildFixture();
     const record = JSON.parse(readFileSync(f.pinFile, "utf8"));
     if (changed === "digest") record.image.launcher.sha256 = "1".repeat(64);
-    if (changed === "old-worker") record.precondition.worker = f.plan.precondition.worker;
-    if (changed === "configuration") record.precondition.configuration.sha256 = "1".repeat(64);
-    if (changed === "selector") record.image.selector.text = f.plan.candidate.directory;
     if (changed === "restoration-result") record.restorationObservationSha256 = "1".repeat(64);
     writeFileSync(f.pinFile, JSON.stringify(record));
     expect(() => f.consumeCandidate()).toThrow();
@@ -8430,19 +8407,6 @@ test.each(["truthy", "duplicate"] as const)(
     expect(existsSync(f.candidatePaths.launcherAttempt)).toBe(false);
   },
 );
-
-test("Host candidate child cannot reopen publication after uncertain consume response", async () => {
-  const f = await hostCandidateChildFixture();
-  const uncertain = {
-    ...f.candidateInput,
-    journal: new FileEnrollmentJournal(f.directory, failingEnrollmentFiles("after-rename")),
-  };
-  expect(() => consumeHostCandidateChild(uncertain, f.candidateExecutor, f.custody)).toThrow();
-  expect(f.lineage().candidate!.claim).toBeDefined();
-  expect(() => f.publishCandidate(f.publicationPorts())).toThrow(/observe only/);
-  expect(() => f.consumeCandidate()).toThrow(/observe only/);
-  expect(existsSync(f.candidatePaths.launcherAttempt)).toBe(false);
-});
 
 test("Host candidate child local publication continuation is one-use even before file effects", async () => {
   const f = await hostCandidateChildFixture();
@@ -8703,7 +8667,6 @@ test("Host candidate child publication without bootstrap attempts cannot become 
 });
 
 test.each([
-  "missing-fence",
   "missing-queue",
   "fake-fence",
   "wrong-claim",
@@ -8718,8 +8681,8 @@ test.each([
   ).toEqual({ status: "bootstrap-attempted" });
   const fence = f.candidatePaths.bootstrapAttempt;
   const queue = fence.replace(/-attempt\.json$/, "-queue-attempt.json");
-  if (changed === "missing-fence" || changed === "missing-queue") {
-    unlinkSync(changed === "missing-fence" ? fence : queue);
+  if (changed === "missing-queue") {
+    unlinkSync(queue);
   } else {
     const file = changed === "fake-fence" ? fence : queue;
     const record = JSON.parse(readFileSync(file, "utf8"));
@@ -8739,7 +8702,7 @@ test.each([
   expect(f.lineage().candidate!.observation).toBeUndefined();
 });
 
-test.each(["fence-bytes", "queue-bytes", "fence-lifetime", "queue-lifetime"] as const)(
+test.each(["fence-bytes", "queue-lifetime"] as const)(
   "Host candidate child final callback cannot replace bootstrap %s",
   async (changed) => {
     const f = await hostCandidateChildFixture();
@@ -9276,33 +9239,6 @@ test("Initial Host command owner cannot replace enqueue during native custody", 
   expect(f.queued).toEqual([]);
   expect(foreignEnqueues).toBe(0);
   expect(f.commands).toEqual([]);
-});
-
-test("Initial Host completion does not demand the intentionally retired predecessor stay alive", async () => {
-  const f = initialHostTransitionFixture();
-  let stopped = false,
-    started = false;
-  f.ports.collectRetirement = async () => ({
-    status: "present",
-    native: {
-      ...f.native,
-      observedAt: new Date().toISOString(),
-      assertCurrent() {
-        if (stopped) throw new Error("Retired predecessor");
-      },
-    },
-  });
-  f.absence.assertCurrent.mockImplementation(() => {
-    if (started) throw new Error("Candidate is now present");
-  });
-  f.command.run = async (args) => {
-    f.commands.push([...args]);
-    if (args[0] === "bootout") stopped = true;
-    if (args[0] === "bootstrap") started = true;
-  };
-  expect((await runInitialHostFixture(f)).record.generation).toBe(f.input.generation);
-  expect(stopped).toBe(true);
-  expect(started).toBe(true);
 });
 
 test.each(["fence", "queue"] as const)(

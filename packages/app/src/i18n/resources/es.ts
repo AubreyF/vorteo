@@ -2288,6 +2288,7 @@ export const es: TranslationResources = {
       theme: {
         title: "Tema",
         accessibilityLabel: "Tema:{{value}}",
+        pluginThemes: "Temas de plugins",
         options: {
           light: "Luz",
           dark: "Oscuro",

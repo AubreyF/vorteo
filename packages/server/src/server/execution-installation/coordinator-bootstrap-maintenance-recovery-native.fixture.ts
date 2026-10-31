@@ -454,7 +454,6 @@ export async function exerciseAbsentRecovery(input: {
     return;
   }
   const lostStartReply = [
-    "recover-lost-start",
     "recover-observe-lost-start",
     "recover-observe-runtime",
     "recover-observe-rollback",

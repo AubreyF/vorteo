@@ -1,10 +1,16 @@
 # Container operations
 
-This fork runs the Vorteo daemon, agents and provider tools inside Docker. The Standard and Vorteo client modes use that same daemon. Start with the [installer](../docker/multiplex/README.md); there is no separate native-daemon installation path. Browser and mobile clients run on their own devices.
+This page is the reference for Vorteo's Dev container. Install and upgrade with the one-command installer on the computer that runs Docker:
 
-## Build and install
+```sh
+curl -fsSL https://github.com/terran-labs/vorteo/releases/latest/download/install.sh | bash
+```
 
-From the repository root:
+It creates the Dev container when you choose one, wraps a container-only installation into the Host architecture without losing its identity, home, workspace or agents, and leaves every later update to the interface. The [README](../README.md#install) has the short version. The sections below describe the container it manages and the lower-level scripts in [`docker/multiplex`](../docker/multiplex/README.md), for repair and inspection. Browser and mobile clients run on their own devices.
+
+## Manual container install
+
+The one-command installer creates the container for you. To build a standalone container by hand, from the repository root:
 
 ```sh
 ./docker/multiplex/install.sh "$HOME/paseo-instance"
@@ -43,6 +49,8 @@ Local inference is optional. MTPLX runs natively on a Mac and is reached from Pi
 
 ## Updates and rollback
 
+On an installation with a Host, update from Settings: an approved update upgrades the Host and the Dev container image. A container-only installation shows the install command on its Updates page instead, because a container cannot install its own Host; run that command once on the Docker computer. The manual image update below is the lower-level reference.
+
 Updates interrupt this instance's tasks. Coordinate a maintenance window and back up its state first. Build your updated checkout from its repository root, then update the deployment:
 
 ```sh
@@ -58,7 +66,7 @@ Back up the deployment's `.env`, home, workspace and Tailscale volume while the 
 
 ## Existing installations
 
-Do not run the fresh installer over an existing deployment. The updater requires the new installation marker and intentionally refuses legacy directories. Preserve the current private Compose files, exact home/workspace mounts, Tailscale identity volume, web release and rollback image. Pause optional host recovery before maintenance.
+The one-command installer detects existing deployments and adopts them. Do not run `docker/multiplex/install.sh` over an existing deployment. The manual updater requires the new installation marker and intentionally refuses legacy directories. Preserve the current private Compose files, exact home/workspace mounts, Tailscale identity volume, web release and rollback image. Pause optional host recovery before maintenance.
 
 For a reviewed migration, compare the rendered old and new Compose configurations locally, without sharing their credential-bearing output. Map the existing identity volume explicitly, retain mounts, and check that the node's existing HTTPS 443 route points to this daemon. Recreate only after coordinating active tasks and taking a consistent backup. The old hostname-file mount is no longer needed by the new runtime; do not discard its identity volume. Reinstall optional broker tools against the serving container afterward. Record destination acceptance in the [private handoff](host-handoff.md).
 

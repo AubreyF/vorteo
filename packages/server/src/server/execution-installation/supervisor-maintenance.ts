@@ -3,12 +3,12 @@ import { createHash } from "node:crypto";
 import { accessSync, constants, readFileSync } from "node:fs";
 import { promisify } from "node:util";
 import type { RestartJob } from "@getpaseo/protocol/execution-installation";
-import type { InstallationConfig } from "./config.js";
+import type { ContainerDaemonConfig } from "./config.js";
 
 const execute = promisify(execFile);
 
 export function supervisorPlanDigest(
-  plan: InstallationConfig["container"]["supervisorMaintenance"],
+  plan: ContainerDaemonConfig["supervisorMaintenance"],
 ): string | undefined {
   if (!plan) return undefined;
   try {
@@ -22,7 +22,7 @@ export function supervisorPlanDigest(
 }
 
 export async function runSupervisorMaintenance(
-  plan: NonNullable<InstallationConfig["container"]["supervisorMaintenance"]>,
+  plan: NonNullable<ContainerDaemonConfig["supervisorMaintenance"]>,
   job: RestartJob,
 ): Promise<void> {
   if (job.target !== "container-daemon" || job.supervisorPlanSha256 !== plan.sha256)

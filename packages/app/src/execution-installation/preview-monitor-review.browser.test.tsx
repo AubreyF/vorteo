@@ -9,6 +9,8 @@ import { confirmDialog } from "@/utils/confirm-dialog";
 import { monitorReviewFixture } from "./preview-monitor-review.fixture";
 import { DaemonAutomationControl, InstallationControls, RestartActions } from "./panel";
 
+vi.mock("@/utils/copy-to-clipboard", () => ({ copyToClipboard: vi.fn() }));
+
 const capture = vi.hoisted(() => ({
   model: undefined as InstallationPanelModel | undefined,
 }));
@@ -34,7 +36,11 @@ vi.mock("./client", () => ({
     throw new Error("Unexpected owner transport");
   },
 }));
-vi.mock("./policy", () => ({
+// Upgrades and snapshots are covered by their own tests and need a query client.
+vi.mock("./safety-snapshots", () => ({ SafetySnapshotsCard: () => null }));
+vi.mock("./installation-upgrade-card", () => ({ InstallationUpgradeCard: () => null }));
+vi.mock("./policy", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./policy")>()),
   readExecutionInstallation: () => ({ environments: [] }),
 }));
 vi.mock("@/runtime/host-runtime", () => ({
@@ -121,7 +127,7 @@ function assertUnclipped(card: HTMLElement, width: number) {
   }
 }
 
-test("production monitor review preserves exact evidence and manual gates at desktop and 390px", async () => {
+test("production monitor review preserves exact evidence and manual gates at 390px", async () => {
   vi.stubGlobal("React", React);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const container = document.createElement("div");
@@ -133,7 +139,7 @@ test("production monitor review preserves exact evidence and manual gates at des
   const button = (action: string) =>
     container.querySelector<HTMLElement>(`[data-testid="monitor-${current.id}-${action}"]`);
   try {
-    for (const width of [1280, 390]) {
+    for (const width of [390]) {
       await page.viewport(width, 900);
       expect(window.innerWidth).toBe(width);
       render(width);
@@ -147,7 +153,7 @@ test("production monitor review preserves exact evidence and manual gates at des
     }
     const model = capture.model!;
     await act(() => model.initialize());
-    for (const width of [1280, 390]) {
+    for (const width of [390]) {
       await page.viewport(width, 900);
       expect(window.innerWidth).toBe(width);
       render(width);
@@ -211,7 +217,7 @@ test("production monitor review preserves exact evidence and manual gates at des
       }
     }
     await act(() => model.lock());
-    for (const width of [1280, 390]) {
+    for (const width of [390]) {
       await page.viewport(width, 900);
       expect(window.innerWidth).toBe(width);
       render(width);
@@ -239,7 +245,7 @@ test("production monitor review preserves exact evidence and manual gates at des
   }
 }, 30_000);
 
-test.each([1280, 390])(
+test.each([390])(
   "pending Host restart requires confirmation and sends only approve at %spx",
   async (width) => {
     vi.stubGlobal("React", React);

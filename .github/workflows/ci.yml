@@ -45,20 +45,50 @@ jobs:
         with:
           node-version: "22"
 
+      # Commit version bumps touch every manifest; route on the substantive diff.
+      - name: Ignore version-only manifest bumps
+        if: ${{ github.event_name == 'pull_request' }}
+        run: node scripts/ci-neutralize-version-bumps.mjs "${{ github.event.pull_request.base.sha }}"
+
       - name: Detect affected CI contracts
         id: filter
         uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3
         with:
           filters: .github/ci-paths.yml
+          # An empty token makes the filter diff the local routing commit
+          # instead of asking the API for the pull request's raw file list.
+          token: ""
 
-      - name: Test Vorteo commit versioning
-        run: node --test scripts/vorton-version.test.mjs
+      - name: Test Vorteo versions and commit checks
+        run: node --test scripts/vorteo-version.test.mjs scripts/vorton-version.test.mjs
 
       - name: Test agent lifecycle scripts and instruction budgets
         run: node --test scripts/agent-lifecycle.test.mjs scripts/agent-instructions.test.mjs scripts/vorteo-release.test.mjs
 
       - name: Validate CI contracts
-        run: node --test scripts/ci-workflow.test.mjs scripts/daemon-launch-contract.test.mjs scripts/sync-fdroid-changelogs.test.mjs scripts/upload-release-assets.test.mjs scripts/publish-instance-web.test.mjs scripts/dependency-cache.test.mjs scripts/instance-builds.test.mjs
+        run: node --test scripts/ci-workflow.test.mjs scripts/daemon-launch-contract.test.mjs scripts/sync-fdroid-changelogs.test.mjs scripts/upload-release-assets.test.mjs scripts/publish-instance-web.test.mjs scripts/dependency-cache.test.mjs scripts/instance-builds.test.mjs scripts/release/latest.test.mjs
+
+  installer-tests:
+    name: installer (${{ matrix.os }})
+    # macOS is the only place bash 3.2 runs install.sh.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install dependencies
+        run: node scripts/npm-retry.mjs ci
+      - name: install.sh, prerequisites, QR and progress
+        run: node --test scripts/installer/install-sh.test.mjs scripts/installer/prerequisites.test.mjs scripts/installer/qr.test.mjs scripts/installer/progress.test.mjs scripts/installer/service-path.test.mjs
+      - name: Installer engine
+        run: npx vitest run scripts/installer/plan.test.mjs scripts/installer/detect.test.mjs scripts/installer/apply.test.mjs scripts/installer/services.test.mjs scripts/installer/gate.test.mjs scripts/installer/host-adoption.test.mjs
 
   format:
     name: format

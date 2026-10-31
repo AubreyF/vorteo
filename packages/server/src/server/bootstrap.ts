@@ -168,7 +168,12 @@ import { startIdleSessionRelease } from "./agent/idle-release.js";
 import { ensureAgentLoaded } from "./agent/agent-loading.js";
 import type { SessionHostConnector } from "./session-host/connector.js";
 import { bootstrapWorkspaceRegistries } from "./workspace-registry-bootstrap.js";
-import { seedSystemProjectAtStartup } from "./system-project/ensure-system-project.js";
+import {
+  isInstallationManaged,
+  startSystemProjectSeeding,
+} from "./system-project/ensure-system-project.js";
+import type { SystemEnvironment } from "./system-project/manifest.js";
+import { startOptimizerAgent } from "./system-project/optimizer-agent.js";
 import { WorkspaceReconciliationService } from "./workspace-reconciliation-service.js";
 import {
   FileBackedProjectRegistry,
@@ -1177,15 +1182,24 @@ export async function createPaseoDaemon(
     workspaceGitService,
     logger,
   });
+  // Settles with the environment once the System project exists; never, when it is off.
+  let resolveSystemSeeded: (environment: SystemEnvironment) => void = () => {};
+  const systemSeeded = new Promise<SystemEnvironment>((resolve) => {
+    resolveSystemSeeded = resolve;
+  });
   // Before reconciliation, so system folders exist when it checks for missing directories.
-  await seedSystemProjectAtStartup({
+  await startSystemProjectSeeding({
     enabled: config.systemProjectEnabled,
     paseoHome: config.paseoHome,
     serverId,
     sharedProviderPreferences: config.sharedProviderPreferences,
+    installationManaged: isInstallationManaged(process.env),
+    onBindingChange: (handler) =>
+      daemonConfigStore.onFieldChange("sharedProviderPreferences", handler),
     projectRegistry,
     workspaceRegistry: archiveWorkspaceRegistry,
     logger,
+    onSeeded: (environment) => resolveSystemSeeded(environment),
   });
   await workspaceLabelService.initialize();
   logger.info({ elapsed: elapsed() }, "Workspace registries bootstrapped");
@@ -1729,6 +1743,25 @@ export async function createPaseoDaemon(
     }
   });
   logger.info({ elapsed: elapsed() }, "Schedule service initialized");
+  let optimizerAgent: { stop: () => void } | null = null;
+  const startOptimizerSeeding = (environment: SystemEnvironment) =>
+    startOptimizerAgent({
+      paseoHome: config.paseoHome,
+      environment,
+      workspaceRegistry,
+      agentStorage,
+      providers: providerSnapshotManager,
+      readUsage: (options) => providerUsageService.listUsage(options),
+      getSettings: () => daemonConfigStore.get(),
+      // Any settings change, such as a newly connected account or a new default profile.
+      onSettingsChange: (handler) => daemonConfigStore.onChange(() => handler()),
+      createAgent,
+      schedules: scheduleService,
+      logger,
+    });
+  const activateOptimizerAgent = (environment: SystemEnvironment): void => {
+    if (optimizerAgent === null) optimizerAgent = startOptimizerSeeding(environment);
+  };
   logger.info({ elapsed: elapsed() }, "Loading persisted agent registry");
   const persistedRecords = await agentStorage.list();
   logger.info(
@@ -2187,6 +2220,8 @@ export async function createPaseoDaemon(
       scriptHealthMonitor.start();
       blockedTaskReviews.start();
       usageLimitResumes.start();
+      // After listening, so the first Optimizer agent never delays startup.
+      void systemSeeded.then(activateOptimizerAgent);
     } catch (error) {
       blockedTaskReviews.stop();
       usageLimitResumes.stop();
@@ -2235,6 +2270,9 @@ export async function createPaseoDaemon(
   /** onStep names each awaited stage, so a stalled shutdown reports where it stopped. */
   const stop = async (options?: { onStep?: (step: string) => void }) => {
     const step = options?.onStep ?? (() => {});
+    optimizerAgent?.stop();
+    // A stopped daemon never starts it later, even if seeding settles now.
+    optimizerAgent = { stop: () => {} };
     blockedTaskReviews.stop();
     usageLimitResumes.stop();
     factoryScheduleInspection.revoke();

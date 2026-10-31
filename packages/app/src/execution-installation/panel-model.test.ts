@@ -13,6 +13,7 @@ import {
   restartNoticeVisible,
   restartBlockingReason,
   restartActionDisabledReason,
+  passwordCopyCommand,
 } from "./panel-model";
 import type { RestartJob } from "@getpaseo/protocol/execution-installation";
 
@@ -1177,4 +1178,13 @@ test("delegation status failure preserves restart decisions and clears on recove
     maintenanceDelegation: null,
     maintenanceDelegationError: null,
   });
+});
+
+test("the password copy command quotes the coordinator's path", () => {
+  expect(passwordCopyCommand("/Users/owner/.local/share/vorteo/owner-password")).toBe(
+    "pbcopy < '/Users/owner/.local/share/vorteo/owner-password'",
+  );
+  expect(passwordCopyCommand("/Users/o'neil/my host/owner-password")).toBe(
+    "pbcopy < '/Users/o'\\''neil/my host/owner-password'",
+  );
 });

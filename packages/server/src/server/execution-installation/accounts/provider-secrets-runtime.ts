@@ -2,7 +2,11 @@ import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { join } from "node:path";
 import type { ProviderSecretsStatus } from "@getpaseo/protocol/provider-secrets";
-import type { InstallationConfig } from "../config.js";
+import {
+  codexHostRefreshEnabled,
+  requireEnvironmentDaemon,
+  type InstallationConfig,
+} from "../config.js";
 import { connectInstallationDaemon, createInstallationRegistrationAdmission } from "../daemon.js";
 import type { InstallationSettingsService } from "../settings/service.js";
 import { readClaudeSetupFile, writeClaudeSetupFile } from "./claude-setup-file.js";
@@ -136,7 +140,7 @@ export function createProviderSecretsRuntime(
           throw new ProviderSecretsUnsupportedError();
         supported.set(target.kind, Date.now());
       }
-      const daemon = target.kind === "host" ? config.host : config.container;
+      const daemon = requireEnvironmentDaemon(config, target.kind);
       // Explicit loopback endpoints are validated by installation config, never supplied by clients.
       const response = await request(`http://${daemon.endpoint}${PROVIDER_SECRETS_ROUTE}`, {
         method: "POST",
@@ -162,8 +166,12 @@ export function createProviderSecretsRuntime(
     if (!selected) throw new ProviderSecretsDefinitionMissing();
     return selected;
   }
-  /** Codex refresh grants stay per environment until access-only projection is proven safe. */
+  /**
+   * Without Host-owned Codex sign-in, Codex refresh grants stay per environment. With it, the
+   * account connects once through the coordinator and no per-environment hint is reported.
+   */
   function withAccountSignIn(status: ProviderSecretsStatus): ProviderSecretsStatus {
+    if (codexHostRefreshEnabled(config)) return status;
     const { selected } = definition(status.definitionId);
     const codexAccount =
       selected?.providerType === "codex" &&

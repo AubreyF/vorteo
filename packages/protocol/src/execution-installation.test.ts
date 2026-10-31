@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
 import {
+  installationHasContainer,
+  InstallationUnlockSchema,
   RestartRequestSchema,
   SourceContributionSchema,
   validateExecutionInstallation,
@@ -55,6 +57,44 @@ test("installation descriptors require distinct encrypted destinations and never
       ],
     }),
   ).toThrow("TLS");
+});
+
+test("a Host-only installation lists exactly the Host", () => {
+  const host = installation.environments[1];
+  const hostOnly = validateExecutionInstallation({ ...installation, environments: [host] });
+  expect(hostOnly.environments).toEqual([host]);
+  expect(installationHasContainer(hostOnly)).toBe(false);
+  expect(installationHasContainer(validateExecutionInstallation(installation))).toBe(true);
+  expect(() =>
+    validateExecutionInstallation({
+      ...installation,
+      environments: [installation.environments[0]],
+    }),
+  ).toThrow("Host environment");
+  expect(() => validateExecutionInstallation({ ...installation, environments: [] })).toThrow();
+  expect(() =>
+    validateExecutionInstallation({ ...installation, environments: [host, host, host] }),
+  ).toThrow();
+  expect(
+    InstallationUnlockSchema.parse({
+      installationId: installation.installationId,
+      connections: [{ ...host, password: "secret" }],
+    }).connections,
+  ).toHaveLength(1);
+});
+
+test("a local-only installation serves plain HTTP on localhost with a loopback Host", () => {
+  const local = validateExecutionInstallation({
+    ...installation,
+    origin: "http://localhost:6770",
+    environments: [
+      { kind: "host", serverId: "host-id", endpoint: "127.0.0.1:6767", useTls: false },
+    ],
+  });
+  expect(local.origin).toBe("http://localhost:6770");
+  expect(() =>
+    validateExecutionInstallation({ ...installation, origin: "http://installation.example.test" }),
+  ).toThrow("HTTPS");
 });
 
 test("owner approval requirements are optional durable request and contribution metadata", () => {
