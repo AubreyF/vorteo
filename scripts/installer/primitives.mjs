@@ -45,13 +45,37 @@ const running = new Set();
 
 /** Runs a command without a shell and returns its trimmed standard output. */
 export async function run(command, args, options = {}) {
+  const { input, ...execOptions } = options;
   const pending = execute(command, args, {
     maxBuffer: 32 * 1024 * 1024,
-    ...options,
+    ...execOptions,
   });
+  const inputWritten =
+    input === undefined
+      ? Promise.resolve()
+      : new Promise((resolve, reject) => {
+          pending.child.stdin.on("error", reject);
+          pending.child.stdin.end(input, (error) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve();
+          });
+        });
   running.add(pending.child);
   try {
-    return (await pending).stdout.trim();
+    // Keep the child tracked until it exits, including when its stdin closes early.
+    const [result, written] = await Promise.allSettled([
+      pending,
+      inputWritten.catch((error) => {
+        pending.child.kill();
+        throw error;
+      }),
+    ]);
+    if (result.status === "rejected") throw result.reason;
+    if (written.status === "rejected") throw written.reason;
+    return result.value.stdout.trim();
   } finally {
     running.delete(pending.child);
   }

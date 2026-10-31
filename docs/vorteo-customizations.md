@@ -1,5 +1,9 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-31): candidate 26.10.3102 includes Dev client provisioning for private Linux homes. A restricted Linux container verified fresh installation and retry over an old root-owned client file. Exact-commit acceptance remains pending.
+
+Maintenance review (2026-10-31): Dev client provisioning writes private files atomically as the Dev account, passing credentials through stdin rather than process arguments. This avoids a root traversal failure in private Linux homes and permits retrying after the older root-owned copy. Container capabilities remain unchanged.
+
 Maintenance review (2026-10-31): release candidate 26.10.3101 includes the Host-only detection fix and explicit legacy selection in the overlapping-folder recovery command. The regression case verifies that retrying with the suggested root and deployment hint adopts the original Dev. Exact-commit installation acceptance remains pending.
 
 Maintenance review (2026-10-31): an explicit Host-only installation skips Docker discovery and prerequisite probes as well as container creation. Existing detection and shell acceptance cases cover the flag. README onboarding is unchanged.

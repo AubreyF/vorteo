@@ -214,9 +214,27 @@ export async function installGuestClient({
     [path.join(release, AGENT_SCRIPT), `${guestDir}/installation-agent.mjs`],
     ...guestSkillDirs.map((directory) => [guestSkill, `${directory}/SKILL.md`]),
   ]) {
-    await runCommand(docker, ["cp", from, `${containerName}:${to}`]);
-    await exec("0", "chown", containerUser, to);
-    await exec(containerUser, "chmod", "600", to);
+    // Write as the home owner: restricted container root cannot traverse a private
+    // Linux home. Stdin keeps credentials out of process arguments; atomic rename
+    // also replaces a root-owned file left by an interrupted older installer.
+    await runCommand(
+      docker,
+      [
+        "exec",
+        "-i",
+        "--user",
+        containerUser,
+        containerName,
+        "node",
+        "-e",
+        "const fs=require('fs'); const target=process.argv[1]; " +
+          "const temporary=target+'.'+require('crypto').randomUUID(); " +
+          "try { fs.writeFileSync(temporary,fs.readFileSync(0),{mode:0o600,flag:'wx'}); " +
+          "fs.renameSync(temporary,target); } finally { fs.rmSync(temporary,{force:true}); }",
+        to,
+      ],
+      { input: readFileSync(from) },
+    );
   }
 }
 

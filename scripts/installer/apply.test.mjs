@@ -212,12 +212,16 @@ describe("apply", () => {
     expect(commands).toContain("tailscale serve --bg --https=44446 http://127.0.0.1:6768");
     // Guest credentials reach Dev; the Host's never do.
     const copied = context.run.calls.filter(
-      (call) => call.command === "docker" && call.args[0] === "cp",
+      (call) => call.command === "docker" && call.options.input !== undefined,
     );
-    expect(copied.map((call) => path.basename(call.args[1]))).toEqual(
-      expect.arrayContaining(["container-agent.json", "installation-agent.mjs"]),
+    expect(copied.map((call) => path.basename(call.args.at(-1)))).toEqual(
+      expect.arrayContaining(["client.json", "installation-agent.mjs"]),
     );
-    expect(copied.some((call) => call.args[1].includes("host-agent"))).toBe(false);
+    const client = copied.find((call) => call.args.at(-1).endsWith("/client.json"));
+    expect(JSON.parse(client.options.input.toString()).kind).toBe("container-agent");
+    expect(
+      copied.some((call) => call.options.input.toString().includes('"kind": "host-agent"')),
+    ).toBe(false);
 
     const journal = JSON.parse(readFileSync(plan.paths.journal, "utf8"));
     expect(journal.completedAt).toBeDefined();

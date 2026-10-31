@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 26.10.3102 - 2026-10-31
+
+### Maintenance
+
+- Prepare the installation release with private-home Dev client provisioning fixed
+
+## Unreleased - 2026-10-31
+
+### Fixed
+
+- Write the Dev installation client as the home owner so private Linux homes work with restricted container permissions
+
 ## 26.10.3101 - 2026-10-31
 
 ### Fixed
