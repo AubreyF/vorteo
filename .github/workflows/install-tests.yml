@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      VORTEO_E2E_STATE: ${{ runner.temp }}/vorteo-e2e
+      VORTEO_E2E_STATE: ${{ github.workspace }}/.runtime/vorteo-e2e
       VORTEO_E2E_DEV_IMAGE: vorteo-dev:install-tests
       VORTEO_E2E_LEGACY_DEPLOYMENT: ${{ github.workspace }}/../legacy-deployment
     steps:
@@ -125,8 +125,8 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 60
     env:
-      VORTEO_E2E_STATE: ${{ runner.temp }}/vorteo-e2e
-      VORTEO_E2E_DOCKER_LOG: ${{ runner.temp }}/vorteo-e2e/docker-calls.log
+      VORTEO_E2E_STATE: ${{ github.workspace }}/.runtime/vorteo-e2e
+      VORTEO_E2E_DOCKER_LOG: ${{ github.workspace }}/.runtime/vorteo-e2e/docker-calls.log
     steps:
       - uses: actions/checkout@v4
         with:

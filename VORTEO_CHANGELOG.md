@@ -8,6 +8,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ### Maintenance
 
+- Resolve the diagnostic directory from the workflow workspace before a runner is assigned
+
+## Unreleased - 2026-10-31
+
+### Maintenance
+
 - Store installation diagnostics in the runner temporary directory accepted by artifact uploads
 
 ## Unreleased - 2026-10-31
