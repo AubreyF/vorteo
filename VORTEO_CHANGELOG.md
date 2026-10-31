@@ -6,6 +6,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ## Unreleased - 2026-10-30
 
+### Maintenance
+
+- The Appearance centering check measures each bubble inside its own card, so a scroll or layout shift during the check cannot skew it.
+
+## Unreleased - 2026-10-30
+
 ### Fixed
 
 - Before the first stable release, Vorteo update status, the Needs attention hint and the update task prompt name main, which the check follows, instead of "the latest release".

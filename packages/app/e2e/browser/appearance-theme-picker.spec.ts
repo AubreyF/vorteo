@@ -317,13 +317,17 @@ test("shows only centered theme bubbles in Appearance settings", async ({ page }
   await expect(page.getByText("Theme", { exact: true })).toHaveCount(1);
   await expect(page.getByRole("button", { name: /^Theme: / })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Plugin themes", exact: true })).toHaveCount(0);
+  // Measure each bubble inside its own card so scrolling or layout shifts cannot skew it.
   for (const id of ["starship-dark", "ember"]) {
-    const card = await page.getByTestId(`theme-preview-${id}`).boundingBox();
-    const surface = await page.getByTestId(`theme-preview-surface-${id}`).boundingBox();
-    expect(card && surface).toBeTruthy();
-    const cardCenter = card!.y + card!.height / 2;
-    const surfaceCenter = surface!.y + surface!.height / 2;
-    expect(Math.abs(cardCenter - surfaceCenter)).toBeLessThanOrEqual(1);
+    const offset = await page.getByTestId(`theme-preview-${id}`).evaluate((card, surfaceId) => {
+      const surface = card.querySelector(`[data-testid="${surfaceId}"]`);
+      if (!surface) return null;
+      const c = card.getBoundingClientRect();
+      const s = surface.getBoundingClientRect();
+      return Math.abs(c.top + c.height / 2 - (s.top + s.height / 2));
+    }, `theme-preview-surface-${id}`);
+    expect(offset).not.toBeNull();
+    expect(offset!).toBeLessThanOrEqual(1);
   }
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
