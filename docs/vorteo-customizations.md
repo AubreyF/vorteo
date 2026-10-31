@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-31): fresh Linux container homes initialize under the container account after assigning the private bind mount to that account. The existing capability restrictions remain in place. Legacy installation acceptance checks exact home and workspace mounts and preserved synthetic files. README onboarding is unchanged.
+
 Maintenance review (2026-10-31): installation CI prints Host build logs and container logs on failure and retains the diagnostic files for seven days in the workflow workspace runtime directory. The generated owner password is redacted. Product behavior and README onboarding are unchanged.
 
 Maintenance review (2026-10-31): the guarded publisher verifies active organization ownership for same-repository pull requests authored by the current account. Repository administrators and ordinary organization members gain no approval authority. Focused tests cover ownership, access failures and blocking reviews. The correction preserves date-based release versions. Runtime and README behavior are unchanged.

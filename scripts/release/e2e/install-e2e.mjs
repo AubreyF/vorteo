@@ -492,14 +492,25 @@ function assertIdentity() {
   if (!dev) fail("The installation has no Dev environment after wrapping.");
   if (dev.serverId !== expected) fail(`Dev is ${dev.serverId}, not the legacy ${expected}.`);
   const container = devContainer(status);
-  const home = JSON.parse(
-    docker(["inspect", container, "--format", "{{json .Mounts}}"]).stdout,
-  ).find((mount) => mount.Destination === "/home/paseo");
+  const mounts = JSON.parse(docker(["inspect", container, "--format", "{{json .Mounts}}"]).stdout);
   const legacy = process.env.VORTEO_E2E_LEGACY_DEPLOYMENT;
-  const kept =
-    home && (home.Source.startsWith(`${legacy}/`) || home.Source.startsWith(CONTRACT.home));
-  if (!kept) fail(`Dev's home is ${home?.Source}, not the legacy deployment's.`);
-  step(`Dev kept server-id ${expected} and the legacy home (${home.Source})`);
+  for (const [destination, source, content] of [
+    ["/home/paseo", path.resolve(legacy, "data/home"), "legacy home preserved"],
+    ["/workspace", path.resolve(legacy, "workspace"), "legacy workspace preserved"],
+  ]) {
+    const mount = mounts.find((entry) => entry.Destination === destination);
+    if (mount?.Source !== source) fail(`${destination} is not the original legacy mount.`);
+    const preserved = docker([
+      "exec",
+      "--user",
+      "paseo",
+      container,
+      "cat",
+      `${destination}/legacy-acceptance.txt`,
+    ]).stdout;
+    if (preserved !== content) fail(`${destination} lost its existing user file.`);
+  }
+  step(`Dev kept server-id ${expected}, both original mounts, and their user files`);
 }
 
 function assertNoDocker() {

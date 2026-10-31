@@ -33,6 +33,11 @@ bash "$source_tree/docker/multiplex/install.sh" "$deployment" "$image"
 
 compose=(docker compose --project-directory "$deployment" --env-file "$deployment/.env" -f "$deployment/compose.yaml")
 "${compose[@]}" stop paseo
+# The historical image predates initialization of private Linux bind mounts.
+# Prepare only this new disposable fixture before starting the unchanged daemon.
+docker run --rm --network none --entrypoint bash \
+  -v "$deployment/data/home:/home/paseo" -v "$deployment/workspace:/workspace" \
+  "$image" -c 'chown paseo:paseo /home/paseo /workspace; install -d -o paseo -g paseo -m 0700 /home/paseo/.paseo'
 password="$(sed -n 's/^PASEO_PASSWORD=//p' "$deployment/.env")"
 docker run -d --name "$seed" --network none \
   --cap-drop ALL --cap-add SETUID --cap-add SETGID --cap-add SETPCAP --cap-add CHOWN \
@@ -48,6 +53,7 @@ for _ in $(seq 1 120); do
   [[ "$server_id" =~ ^srv_ ]] && break
   sleep 1
 done
+docker exec --user paseo "$seed" sh -c 'printf "%s" "legacy home preserved" > /home/paseo/legacy-acceptance.txt; printf "%s" "legacy workspace preserved" > /workspace/legacy-acceptance.txt'
 docker rm -f "$seed" >/dev/null
 if [[ ! "$server_id" =~ ^srv_ ]]; then
   echo 'The legacy daemon did not create a server-id within two minutes.' >&2

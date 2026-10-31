@@ -6,6 +6,16 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ## Unreleased - 2026-10-31
 
+### Fixed
+
+- Initialize private Linux container homes as their owner without expanding container capabilities
+
+### Maintenance
+
+- Verify that legacy upgrades preserve the original home and workspace mounts and existing user files
+
+## Unreleased - 2026-10-31
+
 ### Maintenance
 
 - Resolve the diagnostic directory from the workflow workspace before a runner is assigned
