@@ -446,12 +446,12 @@ export async function detectPrerequisites(context, { docker = true } = {}) {
   };
 }
 
-export async function detect(context) {
+export async function detect(context, options = {}) {
   const platform = context.platform === "darwin" ? "darwin" : "linux";
   return {
     platform,
     supported: ["darwin", "linux"].includes(context.platform),
-    existing: await detectExisting(context),
-    prerequisites: await detectPrerequisites(context),
+    existing: await detectExisting(context, options),
+    prerequisites: await detectPrerequisites(context, options),
   };
 }

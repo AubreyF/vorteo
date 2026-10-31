@@ -324,6 +324,11 @@ describe("install.sh", () => {
       version: "v9.9.9",
     });
     assert.match(done.stdout, /^VORTEO_RESULT origin http:\/\/localhost:6790$/m);
+    const inspections = box
+      .calls()
+      .filter((call) => call.tool === "engine" && call.argv[0] === "detect");
+    assert.ok(inspections.length > 0);
+    assert.ok(inspections.every((call) => call.argv.includes("--no-docker")));
   });
 
   test("--yes installs with every default and finishes", () => {

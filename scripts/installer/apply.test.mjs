@@ -212,12 +212,16 @@ describe("apply", () => {
     expect(commands).toContain("tailscale serve --bg --https=44446 http://127.0.0.1:6768");
     // Guest credentials reach Dev; the Host's never do.
     const copied = context.run.calls.filter(
-      (call) => call.command === "docker" && call.args[0] === "cp",
+      (call) => call.command === "docker" && call.options.input !== undefined,
     );
-    expect(copied.map((call) => path.basename(call.args[1]))).toEqual(
-      expect.arrayContaining(["container-agent.json", "installation-agent.mjs"]),
+    expect(copied.map((call) => path.basename(call.args.at(-1)))).toEqual(
+      expect.arrayContaining(["client.json", "installation-agent.mjs"]),
     );
-    expect(copied.some((call) => call.args[1].includes("host-agent"))).toBe(false);
+    const client = copied.find((call) => call.args.at(-1).endsWith("/client.json"));
+    expect(JSON.parse(client.options.input.toString()).kind).toBe("container-agent");
+    expect(
+      copied.some((call) => call.options.input.toString().includes('"kind": "host-agent"')),
+    ).toBe(false);
 
     const journal = JSON.parse(readFileSync(plan.paths.journal, "utf8"));
     expect(journal.completedAt).toBeDefined();
@@ -419,6 +423,40 @@ describe("lifecycle", () => {
     expect(existsSync(plan.paths.host)).toBe(false);
     expect(existsSync(plan.paths.state)).toBe(false);
     expect(existsSync(plan.paths.source)).toBe(true);
+    expect(existsSync(plan.paths.projectsFolder)).toBe(true);
+  });
+  test("Linux Dev cleanup preserves the journal on failure and never mounts Projects", async () => {
+    let refuseCleanup = true;
+    const { context } = machine({
+      platform: "linux",
+      extraRules: [
+        [
+          (command, args) => command === "docker" && args.join(" ").includes("/usr/bin/find"),
+          () => {
+            if (refuseCleanup) throw new Error("cleanup unavailable");
+            return "";
+          },
+        ],
+      ],
+    });
+    const plan = await planFor(context, { remote: { mode: "local" } });
+    await apply(plan, context);
+    mkdirSync(path.join(plan.paths.container, "data"));
+    mkdirSync(path.join(plan.paths.container, "workspace"));
+    expect(await uninstall(context, { keepData: false }, () => {})).toBe(false);
+    expect(existsSync(path.join(plan.paths.state, "install.json"))).toBe(true);
+    expect(existsSync(plan.paths.ownerPassword)).toBe(true);
+    refuseCleanup = false;
+    expect(await uninstall(context, { keepData: false }, () => {})).toBe(true);
+    const cleanups = context.run.calls.filter((call) =>
+      call.args.join(" ").includes("/usr/bin/find"),
+    );
+    expect(cleanups.map((call) => call.args[call.args.indexOf("--mount") + 1])).toEqual([
+      `type=bind,source=${plan.paths.container}/data,target=/cleanup`,
+      `type=bind,source=${plan.paths.container}/data,target=/cleanup`,
+      `type=bind,source=${plan.paths.container}/workspace,target=/cleanup`,
+    ]);
+    expect(existsSync(plan.paths.container)).toBe(false);
     expect(existsSync(plan.paths.projectsFolder)).toBe(true);
   });
 });

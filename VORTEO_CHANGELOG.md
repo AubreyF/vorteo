@@ -8,6 +8,103 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ### Fixed
 
+- Allow Linux uninstall to remove empty Dev-owned private directories after clearing their disposable contents
+
+## Unreleased - 2026-10-31
+
+### Fixed
+
+- Prevent Dev from reaching Host services through its internal Docker bridge address
+
+## 26.10.3102 - 2026-10-31
+
+### Maintenance
+
+- Prepare the installation release with private-home Dev client provisioning fixed
+
+## Unreleased - 2026-10-31
+
+### Fixed
+
+- Write the Dev installation client as the home owner so private Linux homes work with restricted container permissions
+
+## 26.10.3101 - 2026-10-31
+
+### Fixed
+
+- Preserve legacy Dev selection in the recovery command when its deployment overlaps the new installation folder
+
+### Maintenance
+
+- Prepare the installation release with Host-only Docker detection disabled
+
+## Unreleased - 2026-10-31
+
+### Fixed
+
+- Skip Docker discovery and prerequisite probes when a Host-only install is requested
+
+## 26.10.3100 - 2026-10-31
+
+### Maintenance
+
+- Prepare the first tested one-command installation release for macOS and Linux
+
+## Unreleased - 2026-10-31
+
+### Fixed
+
+- Remove container-owned private data during Linux uninstall while retaining recovery state if cleanup fails
+
+### Maintenance
+
+- Check installation status through the installed command and track only Vorteo services during uninstall acceptance
+- Let the gate isolation control server answer while its probe runs
+
+## Unreleased - 2026-10-31
+
+### Fixed
+
+- Give Host installation builds a 4 GiB JavaScript heap default to prevent server compilation failures on smaller macOS machines
+
+## Unreleased - 2026-10-31
+
+### Fixed
+
+- Refuse to initialize an inaccessible populated container home instead of changing its ownership
+
+## Unreleased - 2026-10-31
+
+### Fixed
+
+- Initialize private Linux container homes as their owner without expanding container capabilities
+
+### Maintenance
+
+- Verify that legacy upgrades preserve the original home and workspace mounts and existing user files
+
+## Unreleased - 2026-10-31
+
+### Maintenance
+
+- Resolve the diagnostic directory from the workflow workspace before a runner is assigned
+
+## Unreleased - 2026-10-31
+
+### Maintenance
+
+- Store installation diagnostics in the runner temporary directory accepted by artifact uploads
+
+## Unreleased - 2026-10-31
+
+### Maintenance
+
+- Capture Host build and container logs when clean-machine installation tests fail
+
+## Unreleased - 2026-10-31
+
+### Fixed
+
 - Recognize verified organization owners when delivering their own pull requests after a repository transfer. Repository administration alone remains insufficient; checks on the exact commit and blocking reviews still apply.
 
 ## Unreleased - 2026-10-31

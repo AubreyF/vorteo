@@ -24,11 +24,29 @@ esac
 if ! /usr/bin/setpriv --reuid=paseo --regid=paseo --clear-groups \
   --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
   /usr/bin/test -d /home/paseo/.paseo; then
-  install -d -o paseo -g paseo -m 0700 /home/paseo/.paseo
+  home_entry="$(/usr/bin/setpriv \
+    --reuid="$(stat -c %u /home/paseo)" --regid="$(stat -c %g /home/paseo)" --clear-groups \
+    --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
+    find /home/paseo -mindepth 1 -maxdepth 1 -print -quit)"
+  if [[ -n "$home_entry" ]]; then
+    echo 'The existing container home is not accessible to paseo; restore its ownership before starting.' >&2
+    exit 1
+  fi
+  # Root has CHOWN but no DAC_OVERRIDE. Linux bind mounts retain the Host's
+  # private mode, so create children as their owner after assigning the root.
   chown paseo:paseo /home/paseo
+  /usr/bin/setpriv --reuid=paseo --regid=paseo --clear-groups \
+    --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
+    /usr/bin/install -d -m 0700 /home/paseo/.paseo
 fi
 # A new instance owns an empty workspace. Never change an existing project's ownership.
-if [[ -d /workspace && -z "$(find /workspace -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
-  chown paseo:paseo /workspace
+if [[ -d /workspace ]]; then
+  # Inspect as the current owner: root cannot read a private Host-owned mount.
+  # A failed inspection must not be mistaken for an empty workspace.
+  workspace_entry="$(/usr/bin/setpriv \
+    --reuid="$(stat -c %u /workspace)" --regid="$(stat -c %g /workspace)" --clear-groups \
+    --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
+    find /workspace -mindepth 1 -maxdepth 1 -print -quit)"
+  if [[ -z "$workspace_entry" ]]; then chown paseo:paseo /workspace; fi
 fi
 exec /usr/bin/supervisord -n -c /etc/personal-tailscale/supervisord.conf

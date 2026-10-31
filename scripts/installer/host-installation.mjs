@@ -40,8 +40,13 @@ export async function buildRelease({
     [["run", "build:server"], "server-build.log"],
     [["run", "build:app-deps"], "app-deps.log"],
   ];
+  // The server compiler exceeds Node's 2 GiB default on smaller macOS machines.
+  // Keep an explicit owner setting last so it can override this build-only default.
+  const buildEnvironment = {
+    NODE_OPTIONS: ["--max-old-space-size=4096", process.env.NODE_OPTIONS].filter(Boolean).join(" "),
+  };
   for (const [args, log] of steps)
-    await build("npm", args, release, path.join(logDir, log), {}, runCommand);
+    await build("npm", args, release, path.join(logDir, log), buildEnvironment, runCommand);
   await build(
     "npm",
     ["run", "build:daemon-web-ui"],
@@ -209,9 +214,27 @@ export async function installGuestClient({
     [path.join(release, AGENT_SCRIPT), `${guestDir}/installation-agent.mjs`],
     ...guestSkillDirs.map((directory) => [guestSkill, `${directory}/SKILL.md`]),
   ]) {
-    await runCommand(docker, ["cp", from, `${containerName}:${to}`]);
-    await exec("0", "chown", containerUser, to);
-    await exec(containerUser, "chmod", "600", to);
+    // Write as the home owner: restricted container root cannot traverse a private
+    // Linux home. Stdin keeps credentials out of process arguments; atomic rename
+    // also replaces a root-owned file left by an interrupted older installer.
+    await runCommand(
+      docker,
+      [
+        "exec",
+        "-i",
+        "--user",
+        containerUser,
+        containerName,
+        "node",
+        "-e",
+        "const fs=require('fs'); const target=process.argv[1]; " +
+          "const temporary=target+'.'+require('crypto').randomUUID(); " +
+          "try { fs.writeFileSync(temporary,fs.readFileSync(0),{mode:0o600,flag:'wx'}); " +
+          "fs.renameSync(temporary,target); } finally { fs.rmSync(temporary,{force:true}); }",
+        to,
+      ],
+      { input: readFileSync(from) },
+    );
   }
 }
 

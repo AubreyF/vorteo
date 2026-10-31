@@ -1686,3 +1686,57 @@ test("repair-projects-folder-worktree-links rewrites old Dev links once, with ba
     rmSync(base, { recursive: true, force: true });
   }
 });
+
+test("guest client writes private files as Dev without exposing its token in arguments", async () => {
+  const { installGuestClient } = await import("./installer/host-installation.mjs");
+  const { run } = await import("./installer/primitives.mjs");
+  const root = mkdtempSync(path.join(os.tmpdir(), "guest-client-"));
+  const home = path.join(root, "home");
+  mkdirSync(home, { mode: 0o700 });
+  const token = "synthetic-container-token";
+  const runCommand = async (_command, args, options) => {
+    expect(args.join("\0")).not.toContain(token);
+    expect(args[args.indexOf("--user") + 1]).toBe("paseo");
+    const command = args.slice(args.indexOf("test-container") + 1);
+    if (command[0] === "node" && command[1] === "-p") return home;
+    return run(command[0], command.slice(1), options);
+  };
+  const install = () =>
+    installGuestClient({
+      docker: "docker",
+      containerName: "test-container",
+      containerUser: "paseo",
+      origin: "http://localhost:6770",
+      token,
+      root,
+      release: path.resolve(import.meta.dirname, ".."),
+      runCommand,
+    });
+  try {
+    await install();
+    const config = path.join(home, ".local/share/vorteo-installation-client/client.json");
+    expect(JSON.parse(readFileSync(config, "utf8")).token).toBe(token);
+    expect(statSync(config).mode & 0o777).toBe(0o600);
+    const protectedFile = path.join(root, "protected");
+    writeFileSync(protectedFile, "keep");
+    rmSync(config);
+    symlinkSync(protectedFile, config);
+    await install();
+    expect(readFileSync(protectedFile, "utf8")).toBe("keep");
+    expect(JSON.parse(readFileSync(config, "utf8")).token).toBe(token);
+    expect(statSync(config).mode & 0o777).toBe(0o600);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("installer command rejects a closed stdin instead of reporting unwritten input as success", async () => {
+  const { run } = await import("./installer/primitives.mjs");
+  await expect(
+    run(
+      process.execPath,
+      ["-e", "require('fs').closeSync(0); setTimeout(() => console.log('finished'), 500)"],
+      { input: Buffer.alloc(1024 * 1024) },
+    ),
+  ).rejects.toThrow();
+});

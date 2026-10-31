@@ -1,5 +1,27 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-31): Linux cleanup makes each emptied disposable mount root traversable before the Host removes it. This fixes removal of a Dev-owned directory with mode 0700 after its contents were already deleted. Adopted deployments, Projects and keep-data remain excluded from cleanup.
+
+Maintenance review (2026-10-31): the Dev internal network disables the bridge's IPv4 address, closing direct access to Host services bound on that address. A real Docker 24 control reproduced the old bypass and verified refusal with the option enabled; Dev-to-gate peer traffic and the gate's published loopback port remain reachable. Full release acceptance remains pending.
+
+Maintenance review (2026-10-31): candidate 26.10.3102 includes Dev client provisioning for private Linux homes. A restricted Linux container verified fresh installation and retry over an old root-owned client file. Exact-commit acceptance remains pending.
+
+Maintenance review (2026-10-31): Dev client provisioning writes private files atomically as the Dev account, passing credentials through stdin rather than process arguments. This avoids a root traversal failure in private Linux homes and permits retrying after the older root-owned copy. Container capabilities remain unchanged.
+
+Maintenance review (2026-10-31): release candidate 26.10.3101 includes the Host-only detection fix and explicit legacy selection in the overlapping-folder recovery command. The regression case verifies that retrying with the suggested root and deployment hint adopts the original Dev. Exact-commit installation acceptance remains pending.
+
+Maintenance review (2026-10-31): an explicit Host-only installation skips Docker discovery and prerequisite probes as well as container creation. Existing detection and shell acceptance cases cover the flag. README onboarding is unchanged.
+
+Maintenance review (2026-10-31): release candidate 26.10.3100 includes clean-machine build, Linux initialization and uninstall fixes, plus legacy data-preservation acceptance. Publication remains pending exact-commit installation tests.
+
+Maintenance review (2026-10-31): Linux uninstall removes container-owned disposable data through a restricted cleanup container before deleting its recovery journal; adopted data and keep-data behavior are unchanged. Installation acceptance uses the installed public command for status and excludes unrelated system services from registration and uninstall checks. The gate control probe runs asynchronously so its local server can answer. Product behavior and README onboarding are unchanged.
+
+Maintenance review (2026-10-31): Host installer build subprocesses default to a 4 GiB JavaScript heap; explicit owner heap settings take precedence. This addresses the server compiler exhausting the roughly 2 GiB default on macOS CI. Runtime memory settings and README onboarding are unchanged.
+
+Maintenance review (2026-10-31): fresh Linux container homes initialize under the container account after assigning the private bind mount to that account. The existing capability restrictions remain in place; inaccessible populated homes are refused without changing ownership. Legacy installation acceptance checks exact home and workspace mounts and preserved synthetic files. README onboarding is unchanged.
+
+Maintenance review (2026-10-31): installation CI prints Host build logs and container logs on failure and retains the diagnostic files for seven days in the workflow workspace runtime directory. The generated owner password is redacted. Product behavior and README onboarding are unchanged.
+
 Maintenance review (2026-10-31): the guarded publisher verifies active organization ownership for same-repository pull requests authored by the current account. Repository administrators and ordinary organization members gain no approval authority. Focused tests cover ownership, access failures and blocking reviews. The correction preserves date-based release versions. Runtime and README behavior are unchanged.
 
 Maintenance review (2026-10-31): the blocked-work review prompt requires reconciliation of every unfinished checklist item and continuation of independent authorized work. One unresolved blocker no longer instructs the agent to end its turn. Worker creation, owner pauses, budgets and admission holds remain restricted. Source change awaits installation; README overview and onboarding are unchanged.

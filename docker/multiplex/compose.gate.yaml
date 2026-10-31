@@ -86,6 +86,10 @@ services:
 networks:
   environment:
     internal: true
+    # An internal bridge otherwise still exposes Host services through its own
+    # gateway address. Dev reaches only peers here; the gate has separate egress.
+    driver_opts:
+      com.docker.network.bridge.inhibit_ipv4: "true"
     ipam:
       config:
         - subnet: ${PASEO_GATE_SUBNET:-172.31.250.0/24}
