@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-31): the guarded publisher verifies active organization ownership for same-repository pull requests authored by the current account. Repository administrators and ordinary organization members gain no approval authority. Focused tests cover ownership, access failures and blocking reviews. The correction preserves date-based release versions. Runtime and README behavior are unchanged.
+
 Maintenance review (2026-10-31): the blocked-work review prompt requires reconciliation of every unfinished checklist item and continuation of independent authorized work. One unresolved blocker no longer instructs the agent to end its turn. Worker creation, owner pauses, budgets and admission holds remain restricted. Source change awaits installation; README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-30): the Vorteo :: Optimizer workspace gets one daemon-created Optimizer agent with a shipped charter and a daily review heartbeat once a provider is usable, recorded in `system/state.json` so it is never duplicated or recreated. Verified against isolated local daemons with the dev mock provider only. README unchanged.

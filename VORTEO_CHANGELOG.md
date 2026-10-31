@@ -8,6 +8,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ### Fixed
 
+- Recognize verified organization owners when delivering their own pull requests after a repository transfer. Repository administration alone remains insufficient; checks on the exact commit and blocking reviews still apply.
+
+## Unreleased - 2026-10-31
+
+### Fixed
+
 - Blocked-work reviews tell agents to continue independent authorized work when one task remains blocked, while preserving owner pauses, budgets and admission holds.
 
 ## 26.10.3001 - 2026-10-30
