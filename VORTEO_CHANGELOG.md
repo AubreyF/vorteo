@@ -8,6 +8,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ### Fixed
 
+- Allow Linux uninstall to remove empty Dev-owned private directories after clearing their disposable contents
+
+## Unreleased - 2026-10-31
+
+### Fixed
+
 - Prevent Dev from reaching Host services through its internal Docker bridge address
 
 ## 26.10.3102 - 2026-10-31

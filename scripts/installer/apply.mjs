@@ -351,14 +351,14 @@ export async function uninstall(context, { keepData }, emit) {
             "--user",
             "0:0",
             "--entrypoint",
-            "/usr/bin/find",
+            "/bin/sh",
             "--mount",
             `type=bind,source=${directory},target=/cleanup`,
             state.outputs.devImage,
-            "/cleanup",
-            "-mindepth",
-            "1",
-            "-delete",
+            "-c",
+            // The cleared mount root may still belong to Dev with mode 0700.
+            // Let the Host traverse that empty directory to remove it next.
+            "/usr/bin/find /cleanup -mindepth 1 -delete && /bin/chmod 0755 /cleanup",
           ]);
         }
       }

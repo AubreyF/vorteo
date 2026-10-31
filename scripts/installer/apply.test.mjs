@@ -431,7 +431,7 @@ describe("lifecycle", () => {
       platform: "linux",
       extraRules: [
         [
-          (command, args) => command === "docker" && args.includes("/usr/bin/find"),
+          (command, args) => command === "docker" && args.join(" ").includes("/usr/bin/find"),
           () => {
             if (refuseCleanup) throw new Error("cleanup unavailable");
             return "";
@@ -448,7 +448,9 @@ describe("lifecycle", () => {
     expect(existsSync(plan.paths.ownerPassword)).toBe(true);
     refuseCleanup = false;
     expect(await uninstall(context, { keepData: false }, () => {})).toBe(true);
-    const cleanups = context.run.calls.filter((call) => call.args.includes("/usr/bin/find"));
+    const cleanups = context.run.calls.filter((call) =>
+      call.args.join(" ").includes("/usr/bin/find"),
+    );
     expect(cleanups.map((call) => call.args[call.args.indexOf("--mount") + 1])).toEqual([
       `type=bind,source=${plan.paths.container}/data,target=/cleanup`,
       `type=bind,source=${plan.paths.container}/data,target=/cleanup`,
