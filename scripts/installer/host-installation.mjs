@@ -40,8 +40,13 @@ export async function buildRelease({
     [["run", "build:server"], "server-build.log"],
     [["run", "build:app-deps"], "app-deps.log"],
   ];
+  // The server compiler exceeds Node's 2 GiB default on smaller macOS machines.
+  // Keep an explicit owner setting last so it can override this build-only default.
+  const buildEnvironment = {
+    NODE_OPTIONS: ["--max-old-space-size=4096", process.env.NODE_OPTIONS].filter(Boolean).join(" "),
+  };
   for (const [args, log] of steps)
-    await build("npm", args, release, path.join(logDir, log), {}, runCommand);
+    await build("npm", args, release, path.join(logDir, log), buildEnvironment, runCommand);
   await build(
     "npm",
     ["run", "build:daemon-web-ui"],

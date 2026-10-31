@@ -8,6 +8,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ### Fixed
 
+- Give Host installation builds a 4 GiB JavaScript heap default to prevent server compilation failures on smaller macOS machines
+
+## Unreleased - 2026-10-31
+
+### Fixed
+
 - Refuse to initialize an inaccessible populated container home instead of changing its ownership
 
 ## Unreleased - 2026-10-31
