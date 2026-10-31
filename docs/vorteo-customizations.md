@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-31): an explicit Host-only installation skips Docker discovery and prerequisite probes as well as container creation. Existing detection and shell acceptance cases cover the flag. README onboarding is unchanged.
+
 Maintenance review (2026-10-31): release candidate 26.10.3100 includes clean-machine build, Linux initialization and uninstall fixes, plus legacy data-preservation acceptance. Publication remains pending exact-commit installation tests.
 
 Maintenance review (2026-10-31): Linux uninstall removes container-owned disposable data through a restricted cleanup container before deleting its recovery journal; adopted data and keep-data behavior are unchanged. Installation acceptance uses the installed public command for status and excludes unrelated system services from registration and uninstall checks. The gate control probe runs asynchronously so its local server can answer. Product behavior and README onboarding are unchanged.

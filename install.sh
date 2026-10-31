@@ -1252,7 +1252,9 @@ vorteo_install() {
   }
   # detect [soft]: reads the engine's report. With soft, a failure returns 1 instead.
   detect() {
-    if ! run_engine detect --json >"$work/detect.json" 2>"$work/detect.log"; then
+    local docker_flag=""
+    if [ "$(get_answer dev-container)" = no ]; then docker_flag=--no-docker; fi
+    if ! run_engine detect --json ${docker_flag:+"$docker_flag"} >"$work/detect.json" 2>"$work/detect.log"; then
       if [ "${1-}" = soft ]; then return 1; fi
       fail "The installer engine could not inspect this machine: $(tail -n 3 "$work/detect.log")" \
         "Rerun the installer. If it fails again, report the message above."

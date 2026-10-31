@@ -38,8 +38,8 @@ const exit = (ok) => (ok ? 0 : 1);
 
 /** Each command returns its exit status. */
 const COMMANDS = {
-  async detect({ context, pretty }) {
-    pretty(await detect(context));
+  async detect({ context, pretty, values }) {
+    pretty(await detect(context, { docker: !values["no-docker"] }));
     return 0;
   },
   async plan({ context, values, write, pretty }) {
@@ -90,6 +90,7 @@ export async function main(
       answers: { type: "string" },
       plan: { type: "string" },
       "keep-data": { type: "boolean" },
+      "no-docker": { type: "boolean" },
       revision: { type: "string" },
       outcome: { type: "string" },
       adopt: { type: "boolean" },

@@ -163,6 +163,9 @@ describe("prerequisites", () => {
     expect(status).toBe(0);
     const result = JSON.parse(output);
     expect(result).toEqual(await detect(context));
+    context.run.calls.length = 0;
+    expect(await main(["detect", "--json", "--no-docker"], { context, write: () => {} })).toBe(0);
+    expect(context.run.calls.filter((call) => call.command === "docker")).toEqual([]);
     expect(result).toMatchObject({
       platform: "darwin",
       existing: { kind: "none" },
