@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## Unreleased - 2026-10-31
+
+### Fixed
+
+- Blocked-work reviews tell agents to continue independent authorized work when one task remains blocked, while preserving owner pauses, budgets and admission holds.
+
 ## 26.10.3001 - 2026-10-30
 
 ### Added
