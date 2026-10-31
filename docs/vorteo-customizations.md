@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-31): release candidate 26.10.3101 includes the Host-only detection fix and explicit legacy selection in the overlapping-folder recovery command. The regression case verifies that retrying with the suggested root and deployment hint adopts the original Dev. Exact-commit installation acceptance remains pending.
+
 Maintenance review (2026-10-31): an explicit Host-only installation skips Docker discovery and prerequisite probes as well as container creation. Existing detection and shell acceptance cases cover the flag. README onboarding is unchanged.
 
 Maintenance review (2026-10-31): release candidate 26.10.3100 includes clean-machine build, Linux initialization and uninstall fixes, plus legacy data-preservation acceptance. Publication remains pending exact-commit installation tests.

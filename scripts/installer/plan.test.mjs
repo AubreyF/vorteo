@@ -312,7 +312,18 @@ test("a deployment inside the installation folder cannot be adopted in place", a
   writeFileSync(path.join(context.root, ".env"), "PASEO_INSTANCE=paseo-x\nPASEO_PASSWORD=x\n");
   const error = await createPlan(answers(), context).catch((caught) => caught);
   expect(error.message).toContain("overlaps the installation folder");
-  expect(error.fix).toContain("--root");
+  expect(error.fix).toContain(`| VORTEO_LEGACY_DEPLOYMENT='${context.root}' bash -s -- --root`);
+  const alternateRoot = path.join(context.home, "vorteo-installation");
+  expect(error.fix).toContain(`--root '${alternateRoot}'`);
+  const { plan } = await createPlan(answers(), {
+    ...context,
+    root: alternateRoot,
+    env: { ...context.env, VORTEO_LEGACY_DEPLOYMENT: context.root },
+  });
+  expect(plan.kind).toBe("adopt");
+  expect(plan.paths.container).toBe(context.root);
+  expect(plan.steps).toContain("dev-adopt");
+  expect(plan.steps).not.toContain("dev-create");
 });
 
 // The coordinator reads what the engine writes; parse every shape with its real reader.
