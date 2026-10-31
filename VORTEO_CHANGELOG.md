@@ -8,6 +8,17 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ### Fixed
 
+- Remove container-owned private data during Linux uninstall while retaining recovery state if cleanup fails
+
+### Maintenance
+
+- Check installation status through the installed command and track only Vorteo services during uninstall acceptance
+- Let the gate isolation control server answer while its probe runs
+
+## Unreleased - 2026-10-31
+
+### Fixed
+
 - Give Host installation builds a 4 GiB JavaScript heap default to prevent server compilation failures on smaller macOS machines
 
 ## Unreleased - 2026-10-31

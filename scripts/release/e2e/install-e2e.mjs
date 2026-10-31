@@ -13,13 +13,15 @@
 //
 // Secrets: the owner password is read from its file, masked in GitHub logs and
 // never printed. Diagnostics print status and service state, not credentials.
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
+import { promisify } from "node:util";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { isMainModule } from "../../is-main-module.mjs";
 
+const execute = promisify(execFile);
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const stateDir = process.env.VORTEO_E2E_STATE ?? path.join(os.tmpdir(), "vorteo-e2e");
 
@@ -28,7 +30,6 @@ const stateDir = process.env.VORTEO_E2E_STATE ?? path.join(os.tmpdir(), "vorteo-
 export const CONTRACT = {
   home: path.join(os.homedir(), "vorteo"),
   passwordFile: path.join(os.homedir(), "vorteo", "host", "owner-password"),
-  installedCli: path.join(os.homedir(), "vorteo", "source", "scripts", "installer", "main.mjs"),
   vorteoCommand: path.join(os.homedir(), ".local", "bin", "vorteo"),
   projectsFolder: path.join(os.homedir(), "dev"),
   // `--yes` takes every default: Dev container on, name Vorteo, Projects ~/dev.
@@ -114,13 +115,13 @@ function serviceNames() {
       .slice(1)
       .map((line) => line.split("\t")[2])
       .filter(Boolean);
-    return [...new Set(labels)];
+    return [...new Set(labels)].filter((name) => name.startsWith("local.vorteo."));
   }
   if (process.env.VORTEO_E2E_SERVICE_FALLBACK === "1") return [];
   return run("systemctl", ["--user", "list-units", "--all", "--plain", "--no-legend"])
     .stdout.split("\n")
     .map((line) => line.trim().split(/\s+/)[0])
-    .filter(Boolean);
+    .filter((name) => name.startsWith("local.vorteo."));
 }
 
 // Install -------------------------------------------------------------------
@@ -159,8 +160,8 @@ function install(scenario) {
 // Status --------------------------------------------------------------------
 
 function readStatus() {
-  if (!existsSync(CONTRACT.installedCli)) fail(`${CONTRACT.installedCli} is missing.`);
-  const result = run(process.execPath, [CONTRACT.installedCli, "status", "--json"], {
+  if (!existsSync(CONTRACT.vorteoCommand)) fail(`${CONTRACT.vorteoCommand} is missing.`);
+  const result = run(CONTRACT.vorteoCommand, ["status", "--json"], {
     check: false,
   });
   if (result.status !== 0) return { error: result.stderr.trim() || `exit ${result.status}` };
@@ -349,10 +350,12 @@ function listenOnHost() {
   });
 }
 
-function assertControl(image, gateway, port) {
+async function assertControl(image, gateway, port) {
   // Proves the gateway listener is reachable from an ordinary container, so a
   // failure from Dev means isolation rather than a dead listener.
-  const control = docker(
+  // Keep this event loop free to serve the control container's HTTP request.
+  const control = await execute(
+    "docker",
     [
       "run",
       "--rm",
@@ -366,7 +369,7 @@ function assertControl(image, gateway, port) {
       "10",
       `http://${gateway}:${port}/`,
     ],
-    { check: false },
+    { encoding: "utf8" },
   );
   if (control.stdout.trim() !== "host") {
     fail(
@@ -470,7 +473,7 @@ async function assertGate() {
   try {
     const { port } = server.address();
     const { bridge, all } = gateways(container);
-    assertControl(image, bridge, port);
+    await assertControl(image, bridge, port);
     assertDirectRefused(container, [
       ...all.map((gateway) => [gateway, port]),
       ["10.0.0.1", 443],
@@ -539,7 +542,7 @@ async function uninstall() {
 }
 
 function diagnose() {
-  const status = existsSync(CONTRACT.installedCli) ? readStatus() : { error: "not installed" };
+  const status = existsSync(CONTRACT.vorteoCommand) ? readStatus() : { error: "not installed" };
   console.log(JSON.stringify(status, null, 2));
   const diagnostics = path.join(stateDir, "diagnostics");
   mkdirSync(diagnostics, { recursive: true });

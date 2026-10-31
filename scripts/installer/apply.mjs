@@ -327,6 +327,46 @@ export async function uninstall(context, { keepData }, emit) {
     emit({ step: "data", status: "skip", message: `Kept every file in ${plan.paths.root}.` });
     return true;
   }
+  if (plan.kind === "new" && plan.devContainer) {
+    const cleaned = await step("data", async () => {
+      // Linux keeps the container UID and private modes on bind-mounted data.
+      // A trusted one-shot cleanup mounts only disposable data, never Projects
+      // or Host state. Keep the journal until this succeeds so removal can retry.
+      if (context.platform === "linux") {
+        for (const name of ["data", "workspace"]) {
+          const directory = path.join(plan.paths.container, name);
+          if (!existsSync(directory)) continue;
+          await context.run(plan.executables.docker, [
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "--read-only",
+            "--cap-drop",
+            "ALL",
+            "--cap-add",
+            "DAC_OVERRIDE",
+            "--cap-add",
+            "FOWNER",
+            "--user",
+            "0:0",
+            "--entrypoint",
+            "/usr/bin/find",
+            "--mount",
+            `type=bind,source=${directory},target=/cleanup`,
+            state.outputs.devImage,
+            "/cleanup",
+            "-mindepth",
+            "1",
+            "-delete",
+          ]);
+        }
+      }
+      rmSync(plan.paths.container, { recursive: true, force: true });
+      return "Deleted this installation's disposable Dev data.";
+    });
+    if (!cleaned) return false;
+  }
   const removed = [
     plan.paths.host,
     plan.paths.state,
