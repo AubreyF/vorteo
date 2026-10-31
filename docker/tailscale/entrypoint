@@ -24,6 +24,14 @@ esac
 if ! /usr/bin/setpriv --reuid=paseo --regid=paseo --clear-groups \
   --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
   /usr/bin/test -d /home/paseo/.paseo; then
+  home_entry="$(/usr/bin/setpriv \
+    --reuid="$(stat -c %u /home/paseo)" --regid="$(stat -c %g /home/paseo)" --clear-groups \
+    --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
+    find /home/paseo -mindepth 1 -maxdepth 1 -print -quit)"
+  if [[ -n "$home_entry" ]]; then
+    echo 'The existing container home is not accessible to paseo; restore its ownership before starting.' >&2
+    exit 1
+  fi
   # Root has CHOWN but no DAC_OVERRIDE. Linux bind mounts retain the Host's
   # private mode, so create children as their owner after assigning the root.
   chown paseo:paseo /home/paseo

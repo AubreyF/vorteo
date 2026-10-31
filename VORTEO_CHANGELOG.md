@@ -8,6 +8,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ### Fixed
 
+- Refuse to initialize an inaccessible populated container home instead of changing its ownership
+
+## Unreleased - 2026-10-31
+
+### Fixed
+
 - Initialize private Linux container homes as their owner without expanding container capabilities
 
 ### Maintenance
