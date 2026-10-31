@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/protocol",
-  "version": "26.10.3000",
+  "version": "26.10.3001",
   "description": "Vorteo shared protocol schemas and wire types",
   "files": [
     "dist",

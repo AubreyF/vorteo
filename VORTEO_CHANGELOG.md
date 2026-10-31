@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 26.10.3001 - 2026-10-30
+
+### Added
+
+- First Vorteo release. Install on macOS or Linux with `curl -fsSL https://github.com/terran-labs/vorteo/releases/latest/download/install.sh | bash`; older installations, including container-only ones, upgrade with the same command. Everything after that happens in the interface.
+
 ## Unreleased - 2026-10-30
 
 ### Maintenance

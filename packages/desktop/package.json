@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/desktop",
-  "version": "26.10.3000",
+  "version": "26.10.3001",
   "private": true,
   "description": "Vorteo desktop app (Electron wrapper)",
   "homepage": "https://paseo.sh",
