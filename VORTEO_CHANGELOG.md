@@ -8,6 +8,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ### Maintenance
 
+- Store installation diagnostics in the runner temporary directory accepted by artifact uploads
+
+## Unreleased - 2026-10-31
+
+### Maintenance
+
 - Capture Host build and container logs when clean-machine installation tests fail
 
 ## Unreleased - 2026-10-31
